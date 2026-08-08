@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 interface EmployerSignupScreenProps {
-  onSubmit: (formData: { businessName: string; contactPerson: string; email: string }) => void;
+  onSubmit: (formData: { businessName: string; contactPerson: string; email: string; password: string }) => Promise<void> | void;
   onBack: () => void;
   onLogin: () => void;
 }
@@ -15,14 +15,31 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
   const [businessName, setBusinessName] = useState('Nexora Beauty Group');
   const [contactPerson, setContactPerson] = useState('Sarah Jenkins');
   const [businessEmail, setBusinessEmail] = useState('hello@nexorabeauty.com');
-  const [password, setPassword] = useState('••••••••');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!agreeTerms) return;
-    onSubmit({ businessName, contactPerson, email: businessEmail });
+    setError(null);
+    if (!agreeTerms) {
+      setError('Please accept the Terms & Conditions and Privacy Policy.');
+      return;
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await onSubmit({ businessName, contactPerson, email: businessEmail, password });
+    } catch (signupError) {
+      setError(signupError instanceof Error ? signupError.message : 'Unable to create employer account.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -148,18 +165,24 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
               </label>
             </div>
 
+            {error && (
+              <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 border border-rose-200">
+                {error}
+              </p>
+            )}
+
             {/* CTA */}
             <button
               type="submit"
-              disabled={!agreeTerms}
+              disabled={!agreeTerms || isSubmitting}
               className={`w-full h-12 rounded-full font-bold text-sm tracking-wide transition-all duration-200 mt-2 flex items-center justify-center gap-2 shadow-md cursor-pointer ${
-                agreeTerms
+                agreeTerms && !isSubmitting
                   ? 'bg-[#e6007e] text-white hover:bg-[#b50062] active:scale-[0.98]'
                   : 'bg-[#e6e1e1] text-[#594047] opacity-60 cursor-not-allowed'
               }`}
             >
-              <span>Create Employer Account</span>
-              <ArrowRight className="w-4 h-4" />
+              <span>{isSubmitting ? 'Creating account…' : 'Create Employer Account'}</span>
+              {!isSubmitting && <ArrowRight className="w-4 h-4" />}
             </button>
           </form>
 

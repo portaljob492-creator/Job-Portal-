@@ -3,24 +3,32 @@ import { ArrowLeft, CheckCircle2, Mail, RefreshCw } from 'lucide-react';
 
 interface ForgotPasswordScreenProps {
   onBackToLogin: () => void;
+  onSendResetLink: (email: string) => Promise<void> | void;
   onNavigateToResetPassword?: () => void;
 }
 
 export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
   onBackToLogin,
+  onSendResetLink,
   onNavigateToResetPassword,
 }) => {
-  const [email, setEmail] = useState('jane@example.com');
+  const [email, setEmail] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setIsSending(true);
-    setTimeout(() => {
-      setIsSending(false);
+    try {
+      await onSendResetLink(email);
       setSubmitted(true);
-    }, 1000);
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : 'Unable to send the reset link.');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -120,6 +128,12 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                   />
                 </div>
               </div>
+
+              {error && (
+                <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 border border-rose-200">
+                  {error}
+                </p>
+              )}
 
               {/* CTA: Send Reset Link */}
               <div className="mt-1">
