@@ -155,7 +155,7 @@ The production build includes a complete installable PWA:
 - Offline status banner; protected writes are never queued or faked offline
 - Vercel cache headers for `sw.js`, the manifest, and versioned icons
 
-Build output must include `manifest.webmanifest`, `registerSW.js`, `sw.js`, and the Workbox runtime. Test installation from the production HTTPS URL rather than the Vite development server.
+Build output must include `manifest.webmanifest`, `sw.js`, and the Workbox runtime. The service worker is registered immediately from the app bundle so Chromium's one-shot install event is captured reliably. Test installation from the production HTTPS URL rather than the Vite development server.
 
 ## Vercel deployment
 
