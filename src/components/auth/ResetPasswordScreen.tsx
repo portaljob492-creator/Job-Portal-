@@ -3,11 +3,13 @@ import { ArrowLeft, CheckCircle2, Lock, Eye, EyeOff, RefreshCw, ShieldCheck, Ale
 
 interface ResetPasswordScreenProps {
   onBackToLogin: () => void;
+  onUpdatePassword: (password: string) => Promise<void> | void;
   onSuccessLogin: () => void;
 }
 
 export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
   onBackToLogin,
+  onUpdatePassword,
   onSuccessLogin,
 }) => {
   const [newPassword, setNewPassword] = useState('');
@@ -34,7 +36,7 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
 
   const strength = getPasswordStrength(newPassword);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -49,11 +51,14 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
     }
 
     setIsSubmitting(true);
-
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      await onUpdatePassword(newPassword);
       setIsSuccess(true);
-    }, 1100);
+    } catch (updateError) {
+      setErrorMsg(updateError instanceof Error ? updateError.message : 'Unable to update the password.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

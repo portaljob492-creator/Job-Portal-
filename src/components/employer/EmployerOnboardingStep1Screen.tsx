@@ -1,14 +1,28 @@
 import React, { useState } from 'react';
 import { ArrowLeft, ImagePlus, ChevronDown, MapPin, Globe } from 'lucide-react';
 
+export interface EmployerBusinessSetupData {
+  businessName: string;
+  contactName: string;
+  address: string;
+  city: string;
+  state: string;
+  postalCode?: string;
+  businessType?: string;
+  website?: string;
+  instagram?: string;
+}
+
 interface EmployerOnboardingStep1ScreenProps {
   onBack: () => void;
-  onContinue: () => void;
+  onContinue: (data: EmployerBusinessSetupData) => Promise<void> | void;
+  contactName?: string;
 }
 
 export const EmployerOnboardingStep1Screen: React.FC<EmployerOnboardingStep1ScreenProps> = ({
   onBack,
   onContinue,
+  contactName = '',
 }) => {
   const [businessName, setBusinessName] = useState('');
   const [businessType, setBusinessType] = useState('');
@@ -213,9 +227,20 @@ export const EmployerOnboardingStep1Screen: React.FC<EmployerOnboardingStep1Scre
 
       {/* Sticky Bottom CTA */}
       <div className="fixed bottom-0 left-0 w-full bg-[#fdf8f8]/90 backdrop-blur-md border-t border-[#e0bec6] p-5 pb-safe z-40 md:bg-transparent md:border-transparent md:backdrop-blur-none md:static md:mt-8 md:p-0 md:max-w-2xl md:mx-auto">
-        <button 
-          onClick={onContinue}
-          className="w-full bg-[#e6007e] hover:bg-[#e2007c] text-white text-base md:text-xl font-semibold py-4 rounded-full shadow-lg hover:shadow-xl transition-all active:scale-[0.98] flex justify-center items-center h-14 cursor-pointer"
+        <button
+          onClick={() => onContinue({
+            businessName,
+            contactName,
+            address,
+            city,
+            state,
+            postalCode: zip,
+            businessType,
+            website,
+            instagram,
+          })}
+          disabled={!businessName.trim() || !address.trim() || !city.trim() || !state.trim()}
+          className="w-full bg-[#e6007e] disabled:bg-[#e6e1e1] disabled:text-[#8c7077] disabled:cursor-not-allowed hover:bg-[#e2007c] text-white text-base md:text-xl font-semibold py-4 rounded-full shadow-lg hover:shadow-xl transition-all active:scale-[0.98] flex justify-center items-center h-14 cursor-pointer"
         >
           Continue
         </button>
