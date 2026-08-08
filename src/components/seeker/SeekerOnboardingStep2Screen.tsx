@@ -55,12 +55,7 @@ export const SeekerOnboardingStep2Screen: React.FC<SeekerOnboardingStep2ScreenPr
           <ArrowLeft className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2">
-          <h1 className="font-extrabold text-xl text-[#8e004b] tracking-tight">Nexora Jobs</h1>
-          <span className="text-[10px] font-extrabold uppercase tracking-wider bg-[#ffd9e2] text-[#8e004b] px-2 py-0.5 rounded-full">
-            Route: /app/jobs/onboarding/seeker/step-2
-          </span>
-        </div>
+        <h1 className="font-extrabold text-xl text-[#8e004b] tracking-tight">Nexora Jobs</h1>
 
         <div className="w-10" />
       </header>

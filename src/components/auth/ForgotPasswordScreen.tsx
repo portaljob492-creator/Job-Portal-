@@ -49,12 +49,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-2">
-          <h1 className="font-bold text-xl text-[#8e004b] tracking-tight">Nexora Jobs</h1>
-          <span className="text-[10px] font-extrabold uppercase tracking-wider bg-[#ffd9e2] text-[#8e004b] px-2 py-0.5 rounded-full">
-            Route: /app/jobs/forgot-password
-          </span>
-        </div>
+        <h1 className="font-bold text-xl text-[#8e004b] tracking-tight">Nexora Jobs</h1>
         <div className="w-10" />
       </header>
 
