@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:backend": "node scripts/test-supabase-backend.mjs"
+    "test:backend": "node scripts/test-supabase-backend.mjs",
+    "test:recovery": "node scripts/test-password-recovery.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

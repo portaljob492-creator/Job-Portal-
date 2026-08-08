@@ -54,6 +54,7 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isBackendLoading, setIsBackendLoading] = useState(isSupabaseConfigured);
   const [backendError, setBackendError] = useState<string | null>(null);
+  const [passwordRecoveryState, setPasswordRecoveryState] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
 
   // Application Data States
   const [jobs, setJobs] = useState<JobPosting[]>(INITIAL_JOBS);
@@ -120,9 +121,20 @@ export default function App() {
         if (error) throw error;
         if (!active) return;
 
-        const isRecovery = new URLSearchParams(window.location.search).get('recovery') === '1';
+        const queryParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const isRecovery = queryParams.get('recovery') === '1';
+        const recoveryError = queryParams.get('error_description') || hashParams.get('error_description');
         if (isRecovery) {
           setScreen('reset_password');
+          if (recoveryError) {
+            setPasswordRecoveryState('invalid');
+            setBackendError(decodeURIComponent(recoveryError.replace(/\+/g, ' ')));
+          } else if (data.session?.user) {
+            setPasswordRecoveryState('valid');
+          } else {
+            setPasswordRecoveryState('invalid');
+          }
         } else if (data.session?.user) {
           await applyPendingOAuthRole(data.session.user.id);
           window.localStorage.removeItem('nexora_pending_email_verification');
@@ -145,7 +157,10 @@ export default function App() {
 
     void bootstrap();
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') setScreen('reset_password');
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecoveryState('valid');
+        setScreen('reset_password');
+      }
       if (event === 'SIGNED_IN' && session?.user && window.localStorage.getItem('nexora_pending_email_verification')) {
         window.localStorage.removeItem('nexora_pending_email_verification');
         void enterAuthenticatedPortal(session.user.id).catch((error) => {
@@ -154,6 +169,7 @@ export default function App() {
       }
       if (event === 'SIGNED_OUT') {
         setCurrentUserId(null);
+        setPasswordRecoveryState('idle');
         setScreen('welcome');
       }
     });
@@ -525,6 +541,24 @@ export default function App() {
     }
   };
 
+  const handleRecoveredPasswordUpdate = async (password: string) => {
+    if (passwordRecoveryState !== 'valid') {
+      throw new Error('This password reset link is invalid or expired. Request a new reset email.');
+    }
+    await authBackend.updatePassword(password);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  };
+
+  const exitPasswordRecovery = async (target: 'login' | 'forgot_password') => {
+    try {
+      await authBackend.signOut();
+    } finally {
+      setPasswordRecoveryState('idle');
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setScreen(target);
+    }
+  };
+
   const handleLogout = () => {
     if (currentUserId) {
       void authBackend.signOut().catch((error) =>
@@ -598,7 +632,10 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
           onSocialLogin={handleSocialLogin}
           onSignUp={() => setScreen('role_select')}
-          onForgotPassword={() => setScreen('forgot_password')}
+          onForgotPassword={() => {
+            setPasswordRecoveryState('idle');
+            setScreen('forgot_password');
+          }}
         />
       )}
 
@@ -624,9 +661,11 @@ export default function App() {
       {/* SCREEN 09: RESET PASSWORD */}
       {screen === 'reset_password' && (
         <ResetPasswordScreen
-          onBackToLogin={() => setScreen('login')}
-          onUpdatePassword={(password) => authBackend.updatePassword(password)}
-          onSuccessLogin={() => setScreen('login')}
+          recoveryState={passwordRecoveryState === 'idle' ? 'invalid' : passwordRecoveryState}
+          onBackToLogin={() => void exitPasswordRecovery('login')}
+          onRequestNewLink={() => void exitPasswordRecovery('forgot_password')}
+          onUpdatePassword={handleRecoveredPasswordUpdate}
+          onSuccessLogin={() => void exitPasswordRecovery('login')}
         />
       )}
 

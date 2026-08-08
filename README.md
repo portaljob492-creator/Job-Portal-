@@ -131,6 +131,16 @@ node scripts/test-supabase-backend.mjs
 
 The test creates temporary users and fixtures, validates the full seeker/employer workflow and RLS isolation, then removes its data. Never run it against production without explicit approval.
 
+Password recovery has a separate end-to-end test that verifies a recovery session, password update, old-password rejection, one-time token use, and role preservation:
+
+```bash
+ALLOW_JOB_BACKEND_TEST=1 \
+SUPABASE_URL=... \
+SUPABASE_PUBLISHABLE_KEY=... \
+SUPABASE_SERVICE_ROLE_KEY=... \
+npm run test:recovery
+```
+
 ## Vercel deployment
 
 1. In Vercel, choose **Add New → Project** and import `portaljob492-creator/Job-Portal-`.
@@ -150,5 +160,6 @@ VITE_SUPABASE_ANON_KEY=YOUR_STAGING_PUBLISHABLE_KEY
 2. Email confirmation uses Supabase's secure one-time confirmation link. The UI can resend a fresh link and warns users to open only the newest email.
 3. Six-digit email codes require a custom SMTP provider and a `{{ .Token }}` confirmation template; the default free-tier mailer exposes only the confirmation link.
 4. Enable Google or Apple buttons only after those providers and callback URLs are configured.
-5. Password recovery redirects to `/?recovery=1`.
-6. Mobile OTP remains disabled until a real SMS provider is configured.
+5. Password recovery redirects to `/?recovery=1`, validates the recovery session before showing the form, and rejects expired/reused links.
+6. Reset links expire after 60 minutes; Supabase and the UI require at least 8 characters with lowercase and uppercase letters plus a number.
+7. Mobile OTP remains disabled until a real SMS provider is configured.

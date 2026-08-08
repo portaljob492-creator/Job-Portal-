@@ -2,13 +2,17 @@ import React, { useState } from 'react';
 import { ArrowLeft, CheckCircle2, Lock, Eye, EyeOff, RefreshCw, ShieldCheck, AlertCircle } from 'lucide-react';
 
 interface ResetPasswordScreenProps {
+  recoveryState: 'checking' | 'valid' | 'invalid';
   onBackToLogin: () => void;
+  onRequestNewLink: () => void;
   onUpdatePassword: (password: string) => Promise<void> | void;
   onSuccessLogin: () => void;
 }
 
 export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
+  recoveryState,
   onBackToLogin,
+  onRequestNewLink,
   onUpdatePassword,
   onSuccessLogin,
 }) => {
@@ -26,8 +30,8 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
     if (!pwd) return { score: 0, label: '', color: '' };
     let score = 0;
     if (pwd.length >= 8) score++;
-    if (/[A-Z]/.test(pwd)) score++;
-    if (/[0-9]/.test(pwd) || /[^A-Za-z0-9]/.test(pwd)) score++;
+    if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
+    if (/[0-9]/.test(pwd)) score++;
 
     if (score === 1) return { score: 1, label: 'Weak', color: 'bg-rose-500 text-rose-700' };
     if (score === 2) return { score: 2, label: 'Medium', color: 'bg-amber-500 text-amber-700' };
@@ -42,6 +46,21 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
 
     if (newPassword.length < 8) {
       setErrorMsg('New password must be at least 8 characters long.');
+      return;
+    }
+
+    if (!/[a-z]/.test(newPassword)) {
+      setErrorMsg('New password must contain at least one lowercase letter.');
+      return;
+    }
+
+    if (!/[A-Z]/.test(newPassword)) {
+      setErrorMsg('New password must contain at least one uppercase letter.');
+      return;
+    }
+
+    if (!/[0-9]/.test(newPassword)) {
+      setErrorMsg('New password must contain at least one number.');
       return;
     }
 
@@ -93,12 +112,42 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
               Create New Password
             </h2>
             <p className="text-sm text-[#594047] leading-relaxed">
-              Your new password must be different from previously used passwords.
+              Choose at least 8 characters with lowercase and uppercase letters plus a number.
             </p>
           </div>
 
-          {/* Success State */}
-          {isSuccess ? (
+          {/* Recovery session states */}
+          {recoveryState === 'checking' ? (
+            <div className="flex flex-col items-center gap-4 py-8 text-center">
+              <RefreshCw className="w-9 h-9 animate-spin text-[#e2007c]" />
+              <div>
+                <h3 className="font-extrabold text-lg text-[#1c1b1b]">Validating reset link…</h3>
+                <p className="mt-1 text-xs text-[#594047]">Please wait while we securely verify your recovery session.</p>
+              </div>
+            </div>
+          ) : recoveryState === 'invalid' ? (
+            <div className="flex flex-col items-center gap-5 py-5 text-center">
+              <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center ring-4 ring-amber-50">
+                <AlertCircle className="w-9 h-9 text-amber-700" />
+              </div>
+              <div className="space-y-1.5">
+                <span className="inline-block px-3 py-0.5 rounded-full bg-amber-100 text-amber-900 text-xs font-extrabold uppercase tracking-wider">
+                  Invalid or expired link
+                </span>
+                <h3 className="font-extrabold text-xl text-[#1c1b1b]">Request a fresh reset email</h3>
+                <p className="text-xs text-[#594047] leading-relaxed max-w-xs mx-auto">
+                  Password reset links work once and expire after 60 minutes. Use only the newest email sent by Nexora Jobs.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onRequestNewLink}
+                className="w-full h-12 bg-[#e2007c] hover:bg-[#8e004b] text-white rounded-full text-sm font-extrabold transition-all shadow-md cursor-pointer"
+              >
+                Request New Reset Link
+              </button>
+            </div>
+          ) : isSuccess ? (
             <div className="flex flex-col items-center gap-5 py-4 text-center animate-fadeIn">
               <div className="w-16 h-16 rounded-full bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center shadow-xs ring-4 ring-[#ffd9e2]/50">
                 <CheckCircle2 className="w-10 h-10 text-[#e2007c]" />
@@ -142,6 +191,8 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                     id="newPassword"
                     type={showNewPassword ? 'text' : 'password'}
                     required
+                    minLength={8}
+                    autoComplete="new-password"
                     value={newPassword}
                     onChange={(e) => {
                       setNewPassword(e.target.value);
@@ -187,6 +238,8 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                     id="confirmPassword"
                     type={showConfirmPassword ? 'text' : 'password'}
                     required
+                    minLength={8}
+                    autoComplete="new-password"
                     value={confirmPassword}
                     onChange={(e) => {
                       setConfirmPassword(e.target.value);
@@ -245,11 +298,14 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                   <li className={newPassword.length >= 8 ? 'text-emerald-700 font-bold' : ''}>
                     At least 8 characters long
                   </li>
+                  <li className={/[a-z]/.test(newPassword) ? 'text-emerald-700 font-bold' : ''}>
+                    Contains at least 1 lowercase letter
+                  </li>
                   <li className={/[A-Z]/.test(newPassword) ? 'text-emerald-700 font-bold' : ''}>
                     Contains at least 1 uppercase letter
                   </li>
-                  <li className={(/[0-9]/.test(newPassword) || /[^A-Za-z0-9]/.test(newPassword)) ? 'text-emerald-700 font-bold' : ''}>
-                    Contains at least 1 number or special character
+                  <li className={/[0-9]/.test(newPassword) ? 'text-emerald-700 font-bold' : ''}>
+                    Contains at least 1 number
                   </li>
                 </ul>
               </div>

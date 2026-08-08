@@ -1,21 +1,26 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, CheckCircle2, Mail, RefreshCw } from 'lucide-react';
 
 interface ForgotPasswordScreenProps {
   onBackToLogin: () => void;
   onSendResetLink: (email: string) => Promise<void> | void;
-  onNavigateToResetPassword?: () => void;
 }
 
 export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
   onBackToLogin,
   onSendResetLink,
-  onNavigateToResetPassword,
 }) => {
   const [email, setEmail] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,6 +29,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
     try {
       await onSendResetLink(email);
       setSubmitted(true);
+      setCooldown(60);
     } catch (resetError) {
       setError(resetError instanceof Error ? resetError.message : 'Unable to send the reset link.');
     } finally {
@@ -76,20 +82,12 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                 </span>
                 <h3 className="font-extrabold text-xl text-[#1c1b1b]">Reset link sent</h3>
                 <p className="text-xs text-[#594047] leading-relaxed max-w-xs mx-auto">
-                  We've emailed a password reset link to <span className="font-bold text-[#8e004b]">{email}</span>. Please check your inbox and follow the instructions.
+                  If an account exists for <span className="font-bold text-[#8e004b]">{email}</span>, a one-time reset link has been sent. Check spam too, and use only the newest email.
                 </p>
+                <p className="text-[11px] font-semibold text-[#8c7077]">The link expires after 60 minutes and works only once.</p>
               </div>
 
               <div className="w-full pt-4 border-t border-[#e6e1e1] flex flex-col gap-2.5">
-                {onNavigateToResetPassword && (
-                  <button
-                    type="button"
-                    onClick={onNavigateToResetPassword}
-                    className="w-full h-12 bg-[#e2007c] hover:bg-[#8e004b] text-white rounded-full text-sm font-extrabold transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <span>Proceed to Reset Password</span>
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={onBackToLogin}
@@ -100,9 +98,10 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => setSubmitted(false)}
-                  className="text-xs font-semibold text-[#8c7077] hover:text-[#8e004b] cursor-pointer"
+                  disabled={cooldown > 0}
+                  className="text-xs font-semibold text-[#8c7077] hover:text-[#8e004b] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Didn't get the email? Try again
+                  {cooldown > 0 ? `Resend available in ${cooldown}s` : "Didn't get the email? Try again"}
                 </button>
               </div>
             </div>
@@ -121,6 +120,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                     id="email"
                     type="email"
                     required
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"

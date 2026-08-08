@@ -36,6 +36,10 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
       setError('Password must be at least 8 characters.');
       return;
     }
+    if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      setError('Password must include lowercase and uppercase letters plus a number.');
+      return;
+    }
     if (password !== confirmPassword) {
       setError('Passwords do not match.');
       return;

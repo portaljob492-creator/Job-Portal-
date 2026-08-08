@@ -32,6 +32,10 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
       setError('Password must be at least 8 characters.');
       return;
     }
+    if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      setError('Password must include lowercase and uppercase letters plus a number.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onSubmit({ businessName, contactPerson, email: businessEmail, password });
