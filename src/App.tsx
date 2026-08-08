@@ -24,6 +24,9 @@ import {
   updateApplicationStatus,
 } from './services/backend';
 
+type SeekerWorkspaceTab = 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
+const normalizeSeekerTab = (tab: string): SeekerWorkspaceTab => tab === 'explore' ? 'feed' : tab as SeekerWorkspaceTab;
+
 // Component imports
 import { WelcomeScreen } from './components/auth/WelcomeScreen';
 import { RoleSelectionScreen } from './components/auth/RoleSelectionScreen';
@@ -867,7 +870,7 @@ export default function App() {
             setScreen('main_app');
           }}
           onNavigateTab={(tab) => {
-            setSeekerInitialTab(tab);
+            setSeekerInitialTab(normalizeSeekerTab(tab));
             setScreen('main_app');
           }}
         />
@@ -889,7 +892,7 @@ export default function App() {
             setScreen('main_app');
           }}
           onNavigateTab={(tab) => {
-            setSeekerInitialTab(tab);
+            setSeekerInitialTab(normalizeSeekerTab(tab));
             setScreen('main_app');
           }}
         />
@@ -900,7 +903,7 @@ export default function App() {
         <SupportScreen
           onBack={() => setScreen('main_app')}
           onNavigateTab={(tab) => {
-            setSeekerInitialTab(tab);
+            setSeekerInitialTab(normalizeSeekerTab(tab));
             setScreen('main_app');
           }}
         />
@@ -912,7 +915,7 @@ export default function App() {
           onBack={() => setScreen('main_app')}
           onLogout={handleLogout}
           onNavigateTab={(tab) => {
-            setSeekerInitialTab(tab);
+            setSeekerInitialTab(normalizeSeekerTab(tab));
             setScreen('main_app');
           }}
         />

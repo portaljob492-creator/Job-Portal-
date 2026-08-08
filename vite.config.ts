@@ -87,7 +87,7 @@ export default defineConfig(() => {
         },
         devOptions: { enabled: false },
       }),
-    ],
+    ] as any,
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

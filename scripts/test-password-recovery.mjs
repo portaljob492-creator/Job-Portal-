@@ -6,6 +6,7 @@ globalThis.WebSocket = WebSocket;
 const url = process.env.SUPABASE_URL;
 const publicKey = process.env.SUPABASE_PUBLISHABLE_KEY;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const appUrl = (process.env.TEST_APP_URL || 'https://job-portal-nexora.vercel.app').replace(/\/$/, '');
 if (!url || !publicKey || !serviceKey) {
   throw new Error('Set SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY and SUPABASE_SERVICE_ROLE_KEY.');
 }
@@ -47,10 +48,10 @@ try {
   const generated = dataOrThrow(await admin.auth.admin.generateLink({
     type: 'recovery',
     email,
-    options: { redirectTo: 'https://job-portal-nexora.vercel.app/?recovery=1' },
+    options: { redirectTo: `${appUrl}/?recovery=1` },
   }));
   assertCheck('recovery link generated',
-    Boolean(generated.properties.action_link) && generated.properties.action_link.includes('job-portal-nexora.vercel.app'));
+    Boolean(generated.properties.action_link) && generated.properties.action_link.includes(new URL(appUrl).host));
 
   const recoveryClient = createClient(url, publicKey, options);
   const verified = dataOrThrow(await recoveryClient.auth.verifyOtp({

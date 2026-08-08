@@ -394,7 +394,7 @@ export const InterviewInvitationScreen: React.FC<InterviewInvitationScreenProps>
 
                         {/* Hover/Always visible elegant banner */}
                         <g transform="translate(0, -24)">
-                          <rect x="-42" y="-10" width="84" height="18" rx="5" fill="#1c1b1b" shadow="md" />
+                          <rect x="-42" y="-10" width="84" height="18" rx="5" fill="#1c1b1b" />
                           <polygon points="0,11 -4,8 4,8" fill="#1c1b1b" />
                           <text x="0" y="1" textAnchor="middle" className="text-[7.5px] font-bold fill-white tracking-tight">Lumière Studio</text>
                         </g>

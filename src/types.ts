@@ -51,7 +51,7 @@ export interface Application {
   salonLogo?: string;
   location: string;
   appliedDate: string;
-  status: 'Submitted' | 'Under Review' | 'Interview Scheduled' | 'Offer Extended';
+  status: 'Submitted' | 'Under Review' | 'Interview Scheduled' | 'Offer Extended' | 'Declined' | 'Accepted';
   notes?: string;
   interviewDate?: string;
   expectedSalary?: string;
@@ -98,6 +98,7 @@ export interface Conversation {
   id: string;
   jobId: string;
   jobTitle: string;
+  appliedJobTitle?: string;
   salonName: string;
   salonLogo?: string;
   seekerName: string;
@@ -165,7 +166,9 @@ export interface UserProfile {
   contactPerson?: string;
   licenseNumber?: string;
   specialties?: string[];
+  skills?: string[];
   primaryRole?: string;
+  location?: string;
   bio?: string;
   portfolioItems?: PortfolioItem[];
   savedFilters?: SavedFilter[];

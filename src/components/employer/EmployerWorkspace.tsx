@@ -69,7 +69,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   onUpdateAvatar,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'candidates' | 'messages' | 'analytics' | 'profile'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'candidates' | 'interviews' | 'messages' | 'analytics' | 'profile'>('dashboard');
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
