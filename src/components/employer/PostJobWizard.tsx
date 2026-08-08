@@ -43,6 +43,10 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({ onClose, onComplet
   const [weeklyOff, setWeeklyOff] = useState('Sunday');
 
   const suggestedSkills = ['Balayage', 'Keratin', 'Customer Service'];
+  const salaryPeriod = payType === 'Yearly' ? 'year' : payType === 'Monthly' ? 'month' : 'hour';
+  const formattedSalary = minSalary && maxSalary
+    ? `₹${Number(minSalary).toLocaleString('en-IN')} - ₹${Number(maxSalary).toLocaleString('en-IN')}/${salaryPeriod}`
+    : '₹3,60,000 - ₹6,00,000/year';
 
   const handleNext = () => {
     if (step < totalSteps) {
@@ -58,7 +62,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({ onClose, onComplet
       category: category === 'hair' ? 'Hair' : category === 'color' ? 'Hair' : 'Nails', // Map properly in real app
       jobType: jobType === 'full-time' ? 'Full-time' : jobType === 'part-time' ? 'Part-time' : 'Commission',
       location: workplaceType === 'remote' ? 'Remote' : 'Beverly Hills, CA',
-      salary: minSalary && maxSalary ? `$${minSalary} - $${maxSalary}/${payType === 'Yearly' ? 'yr' : payType === 'Monthly' ? 'mo' : 'hr'}` : '$60,000 - $85,000/yr',
+      salary: formattedSalary,
       description: description || 'Detailed description here...',
       requirements: skills,
       benefits: fullBenefits ? ['Full Benefits', ...tipsAllowed ? ['Tips Allowed'] : []] : ['Benefits'],
@@ -322,11 +326,11 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({ onClose, onComplet
             <div className="flex flex-col gap-2">
               <label className="text-[13px] font-medium text-[#594047]" htmlFor="min-salary">Minimum</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8c7077]">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8c7077]">₹</span>
                 <input
                   id="min-salary"
                   type="number"
-                  placeholder="45,000"
+                  placeholder="3,60,000"
                   value={minSalary}
                   onChange={(e) => setMinSalary(e.target.value)}
                   className="w-full bg-[#fdf8f8] border border-transparent rounded-lg py-3 pl-8 pr-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-colors outline-none"
@@ -336,11 +340,11 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({ onClose, onComplet
             <div className="flex flex-col gap-2">
               <label className="text-[13px] font-medium text-[#594047]" htmlFor="max-salary">Maximum</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8c7077]">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8c7077]">₹</span>
                 <input
                   id="max-salary"
                   type="number"
-                  placeholder="60,000"
+                  placeholder="6,00,000"
                   value={maxSalary}
                   onChange={(e) => setMaxSalary(e.target.value)}
                   className="w-full bg-[#fdf8f8] border border-transparent rounded-lg py-3 pl-8 pr-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-colors outline-none"
@@ -596,7 +600,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({ onClose, onComplet
           <div className="flex flex-wrap gap-2">
             <span className="inline-flex items-center gap-1 bg-[#f1edec] text-[#1c1b1b] px-3 py-1 rounded-full text-[13px] font-medium">
               <Banknote className="w-4 h-4" />
-              {minSalary && maxSalary ? `$${minSalary} - $${maxSalary}/${payType === 'Yearly' ? 'yr' : payType === 'Monthly' ? 'mo' : 'hr'}` : '$60,000 - $85,000/yr'}
+              {formattedSalary}
             </span>
             <span className="inline-flex items-center gap-1 bg-[#f1edec] text-[#1c1b1b] px-3 py-1 rounded-full text-[13px] font-medium capitalize">
               <Store className="w-4 h-4" />

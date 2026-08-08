@@ -12,7 +12,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { TrendingUp, MapPin, DollarSign, Award, Info, Filter, Sparkles, Building2 } from 'lucide-react';
+import { TrendingUp, MapPin, IndianRupee, Award, Info, Filter, Sparkles, Building2 } from 'lucide-react';
 import { JobPosting } from '../../types';
 
 interface RegionalSalaryAnalyticsProps {
@@ -31,45 +31,45 @@ interface SalaryDistributionData {
 
 export const RegionalSalaryAnalytics: React.FC<RegionalSalaryAnalyticsProps> = ({
   jobs,
-  defaultRegion = 'Beverly Hills, CA'
+  defaultRegion = 'Mumbai, Maharashtra'
 }) => {
-  const [selectedRegion, setSelectedRegion] = useState<string>('Beverly Hills / Greater LA');
+  const [selectedRegion, setSelectedRegion] = useState<string>('Mumbai / Navi Mumbai');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [chartType, setChartType] = useState<'distribution' | 'trend'>('distribution');
 
   // Sample data for regions
   const REGIONS = [
-    'Beverly Hills / Greater LA',
-    'Orange County, CA',
-    'San Francisco Bay Area',
-    'San Diego, CA'
+    'Mumbai / Navi Mumbai',
+    'Delhi NCR',
+    'Bengaluru Urban',
+    'Pune / Pimpri-Chinchwad'
   ];
 
   const CATEGORIES = ['All', 'Hair', 'Skincare', 'Nails', 'Makeup', 'Massage'];
 
   // Regional benchmark statistics
   const REGIONAL_STATS: Record<string, { medianSalary: string; topPaidSpecialty: string; totalOpenings: number; avgCommission: string }> = {
-    'Beverly Hills / Greater LA': {
-      medianSalary: '$74,500/yr',
-      topPaidSpecialty: 'Balayage & Color Specialist ($92k avg)',
+    'Mumbai / Navi Mumbai': {
+      medianSalary: '₹6,20,000/year',
+      topPaidSpecialty: 'Balayage & Color Specialist (₹8.5 lakh avg)',
       totalOpenings: 342,
       avgCommission: '55% - 65%'
     },
-    'Orange County, CA': {
-      medianSalary: '$68,000/yr',
-      topPaidSpecialty: 'Master Esthetician & MedSpa ($85k avg)',
+    'Delhi NCR': {
+      medianSalary: '₹5,80,000/year',
+      topPaidSpecialty: 'Master Esthetician & MedSpa (₹7.5 lakh avg)',
       totalOpenings: 215,
       avgCommission: '50% - 60%'
     },
-    'San Francisco Bay Area': {
-      medianSalary: '$82,000/yr',
-      topPaidSpecialty: 'Lead Stylist & Educator ($105k avg)',
+    'Bengaluru Urban': {
+      medianSalary: '₹6,80,000/year',
+      topPaidSpecialty: 'Lead Stylist & Educator (₹9.2 lakh avg)',
       totalOpenings: 188,
       avgCommission: '55% - 70%'
     },
-    'San Diego, CA': {
-      medianSalary: '$65,000/yr',
-      topPaidSpecialty: 'Extension Specialist ($78k avg)',
+    'Pune / Pimpri-Chinchwad': {
+      medianSalary: '₹5,40,000/year',
+      topPaidSpecialty: 'Extension Specialist (₹7 lakh avg)',
       totalOpenings: 145,
       avgCommission: '50% - 58%'
     }
@@ -77,46 +77,46 @@ export const RegionalSalaryAnalytics: React.FC<RegionalSalaryAnalyticsProps> = (
 
   // Salary Range Distribution Data per Region
   const DISTRIBUTION_DATA: Record<string, SalaryDistributionData[]> = {
-    'Beverly Hills / Greater LA': [
-      { range: '< $40k', count: 12, commission: 4, chairRental: 2, hourly: 6, marketPct: 8 },
-      { range: '$40k - $60k', count: 38, commission: 18, chairRental: 8, hourly: 12, marketPct: 22 },
-      { range: '$60k - $80k', count: 68, commission: 36, chairRental: 18, hourly: 14, marketPct: 38 },
-      { range: '$80k - $100k', count: 42, commission: 25, chairRental: 12, hourly: 5, marketPct: 24 },
-      { range: '$100k+', count: 18, commission: 12, chairRental: 5, hourly: 1, marketPct: 10 }
+    'Mumbai / Navi Mumbai': [
+      { range: '< ₹3 lakh', count: 12, commission: 4, chairRental: 2, hourly: 6, marketPct: 8 },
+      { range: '₹3 - ₹5 lakh', count: 38, commission: 18, chairRental: 8, hourly: 12, marketPct: 22 },
+      { range: '₹5 - ₹7 lakh', count: 68, commission: 36, chairRental: 18, hourly: 14, marketPct: 38 },
+      { range: '₹7 - ₹10 lakh', count: 42, commission: 25, chairRental: 12, hourly: 5, marketPct: 24 },
+      { range: '₹10 lakh+', count: 18, commission: 12, chairRental: 5, hourly: 1, marketPct: 10 }
     ],
-    'Orange County, CA': [
-      { range: '< $40k', count: 18, commission: 6, chairRental: 3, hourly: 9, marketPct: 12 },
-      { range: '$40k - $60k', count: 52, commission: 28, chairRental: 10, hourly: 14, marketPct: 32 },
-      { range: '$60k - $80k', count: 58, commission: 32, chairRental: 16, hourly: 10, marketPct: 36 },
-      { range: '$80k - $100k', count: 24, commission: 15, chairRental: 7, hourly: 2, marketPct: 15 },
-      { range: '$100k+', count: 8, commission: 5, chairRental: 3, hourly: 0, marketPct: 5 }
+    'Delhi NCR': [
+      { range: '< ₹3 lakh', count: 18, commission: 6, chairRental: 3, hourly: 9, marketPct: 12 },
+      { range: '₹3 - ₹5 lakh', count: 52, commission: 28, chairRental: 10, hourly: 14, marketPct: 32 },
+      { range: '₹5 - ₹7 lakh', count: 58, commission: 32, chairRental: 16, hourly: 10, marketPct: 36 },
+      { range: '₹7 - ₹10 lakh', count: 24, commission: 15, chairRental: 7, hourly: 2, marketPct: 15 },
+      { range: '₹10 lakh+', count: 8, commission: 5, chairRental: 3, hourly: 0, marketPct: 5 }
     ],
-    'San Francisco Bay Area': [
-      { range: '< $40k', count: 6, commission: 2, chairRental: 1, hourly: 3, marketPct: 5 },
-      { range: '$40k - $60k', count: 28, commission: 12, chairRental: 6, hourly: 10, marketPct: 18 },
-      { range: '$60k - $80k', count: 54, commission: 28, chairRental: 14, hourly: 12, marketPct: 32 },
-      { range: '$80k - $100k', count: 58, commission: 35, chairRental: 18, hourly: 5, marketPct: 34 },
-      { range: '$100k+', count: 22, commission: 15, chairRental: 6, hourly: 1, marketPct: 13 }
+    'Bengaluru Urban': [
+      { range: '< ₹3 lakh', count: 6, commission: 2, chairRental: 1, hourly: 3, marketPct: 5 },
+      { range: '₹3 - ₹5 lakh', count: 28, commission: 12, chairRental: 6, hourly: 10, marketPct: 18 },
+      { range: '₹5 - ₹7 lakh', count: 54, commission: 28, chairRental: 14, hourly: 12, marketPct: 32 },
+      { range: '₹7 - ₹10 lakh', count: 58, commission: 35, chairRental: 18, hourly: 5, marketPct: 34 },
+      { range: '₹10 lakh+', count: 22, commission: 15, chairRental: 6, hourly: 1, marketPct: 13 }
     ],
-    'San Diego, CA': [
-      { range: '< $40k', count: 15, commission: 5, chairRental: 3, hourly: 7, marketPct: 14 },
-      { range: '$40k - $60k', count: 48, commission: 24, chairRental: 10, hourly: 14, marketPct: 38 },
-      { range: '$40k - $80k', count: 42, commission: 22, chairRental: 12, hourly: 8, marketPct: 32 },
-      { range: '$80k - $100k', count: 16, commission: 10, chairRental: 5, hourly: 1, marketPct: 12 },
-      { range: '$100k+', count: 6, commission: 4, chairRental: 2, hourly: 0, marketPct: 4 }
+    'Pune / Pimpri-Chinchwad': [
+      { range: '< ₹3 lakh', count: 15, commission: 5, chairRental: 3, hourly: 7, marketPct: 14 },
+      { range: '₹3 - ₹5 lakh', count: 48, commission: 24, chairRental: 10, hourly: 14, marketPct: 38 },
+      { range: '₹5 - ₹7 lakh', count: 42, commission: 22, chairRental: 12, hourly: 8, marketPct: 32 },
+      { range: '₹7 - ₹10 lakh', count: 16, commission: 10, chairRental: 5, hourly: 1, marketPct: 12 },
+      { range: '₹10 lakh+', count: 6, commission: 4, chairRental: 2, hourly: 0, marketPct: 4 }
     ]
   };
 
   const TREND_DATA = [
-    { year: '2022', avgSalary: 58000, medianSalary: 55000 },
-    { year: '2023', avgSalary: 62500, medianSalary: 59000 },
-    { year: '2024', avgSalary: 67000, medianSalary: 63500 },
-    { year: '2025', avgSalary: 71000, medianSalary: 68000 },
-    { year: '2026 (Current)', avgSalary: 74500, medianSalary: 71500 }
+    { year: '2022', avgSalary: 420000, medianSalary: 400000 },
+    { year: '2023', avgSalary: 465000, medianSalary: 440000 },
+    { year: '2024', avgSalary: 520000, medianSalary: 490000 },
+    { year: '2025', avgSalary: 575000, medianSalary: 540000 },
+    { year: '2026 (Current)', avgSalary: 620000, medianSalary: 585000 }
   ];
 
-  const currentDist = DISTRIBUTION_DATA[selectedRegion] || DISTRIBUTION_DATA['Beverly Hills / Greater LA'];
-  const currentStats = REGIONAL_STATS[selectedRegion] || REGIONAL_STATS['Beverly Hills / Greater LA'];
+  const currentDist = DISTRIBUTION_DATA[selectedRegion] || DISTRIBUTION_DATA['Mumbai / Navi Mumbai'];
+  const currentStats = REGIONAL_STATS[selectedRegion] || REGIONAL_STATS['Mumbai / Navi Mumbai'];
 
   // Custom Chart Tooltip
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -124,7 +124,7 @@ export const RegionalSalaryAnalytics: React.FC<RegionalSalaryAnalyticsProps> = (
       return (
         <div className="bg-[#1c1b1b] text-white p-3.5 rounded-2xl shadow-xl border border-white/10 text-xs space-y-1.5 min-w-[200px]">
           <p className="font-extrabold text-[#ffd9e2] text-sm flex items-center gap-1.5">
-            <DollarSign className="w-4 h-4 text-emerald-400" />
+            <IndianRupee className="w-4 h-4 text-emerald-400" />
             <span>Salary Bracket: {label}</span>
           </p>
           <p className="text-white/80">
@@ -167,7 +167,7 @@ export const RegionalSalaryAnalytics: React.FC<RegionalSalaryAnalyticsProps> = (
             </h3>
           </div>
           <p className="text-xs text-[#594047] mt-1">
-            Real-time compensation analytics for beauty & wellness roles across Southern California.
+            Real-time compensation analytics for beauty & wellness roles across major Indian metro regions.
           </p>
         </div>
 
@@ -236,7 +236,7 @@ export const RegionalSalaryAnalytics: React.FC<RegionalSalaryAnalyticsProps> = (
         <div className="bg-[#fdf8f8] p-4 rounded-2xl border border-[#ffd9e2] shadow-2xs">
           <div className="flex items-center justify-between text-[#8e004b] mb-1">
             <span className="text-[11px] font-bold uppercase tracking-wider">Regional Median</span>
-            <DollarSign className="w-4 h-4" />
+            <IndianRupee className="w-4 h-4" />
           </div>
           <p className="text-xl font-extrabold text-[#1c1b1b]">{currentStats.medianSalary}</p>
           <p className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
@@ -334,10 +334,10 @@ export const RegionalSalaryAnalytics: React.FC<RegionalSalaryAnalyticsProps> = (
                 <XAxis dataKey="year" tick={{ fill: '#1c1b1b', fontSize: 11, fontWeight: 700 }} />
                 <YAxis
                   tick={{ fill: '#8c7077', fontSize: 11 }}
-                  tickFormatter={(val) => `$${val / 1000}k`}
+                  tickFormatter={(val) => `₹${(val / 100000).toFixed(1)}L`}
                 />
                 <Tooltip
-                  formatter={(value: any) => [`$${Number(value).toLocaleString()}/yr`, 'Compensation']}
+                  formatter={(value: any) => [`₹${Number(value).toLocaleString('en-IN')}/year`, 'Compensation']}
                   contentStyle={{ backgroundColor: '#1c1b1b', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '12px' }}
                 />
                 <Legend wrapperStyle={{ paddingTop: '10px', fontSize: '11px', fontWeight: 600 }} />

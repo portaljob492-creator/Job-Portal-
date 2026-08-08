@@ -101,7 +101,9 @@ export const HiringSuccessScreen: React.FC<HiringSuccessScreenProps> = ({
           <div className="w-full bg-[#f7f2f2] rounded-lg p-4 flex justify-between items-center mb-8 border border-[#e6e1e1]">
             <div className="text-left">
               <span className="block text-[13px] font-medium text-[#594047] mb-1">Annual Salary</span>
-              <span className="block text-[18px] font-semibold text-[#1c1b1b]">${offerDetails.salary} USD</span>
+              <span className="block text-[18px] font-semibold text-[#1c1b1b]">
+                ₹{Number(offerDetails.salary || 0).toLocaleString('en-IN')} / year
+              </span>
             </div>
             <div className="h-8 w-px bg-[#e0bec6]"></div>
             <div className="text-right">

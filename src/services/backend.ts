@@ -623,11 +623,32 @@ export async function setBookmark(userId: string, jobId: string, bookmarked: boo
   if (result.error) throw result.error;
 }
 
-function salaryNumbers(display: string): [number | null, number | null] {
-  const values = (display.match(/[\d,.]+/g) || [])
-    .map((value) => Number(value.replace(/,/g, '')))
+function salaryDetails(display: string): {
+  minimum: number | null;
+  maximum: number | null;
+  payType: 'monthly' | 'daily' | 'hourly' | 'commission';
+} {
+  const normalized = display.toLowerCase();
+  let values = (display.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || [])
+    .map(Number)
     .filter((value) => Number.isFinite(value) && value > 0);
-  return [values[0] ?? null, values[1] ?? values[0] ?? null];
+
+  if (/lpa|lakh|lac/.test(normalized)) values = values.map((value) => value * 100000);
+
+  let payType: 'monthly' | 'daily' | 'hourly' | 'commission' = 'monthly';
+  if (/hour|\/hr\b|hourly/.test(normalized)) payType = 'hourly';
+  else if (/day|daily/.test(normalized)) payType = 'daily';
+  else if (/commission/.test(normalized) && !/year|annual|lpa|lakh|lac/.test(normalized)) payType = 'commission';
+  else if (/year|annual|\/yr\b|lpa|lakh|lac/.test(normalized)) {
+    values = values.map((value) => Math.round(value / 12));
+    payType = 'monthly';
+  }
+
+  return {
+    minimum: values[0] ?? null,
+    maximum: values[1] ?? values[0] ?? null,
+    payType,
+  };
 }
 
 export async function createJob(_userId: string, job: JobPosting): Promise<JobPosting> {
@@ -646,7 +667,7 @@ export async function createJob(_userId: string, job: JobPosting): Promise<JobPo
     .eq('salon_id', membership.salon_id)
     .eq('is_primary', true)
     .maybeSingle();
-  const [salaryMin, salaryMax] = salaryNumbers(job.salary);
+  const salary = salaryDetails(job.salary);
   const { data: id, error } = await client.rpc('create_job_post', {
     p_salon_id: membership.salon_id,
     p_location_id: location?.id || null,
@@ -658,9 +679,9 @@ export async function createJob(_userId: string, job: JobPosting): Promise<JobPo
     p_experience_min_months: 0,
     p_experience_max_months: null,
     p_freshers_allowed: true,
-    p_salary_min: salaryMin,
-    p_salary_max: salaryMax,
-    p_pay_type: job.jobType === 'Commission' ? 'commission' : 'monthly',
+    p_salary_min: salary.minimum,
+    p_salary_max: salary.maximum,
+    p_pay_type: salary.payType,
     p_benefits: job.benefits.join('\n'),
     p_working_days: null,
     p_working_hours: null,

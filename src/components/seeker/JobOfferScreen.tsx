@@ -64,7 +64,7 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
   const jobTitle = matchingJob?.title || activeApp.jobTitle || 'Senior Hair Stylist';
   const salonName = matchingJob?.salonName || activeApp.salonName || 'Lumière Studio';
   const salonLogo = activeApp.salonLogo || matchingJob?.salonLogo || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=200';
-  const salary = matchingJob?.salary || activeApp.expectedSalary || '$45,000 - $55,000';
+  const salary = matchingJob?.salary || activeApp.expectedSalary || '₹4,50,000 - ₹5,50,000 / year';
   const jobType = matchingJob?.jobType || 'Full-time';
   const location = matchingJob?.location || activeApp.location || 'Beverly Hills, CA';
   

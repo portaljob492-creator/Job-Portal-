@@ -107,20 +107,20 @@ export const CreateJobOfferScreen: React.FC<CreateJobOfferScreenProps> = ({ appl
               <label htmlFor="salary" className="block text-[13px] font-medium text-[#594047]">Annual Salary Offer</label>
               <div className="relative bg-[#f1edec] rounded-lg border border-transparent focus-within:border-[#8e004b] focus-within:bg-white transition-colors">
                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#1c1b1b] font-medium">
-                  $
+                  ₹
                 </span>
                 <input 
                   type="number" 
                   id="salary" 
                   name="salary" 
-                  placeholder="75,000" 
+                  placeholder="7,50,000"
                   required 
                   value={salary}
                   onChange={(e) => setSalary(e.target.value)}
                   className="block w-full pl-8 pr-12 py-3 bg-transparent border-none focus:ring-0 text-[#1c1b1b] text-[16px] rounded-lg outline-none" 
                 />
                 <span className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-[#594047] text-sm">
-                  USD
+                  INR
                 </span>
               </div>
             </div>

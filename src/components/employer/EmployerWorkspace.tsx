@@ -83,7 +83,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<JobPosting['category']>('Hair');
   const [jobType, setJobType] = useState<JobPosting['jobType']>('Commission');
-  const [salary, setSalary] = useState('$60,000 - $85,000/yr');
+  const [salary, setSalary] = useState('₹5,00,000 - ₹7,00,000/year');
   const [location, setLocation] = useState('Beverly Hills, CA');
   const [description, setDescription] = useState('We are hiring a dedicated beauty professional to join our salon team...');
   const [requirements, setRequirements] = useState('Valid State License, 2+ years experience');
@@ -704,7 +704,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
               image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&q=80&w=800',
               rating: 5.0,
               reviewsCount: 1,
-              salary: newJobPartial.salary || '$60,000 - $85,000/yr',
+              salary: newJobPartial.salary || '₹5,00,000 - ₹7,00,000/year',
               jobType: newJobPartial.jobType || 'Commission',
               category: newJobPartial.category || 'Hair',
               tags: ['New Listing', 'Flexible Hours', 'Health Benefits'],

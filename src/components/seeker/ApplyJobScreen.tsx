@@ -218,11 +218,11 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                 <div className="flex flex-col gap-1.5">
                   <label className="font-label-sm text-xs text-on-surface font-semibold" htmlFor="salary">Expected Salary (Annual)</label>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-on-surface-variant font-body-md">$</span>
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-on-surface-variant font-body-md">₹</span>
                     <input
                       className="w-full bg-surface-container border border-surface-variant rounded-lg pl-8 pr-4 py-3 font-body-md text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:bg-surface-container-lowest transition-colors placeholder:text-outline"
                       id="salary"
-                      placeholder="e.g. 65,000"
+                      placeholder="e.g. 6,50,000"
                       type="number"
                       required
                       disabled={hasAlreadyApplied}

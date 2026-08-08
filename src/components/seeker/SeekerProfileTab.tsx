@@ -20,7 +20,7 @@ import {
   Download, 
   Eye, 
   Award,
-  DollarSign,
+  IndianRupee,
   SlidersHorizontal,
   X,
   HelpCircle
@@ -144,7 +144,7 @@ export const SeekerProfileTab: React.FC<SeekerProfileTabProps> = ({
   const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   // Preferences states
-  const [expectedSalary, setExpectedSalary] = useState('$85,000 - $95,000 / year');
+  const [expectedSalary, setExpectedSalary] = useState('₹6,00,000 - ₹8,00,000 / year');
   const [preferredJobType, setPreferredJobType] = useState<'Full-time' | 'Part-time' | 'Contract'>('Full-time');
   const [availability, setAvailability] = useState('Immediate (2 weeks notice)');
 
@@ -984,12 +984,12 @@ export const SeekerProfileTab: React.FC<SeekerProfileTabProps> = ({
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-[#1c1b1b]">Expected Compensation</label>
                     <div className="relative">
-                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e004b] w-4 h-4" />
+                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e004b] w-4 h-4" />
                       <input 
                         type="text" 
                         value={expectedSalary}
                         onChange={(e) => setExpectedSalary(e.target.value)}
-                        placeholder="e.g. $45 - $55 / hour or $90,000 / year"
+                        placeholder="e.g. ₹300 - ₹500 / hour or ₹7,00,000 / year"
                         className="w-full bg-[#fdf8f8] text-[#1c1b1b] border border-[#e0bec6]/70 rounded-xl p-3 pl-8 focus:outline-none focus:ring-1 focus:ring-[#8e004b] focus:border-[#8e004b] text-xs font-semibold"
                       />
                     </div>

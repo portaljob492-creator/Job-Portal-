@@ -1,5 +1,18 @@
 import { JobPosting, SavedFilter, JobAlertNotification } from '../types';
 
+function parseAnnualINR(value: string): number {
+  const matches = value.replace(/,/g, '').match(/\d+(?:\.\d+)?/g);
+  if (!matches?.length) return 0;
+  let amount = Math.max(...matches.map(Number));
+  const normalized = value.toLowerCase();
+  if (/lpa|lakh|lac/.test(normalized)) amount *= 100000;
+  else if (/month|\/mo\b|monthly/.test(normalized)) amount *= 12;
+  else if (/week|\/wk\b|weekly/.test(normalized)) amount *= 52;
+  else if (/hr|hour|hourly/.test(normalized)) amount *= 2000;
+  if (normalized.includes('keep 100%') || normalized.includes('chair rent')) amount = 600000;
+  return amount;
+}
+
 /**
  * Evaluates whether a JobPosting matches a given SavedFilter configuration.
  */
@@ -42,16 +55,11 @@ export function checkJobMatchesSavedFilter(job: JobPosting, filter: SavedFilter)
 
   // 5. Salary Filter Check
   if (filter.salary && filter.salary !== 'All Salaries') {
-    const salStr = job.salary.toLowerCase();
-    if (filter.salary === '$50k+' && !(salStr.includes('50') || salStr.includes('60') || salStr.includes('70') || salStr.includes('80') || salStr.includes('90') || salStr.includes('100') || salStr.includes('110') || salStr.includes('120'))) {
-      return false;
-    }
-    if (filter.salary === '$75k+' && !(salStr.includes('75') || salStr.includes('80') || salStr.includes('90') || salStr.includes('100') || salStr.includes('110') || salStr.includes('120'))) {
-      return false;
-    }
-    if (filter.salary === '$100k+' && !(salStr.includes('100') || salStr.includes('110') || salStr.includes('120') || salStr.includes('150'))) {
-      return false;
-    }
+    const annualSalary = parseAnnualINR(job.salary);
+    if (filter.salary === '₹3 lakh+' && annualSalary < 300000) return false;
+    if (filter.salary === '₹5 lakh+' && annualSalary < 500000) return false;
+    if (filter.salary === '₹7.5 lakh+' && annualSalary < 750000) return false;
+    if (filter.salary === '₹10 lakh+' && annualSalary < 1000000) return false;
   }
 
   // 6. Tag / Perk Check

@@ -29,7 +29,7 @@ import {
   Calendar,
   LogOut,
   Plus,
-  DollarSign,
+  IndianRupee,
   SlidersHorizontal,
   ArrowUpDown,
   Tag,
@@ -231,7 +231,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
       image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=600&q=80',
       rating: 4.9,
       reviewsCount: 38,
-      salary: '$85,000 - $120,000/yr',
+      salary: '₹7,00,000 - ₹10,00,000/year',
       jobType: 'Full-time',
       category: (targetFilter.category && targetFilter.category !== 'All' ? targetFilter.category : 'Hair') as any,
       tags: ['Balayage', 'Commission', 'Paid Education', 'Health Benefits'],
@@ -314,7 +314,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   // Apply Modal state
   const [showApplyModal, setShowApplyModal] = useState<boolean>(false);
   const [coverNote, setCoverNote] = useState<string>('I am very interested in this role and believe my skills and background align perfectly with your team!');
-  const [expectedSalary, setExpectedSalary] = useState<string>('$95,000 / year');
+  const [expectedSalary, setExpectedSalary] = useState<string>('₹6,00,000 / year');
   const [availability, setAvailability] = useState<string>('Immediate (2 weeks notice)');
   const [applySuccess, setApplySuccess] = useState<boolean>(false);
 
@@ -324,10 +324,10 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const jobTypes = ['All Types', 'Full-time', 'Commission', 'Chair Rental', 'Part-time'];
   const salaryRanges = [
     { label: 'All Salaries', value: 'All Salaries' },
-    { label: '$30k+ / year', value: '$30k+' },
-    { label: '$50k+ / year', value: '$50k+' },
-    { label: '$75k+ / year', value: '$75k+' },
-    { label: '$100k+ / year', value: '$100k+' },
+    { label: '₹3 lakh+ / year', value: '₹3 lakh+' },
+    { label: '₹5 lakh+ / year', value: '₹5 lakh+' },
+    { label: '₹7.5 lakh+ / year', value: '₹7.5 lakh+' },
+    { label: '₹10 lakh+ / year', value: '₹10 lakh+' },
   ];
   const perkTags = [
     'All Perks',
@@ -340,23 +340,21 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
     '24/7 Access'
   ];
 
-  // Helper function to extract approximate maximum annual salary for sorting and filtering
+  // Normalize Indian salary formats (annual, monthly, hourly, lakh/LPA) for filtering.
   const parseAnnualSalary = (salaryStr: string): number => {
     if (!salaryStr) return 0;
-    const matches = salaryStr.replace(/,/g, '').match(/\d+/g);
-    if (!matches || matches.length === 0) return 0;
-    const nums = matches.map(Number);
-    let maxVal = Math.max(...nums);
-    
-    // Convert hourly rate ($28 - $52/hr) to approximate annual equivalent (x 2000 hours)
-    const isHourly = /hr|hour/i.test(salaryStr) && maxVal < 250;
-    if (isHourly) {
-      maxVal = maxVal * 2000;
-    }
-    // Handle chair rental earnings
-    if (salaryStr.toLowerCase().includes('keep 100%') || salaryStr.toLowerCase().includes('rent')) {
-      maxVal = 85000;
-    }
+    const matches = salaryStr.replace(/,/g, '').match(/\d+(?:\.\d+)?/g);
+    if (!matches?.length) return 0;
+    let maxVal = Math.max(...matches.map(Number));
+    const normalized = salaryStr.toLowerCase();
+
+    if (/lpa|lakh|lac/.test(normalized)) maxVal *= 100000;
+    else if (/month|\/mo\b|monthly/.test(normalized)) maxVal *= 12;
+    else if (/week|\/wk\b|weekly/.test(normalized)) maxVal *= 52;
+    else if (/hr|hour|hourly/.test(normalized)) maxVal *= 2000;
+
+    // Chair-rental listings describe rent rather than earnings; use a neutral annual estimate.
+    if (normalized.includes('keep 100%') || normalized.includes('chair rent')) maxVal = 600000;
     return maxVal;
   };
 
@@ -386,10 +384,10 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
     // 5. Salary Range
     const annualSalary = parseAnnualSalary(job.salary);
     let matchesSalary = true;
-    if (salaryFilter === '$30k+') matchesSalary = annualSalary >= 30000;
-    else if (salaryFilter === '$50k+') matchesSalary = annualSalary >= 50000;
-    else if (salaryFilter === '$75k+') matchesSalary = annualSalary >= 75000;
-    else if (salaryFilter === '$100k+') matchesSalary = annualSalary >= 100000;
+    if (salaryFilter === '₹3 lakh+') matchesSalary = annualSalary >= 300000;
+    else if (salaryFilter === '₹5 lakh+') matchesSalary = annualSalary >= 500000;
+    else if (salaryFilter === '₹7.5 lakh+') matchesSalary = annualSalary >= 750000;
+    else if (salaryFilter === '₹10 lakh+') matchesSalary = annualSalary >= 1000000;
 
     // 6. Perks & Specialty Tag
     const matchesTag =
@@ -900,7 +898,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                       Salary Range
                     </label>
                     <div className="flex items-center bg-[#fdf8f8] rounded-xl px-2.5 py-1.5 border border-[#e0bec6]">
-                      <DollarSign className="w-3.5 h-3.5 text-[#8e004b] mr-1.5 flex-shrink-0" />
+                      <IndianRupee className="w-3.5 h-3.5 text-[#8e004b] mr-1.5 flex-shrink-0" />
                       <select
                         value={salaryFilter}
                         onChange={(e) => setSalaryFilter(e.target.value)}
@@ -1730,7 +1728,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                       value={expectedSalary}
                       onChange={(e) => setExpectedSalary(e.target.value)}
                       required
-                      placeholder="e.g. $95,000 / year or $45 / hr"
+                      placeholder="e.g. ₹6,00,000 / year or ₹350 / hour"
                       className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] focus:ring-2 focus:ring-[#8e004b] outline-none"
                     />
                   </div>
