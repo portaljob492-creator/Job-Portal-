@@ -19,6 +19,8 @@ import {
   Briefcase
 } from 'lucide-react';
 
+import { RequestInterviewScreen } from '../employer/RequestInterviewScreen';
+
 interface MessagingCenterProps {
   currentRole: UserRole;
   userProfile: UserProfile;
@@ -534,63 +536,13 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
       )}
 
       {/* SCHEDULE INTERVIEW MODAL */}
-      {showScheduleModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-[#e0bec6]/60 space-y-4">
-            <div className="flex justify-between items-center pb-3 border-b border-[#e0bec6]/30">
-              <h3 className="text-base font-bold text-[#1c1b1b] flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-[#e2007c]" /> Schedule Model Test / Interview
-              </h3>
-              <button
-                onClick={() => setShowScheduleModal(false)}
-                className="text-[#8c7077] hover:text-[#1c1b1b]"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-[#594047]">
-              Send an official interview invitation timestamp directly into the chat thread for {currentConv?.seekerName}.
-            </p>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-[#1c1b1b] mb-1">Interview Date</label>
-                <input
-                  type="date"
-                  value={interviewDate}
-                  onChange={(e) => setInterviewDate(e.target.value)}
-                  className="w-full p-2.5 bg-[#f1edec] rounded-xl border border-[#e0bec6]/60 text-xs font-semibold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[#1c1b1b] mb-1">Time</label>
-                <input
-                  type="time"
-                  value={interviewTime}
-                  onChange={(e) => setInterviewTime(e.target.value)}
-                  className="w-full p-2.5 bg-[#f1edec] rounded-xl border border-[#e0bec6]/60 text-xs font-semibold"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-3">
-              <button
-                onClick={() => setShowScheduleModal(false)}
-                className="px-4 py-2 rounded-full border border-[#e0bec6] text-xs font-bold text-[#594047]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSendInterviewInvite}
-                className="px-5 py-2 rounded-full bg-[#e2007c] text-white text-xs font-bold hover:bg-[#b90064] shadow-xs"
-              >
-                Send Invite
-              </button>
-            </div>
-          </div>
-        </div>
+      {showScheduleModal && currentConv && (
+        <RequestInterviewScreen
+          applicantName={currentConv.seekerName}
+          applicantJobTitle={currentConv.appliedJobTitle}
+          onClose={() => setShowScheduleModal(false)}
+          onConfirm={handleSendInterviewInvite}
+        />
       )}
     </div>
   );

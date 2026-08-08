@@ -67,12 +67,15 @@ export interface Applicant {
   phone: string;
   experienceYears: number;
   licenseNumber: string;
-  status: 'New' | 'Shortlisted' | 'Interview Scheduled' | 'Hired' | 'Declined';
+  status: 'New' | 'Viewed' | 'Shortlisted' | 'Interview Scheduled' | 'Offer Extended' | 'Hired' | 'Declined';
   appliedDate: string;
   coverNote?: string;
   portfolioUrl?: string;
   expectedSalary?: string;
   availability?: string;
+  avatarUrl?: string;
+  location?: string;
+  skills?: string[];
 }
 
 export interface ChatMessage {
