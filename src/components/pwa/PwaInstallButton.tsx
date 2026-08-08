@@ -97,6 +97,13 @@ export const PwaInstallButton: React.FC = () => {
   };
 
   const handleInstall = async () => {
+    const currentPlatform = detectPlatform();
+    if (currentPlatform === 'ios') {
+      setSelectedPlatform('ios');
+      setShowHelp(true);
+      return;
+    }
+
     if (installPrompt) {
       await runNativeInstall(installPrompt);
       return;
