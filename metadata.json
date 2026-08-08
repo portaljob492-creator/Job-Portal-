@@ -1,0 +1,8 @@
+{
+  "name": "Nexora Jobs",
+  "description": "Premium beauty industry job network connecting top salons, spas, and talent with interactive listings, role application tracking, and business recruitment.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
