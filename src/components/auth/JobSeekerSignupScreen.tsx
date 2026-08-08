@@ -16,7 +16,10 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
   const [email, setEmail] = useState('jane@example.com');
   const [phone, setPhone] = useState('(555) 000-0000');
   const [password, setPassword] = useState('••••••••');
+  const [confirmPassword, setConfirmPassword] = useState('••••••••');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(true);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,6 +150,56 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
+          </div>
+
+          {/* Confirm Password */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-[#594047]" htmlFor="confirmPassword">
+              Confirm Password
+            </label>
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#594047]">
+                <Lock className="w-5 h-5 text-[#8c7077]" />
+              </span>
+              <input
+                id="confirmPassword"
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                className="w-full pl-10 pr-10 py-3 bg-[#fdf8f8] border-0 ring-1 ring-inset ring-[#e0bec6] rounded-xl text-base text-[#1c1b1b] focus:ring-2 focus:ring-inset focus:ring-[#8e004b] focus:bg-white transition-all outline-none"
+              />
+              <button
+                type="button"
+                aria-label="Toggle confirm password visibility"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#594047] hover:text-[#8e004b] transition-colors cursor-pointer"
+              >
+                {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Terms Agreement */}
+          <div className="flex items-start gap-2 mt-1">
+            <input
+              id="terms"
+              type="checkbox"
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-[#e0bec6] text-[#8e004b] focus:ring-[#8e004b] cursor-pointer"
+            />
+            <label htmlFor="terms" className="text-xs text-[#594047] cursor-pointer leading-tight">
+              I agree to the{' '}
+              <a href="#" onClick={(e) => e.preventDefault()} className="text-[#8e004b] font-semibold hover:underline">
+                Terms of Service
+              </a>{' '}
+              and{' '}
+              <a href="#" onClick={(e) => e.preventDefault()} className="text-[#8e004b] font-semibold hover:underline">
+                Privacy Policy
+              </a>
+            </label>
           </div>
 
           {/* Submit CTA */}

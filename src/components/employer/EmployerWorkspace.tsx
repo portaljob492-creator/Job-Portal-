@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
-import { JobPosting, Applicant, UserProfile } from '../../types';
+import { JobPosting, Applicant, UserProfile, Conversation, ChatMessage } from '../../types';
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
+import { MessagingCenter } from '../messaging/MessagingCenter';
+import { PortfolioGallery } from '../profile/PortfolioGallery';
+import { RegionalSalaryAnalytics } from './RegionalSalaryAnalytics';
+import { INITIAL_PORTFOLIO_ITEMS } from '../../data/mockData';
 import {
   Plus,
   Building2,
@@ -20,15 +24,23 @@ import {
   MapPin,
   ExternalLink,
   Tag,
-  Camera
+  Camera,
+  MessageSquare,
+  Layers,
+  BarChart3,
+  TrendingUp
 } from 'lucide-react';
 
 interface EmployerWorkspaceProps {
   jobs: JobPosting[];
   applicants: Applicant[];
+  conversations?: Conversation[];
+  messages?: ChatMessage[];
   userProfile: UserProfile;
   onAddJob: (newJob: JobPosting) => void;
   onUpdateApplicantStatus: (applicantId: string, status: Applicant['status']) => void;
+  onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
+  onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
   onSwitchRole: () => void;
   onLogout: () => void;
@@ -37,16 +49,22 @@ interface EmployerWorkspaceProps {
 export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   jobs,
   applicants,
+  conversations = [],
+  messages = [],
   userProfile,
   onAddJob,
   onUpdateApplicantStatus,
+  onSendMessage,
+  onStartConversation,
   onUpdateAvatar,
   onSwitchRole,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<'jobs' | 'applicants' | 'salon'>('jobs');
+  const [activeTab, setActiveTab] = useState<'jobs' | 'applicants' | 'messages' | 'analytics' | 'salon'>('jobs');
+  const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
+  const [viewingPortfolioApplicant, setViewingPortfolioApplicant] = useState<Applicant | null>(null);
 
   // New Job Form State
   const [title, setTitle] = useState('');
@@ -218,6 +236,23 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('messages')}
+            className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'messages'
+                ? 'bg-[#8e004b] text-white shadow-sm'
+                : 'bg-white text-[#594047] hover:bg-[#f7f2f2] border border-[#e0bec6]/40'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Direct Messages</span>
+            {conversations.reduce((acc, c) => acc + (c.unreadCountEmployer || 0), 0) > 0 && (
+              <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-[#e2007c] text-white font-bold animate-pulse">
+                {conversations.reduce((acc, c) => acc + (c.unreadCountEmployer || 0), 0)}
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={() => setActiveTab('salon')}
             className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
               activeTab === 'salon'
@@ -226,6 +261,18 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
             }`}
           >
             Salon Profile & Locations
+          </button>
+
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'analytics'
+                ? 'bg-[#8e004b] text-white shadow-sm'
+                : 'bg-white text-[#594047] hover:bg-[#f7f2f2] border border-[#e0bec6]/40'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4 text-emerald-500" />
+            <span>Regional Salary Insights</span>
           </button>
         </div>
 
@@ -280,6 +327,11 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Embedded Regional Salary Analytics */}
+            <div className="pt-6">
+              <RegionalSalaryAnalytics jobs={jobs} defaultRegion={userProfile.location || 'Beverly Hills, CA'} />
             </div>
           </div>
         )}
@@ -358,13 +410,35 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                       </select>
                     </div>
 
-                    <div className="flex gap-2 mt-1">
+                    <div className="flex flex-wrap gap-2 mt-1 justify-end">
+                      <button
+                        onClick={() => setViewingPortfolioApplicant(applicant)}
+                        className="px-3 py-1.5 bg-[#f1edec] text-[#1c1b1b] text-xs font-bold rounded-full hover:bg-[#ffd9e2] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs border border-[#e0bec6]/60"
+                      >
+                        <Layers className="w-3.5 h-3.5 text-[#8e004b]" />
+                        <span>View Portfolio</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          if (onStartConversation) {
+                            const convId = onStartConversation(applicant.appliedJobId, applicant.name, userProfile.businessName);
+                            setActiveConvId(convId);
+                            setActiveTab('messages');
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-[#ffd9e2] text-[#8e004b] text-xs font-bold rounded-full hover:bg-[#ffb0c8] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Message Candidate</span>
+                      </button>
+
                       <button
                         onClick={() => {
                           setSelectedApplicant(applicant);
                           setShowScheduleModal(true);
                         }}
-                        className="px-3 py-1.5 bg-[#8e004b] text-white text-xs font-semibold rounded-full hover:bg-[#b90064] transition-colors cursor-pointer flex items-center gap-1"
+                        className="px-3 py-1.5 bg-[#8e004b] text-white text-xs font-semibold rounded-full hover:bg-[#b90064] transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                       >
                         <Calendar className="w-3.5 h-3.5" />
                         <span>Schedule Interview</span>
@@ -377,7 +451,34 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           </div>
         )}
 
-        {/* TAB 3: SALON PROFILE */}
+        {/* TAB 3: MESSAGING CENTER */}
+        {activeTab === 'messages' && (
+          <div className="space-y-6">
+            <MessagingCenter
+              currentRole="employer"
+              userProfile={userProfile}
+              conversations={conversations}
+              messages={messages}
+              jobs={jobs}
+              activeConversationId={activeConvId}
+              onSelectConversation={(id) => setActiveConvId(id)}
+              onSendMessage={(convId, text, attachment) => {
+                if (onSendMessage) {
+                  onSendMessage(convId, text, attachment);
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {/* TAB 4: REGIONAL SALARY INSIGHTS */}
+        {activeTab === 'analytics' && (
+          <div className="space-y-6">
+            <RegionalSalaryAnalytics jobs={jobs} defaultRegion={userProfile.location || 'Beverly Hills, CA'} />
+          </div>
+        )}
+
+        {/* TAB 5: SALON PROFILE */}
         {activeTab === 'salon' && (
           <div className="max-w-2xl mx-auto bg-white p-6 sm:p-8 rounded-2xl border border-[#e0bec6]/40 shadow-sm space-y-6">
             <div className="flex items-center gap-4 pb-4 border-b border-[#e0bec6]/30">
@@ -612,6 +713,53 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           onSaveAvatar={(newUrl) => onUpdateAvatar?.(newUrl)}
           onClose={() => setShowImageUploader(false)}
         />
+      )}
+
+      {/* CANDIDATE PORTFOLIO MODAL FOR EMPLOYERS */}
+      {viewingPortfolioApplicant && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-4xl w-full p-6 sm:p-8 border border-[#e0bec6] shadow-2xl space-y-6 my-8">
+            <div className="flex items-center justify-between pb-4 border-b border-[#e0bec6]/40">
+              <div className="flex items-center gap-3">
+                <img
+                  src={viewingPortfolioApplicant.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
+                  alt={viewingPortfolioApplicant.name}
+                  className="w-12 h-12 rounded-full object-cover ring-2 ring-[#ffd9e2]"
+                />
+                <div>
+                  <h3 className="text-lg font-bold text-[#1c1b1b]">
+                    {viewingPortfolioApplicant.name}&apos;s Portfolio & Work Samples
+                  </h3>
+                  <p className="text-xs text-[#594047]">
+                    Applicant for <span className="font-bold text-[#8e004b]">{viewingPortfolioApplicant.appliedJobTitle}</span>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setViewingPortfolioApplicant(null)}
+                className="p-2 text-[#8c7077] hover:text-[#1c1b1b] rounded-full hover:bg-[#f1edec]"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <PortfolioGallery
+              items={INITIAL_PORTFOLIO_ITEMS}
+              onUpdateItems={() => {}}
+              isEditable={false}
+            />
+
+            <div className="flex justify-end pt-4 border-t border-[#e0bec6]/40">
+              <button
+                onClick={() => setViewingPortfolioApplicant(null)}
+                className="px-6 py-2 bg-[#8e004b] text-white text-xs font-bold rounded-full hover:bg-[#b90064]"
+              >
+                Close Portfolio
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -309,3 +309,270 @@ export const INITIAL_APPLICANTS: Applicant[] = [
     portfolioUrl: 'linkedin.com/in/carlosrivera-beauty'
   }
 ];
+
+export const INITIAL_CONVERSATIONS = [
+  {
+    id: 'conv-1',
+    jobId: 'job-1',
+    jobTitle: 'Senior Hair Colorist & Balayage Specialist',
+    salonName: 'Luxe & Co Salon',
+    salonLogo: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=120&h=120',
+    seekerName: 'Jane Doe',
+    seekerEmail: 'jane.doe@example.com',
+    employerName: 'Sarah Jenkins (Salon Director)',
+    lastMessage: 'We would love to invite you for an in-person model model test & consultation next Tuesday!',
+    lastMessageTime: '10:24 AM',
+    unreadCountSeeker: 1,
+    unreadCountEmployer: 0,
+    status: 'Interview Requested' as const
+  },
+  {
+    id: 'conv-2',
+    jobId: 'job-2',
+    jobTitle: 'Licensed Medical Esthetician',
+    salonName: 'Glow & Botanicals Spa',
+    salonLogo: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&q=80&w=120&h=120',
+    seekerName: 'Jane Doe',
+    seekerEmail: 'jane.doe@example.com',
+    employerName: 'Glow & Botanicals Recruiting',
+    lastMessage: 'Hi Jane, thank you for sharing your HydraFacial certifications! Could you work weekend shifts?',
+    lastMessageTime: 'Yesterday',
+    unreadCountSeeker: 0,
+    unreadCountEmployer: 0,
+    status: 'Inquiry' as const
+  },
+  {
+    id: 'conv-3',
+    jobId: 'job-1',
+    jobTitle: 'Senior Hair Colorist & Balayage Specialist',
+    salonName: 'Luxe & Co Salon',
+    salonLogo: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=120&h=120',
+    seekerName: 'Maya Lin',
+    seekerEmail: 'maya.beauty@example.com',
+    employerName: 'Sarah Jenkins (Salon Director)',
+    lastMessage: 'Hi Maya, we reviewed your Kérastase certifications and would love to connect!',
+    lastMessageTime: '2 days ago',
+    unreadCountSeeker: 0,
+    unreadCountEmployer: 1,
+    status: 'Inquiry' as const
+  }
+];
+
+export const INITIAL_MESSAGES = [
+  {
+    id: 'm-101',
+    conversationId: 'conv-1',
+    senderRole: 'seeker' as const,
+    senderName: 'Jane Doe',
+    text: 'Hello Sarah! I submitted my application for the Senior Hair Colorist role. My portfolio includes 5+ years of balayage and extension transformations.',
+    timestamp: '9:15 AM'
+  },
+  {
+    id: 'm-102',
+    conversationId: 'conv-1',
+    senderRole: 'employer' as const,
+    senderName: 'Sarah Jenkins (Luxe & Co)',
+    text: 'Hi Jane! Your balayage work looks absolutely breathtaking. We loved your instagram feed samples.',
+    timestamp: '9:45 AM'
+  },
+  {
+    id: 'm-103',
+    conversationId: 'conv-1',
+    senderRole: 'employer' as const,
+    senderName: 'Sarah Jenkins (Luxe & Co)',
+    text: 'We would love to invite you for an in-person model model test & consultation next Tuesday at 2:00 PM PST. Let us know if that time works for you!',
+    timestamp: '10:24 AM'
+  },
+  {
+    id: 'm-201',
+    conversationId: 'conv-2',
+    senderRole: 'seeker' as const,
+    senderName: 'Jane Doe',
+    text: 'Hi there! Excited about the Medical Esthetician opening at Glow & Botanicals. Is this role full-time or flexible?',
+    timestamp: 'Yesterday 2:10 PM'
+  },
+  {
+    id: 'm-202',
+    conversationId: 'conv-2',
+    senderRole: 'employer' as const,
+    senderName: 'Glow & Botanicals Spa',
+    text: 'Hi Jane, thank you for sharing your HydraFacial certifications! Could you work weekend shifts?',
+    timestamp: 'Yesterday 4:30 PM'
+  },
+  {
+    id: 'm-301',
+    conversationId: 'conv-3',
+    senderRole: 'seeker' as const,
+    senderName: 'Maya Lin',
+    text: 'Hello! I submitted my resume for the Senior Colorist position.',
+    timestamp: '2 days ago'
+  },
+  {
+    id: 'm-302',
+    conversationId: 'conv-3',
+    senderRole: 'employer' as const,
+    senderName: 'Sarah Jenkins (Luxe & Co)',
+    text: 'Hi Maya, we reviewed your Kérastase certifications and would love to connect!',
+    timestamp: '2 days ago'
+  }
+];
+
+export const INITIAL_PORTFOLIO_ITEMS = [
+  {
+    id: 'port-1',
+    title: 'Sun-Kissed Dimensional Balayage',
+    category: 'Hair' as const,
+    imageUrl: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=800',
+    description: 'Blonde balayage with seamless root smudge and Olaplex bond repair gloss treatment.',
+    technique: 'Freehand Paint & Foilayage',
+    date: 'Aug 2026',
+    isPlaceholder: true
+  },
+  {
+    id: 'port-2',
+    title: 'HydraFacial Glow & LED Therapy',
+    category: 'Skin' as const,
+    imageUrl: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&q=80&w=800',
+    description: '3-step facial extraction, vortex infusion of hyaluronic acid & calming red light therapy.',
+    technique: 'Medical Esthetics Protocol',
+    date: 'Jul 2026',
+    isPlaceholder: true
+  },
+  {
+    id: 'port-3',
+    title: 'Soft Glam Bridal Makeup',
+    category: 'Makeup' as const,
+    imageUrl: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&q=80&w=800',
+    description: 'Long-wearing airbrush foundation, muted rose eyeshadow, and custom mink lash cluster application.',
+    technique: 'Airbrush & Contour',
+    date: 'Jun 2026',
+    isPlaceholder: true
+  },
+  {
+    id: 'port-4',
+    title: 'Precision Textured Bob & Gloss',
+    category: 'Hair' as const,
+    imageUrl: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&q=80&w=800',
+    description: 'Blunt blunt perimeter cut with internal weight reduction for natural movement.',
+    technique: 'Dry Cutting & Razor Detailing',
+    date: 'May 2026',
+    isPlaceholder: true
+  },
+  {
+    id: 'port-5',
+    title: 'Minimalist Chrome Gel Nail Art',
+    category: 'Nails' as const,
+    imageUrl: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&q=80&w=800',
+    description: 'Almond shape gel extension set featuring subtle iridescent pearl chrome overlay.',
+    technique: 'Russian Manicure & Gel-X',
+    date: 'May 2026',
+    isPlaceholder: true
+  },
+  {
+    id: 'port-6',
+    title: 'Low-Maintenance Copper Melt',
+    category: 'Hair' as const,
+    imageUrl: 'https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&q=80&w=800',
+    description: 'Warm auburn gloss melt with vibrant copper ribbon highlights.',
+    technique: 'Single Process + Shadow Root',
+    date: 'Apr 2026',
+    isPlaceholder: true
+  }
+];
+
+export const INITIAL_SAVED_FILTERS = [
+  {
+    id: 'sf-1',
+    name: 'Stylist in LA & Beverly Hills',
+    searchQuery: '',
+    category: 'Hair',
+    location: 'Beverly Hills, CA',
+    jobType: 'All Types',
+    salary: 'All Salaries',
+    tag: 'All Perks',
+    sortBy: 'relevant' as const,
+    createdAt: 'Aug 2026',
+    notifyPush: true,
+    notifyEmail: true,
+    notifyInApp: true,
+    matchFrequency: 'Instant' as const,
+    lastMatchCount: 4
+  },
+  {
+    id: 'sf-2',
+    name: 'Skincare & Facials ($50k+)',
+    searchQuery: 'Facial',
+    category: 'Skincare',
+    location: 'All Locations',
+    jobType: 'Full-time',
+    salary: '$50k+',
+    tag: 'All Perks',
+    sortBy: 'salary_high' as const,
+    createdAt: 'Jul 2026',
+    notifyPush: true,
+    notifyEmail: false,
+    notifyInApp: true,
+    matchFrequency: 'Instant' as const,
+    lastMatchCount: 2
+  },
+  {
+    id: 'sf-3',
+    name: 'Chair Rental Opportunities',
+    searchQuery: '',
+    category: 'Hair',
+    location: 'All Locations',
+    jobType: 'Chair Rental',
+    salary: 'All Salaries',
+    tag: 'All Perks',
+    sortBy: 'newest' as const,
+    createdAt: 'Jul 2026',
+    notifyPush: false,
+    notifyEmail: true,
+    notifyInApp: true,
+    matchFrequency: 'Daily' as const,
+    lastMatchCount: 1
+  }
+];
+
+export const INITIAL_JOB_ALERTS = [
+  {
+    id: 'alert-1',
+    savedFilterId: 'sf-1',
+    savedFilterName: 'Stylist in LA & Beverly Hills',
+    jobId: 'job-1',
+    jobTitle: 'Senior Balayage & Color Specialist',
+    salonName: 'Luxe Hair Studio & Spa',
+    location: 'Beverly Hills, CA',
+    salary: '$75k - $110k/yr',
+    category: 'Hair',
+    matchedAt: '10 mins ago',
+    isRead: false
+  },
+  {
+    id: 'alert-2',
+    savedFilterId: 'sf-2',
+    savedFilterName: 'Skincare & Facials ($50k+)',
+    jobId: 'job-2',
+    jobTitle: 'Master Medical Esthetician',
+    salonName: 'Glow MedSpa & Wellness',
+    location: 'Santa Monica, CA',
+    salary: '$65k - $90k/yr',
+    category: 'Skincare',
+    matchedAt: '2 hours ago',
+    isRead: false
+  },
+  {
+    id: 'alert-3',
+    savedFilterId: 'sf-3',
+    savedFilterName: 'Chair Rental Opportunities',
+    jobId: 'job-5',
+    jobTitle: 'Independent Hair Stylist Chair Rental',
+    salonName: 'Vibe Salon Loft',
+    location: 'West Hollywood, CA',
+    salary: '$500/mo base',
+    category: 'Hair',
+    matchedAt: '1 day ago',
+    isRead: true
+  }
+];
+

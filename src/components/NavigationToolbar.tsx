@@ -21,7 +21,10 @@ export const NavigationToolbar: React.FC<NavigationToolbarProps> = ({
     { id: 'employer_signup', label: '5. Employer Signup' },
     { id: 'otp_verify', label: '6. OTP Verification' },
     { id: 'forgot_password', label: '7. Forgot Password' },
-    { id: 'main_app', label: `8. App Workspace (${currentRole === 'seeker' ? 'Seeker' : 'Employer'})` },
+    { id: 'reset_password', label: '8. Reset Password' },
+    { id: 'seeker_onboarding_step1', label: '9. Seeker Onboard (Step 1)' },
+    { id: 'seeker_onboarding_step2', label: '10. Seeker Onboard (Step 2)' },
+    { id: 'main_app', label: `11. App Workspace (${currentRole === 'seeker' ? 'Seeker' : 'Employer'})` },
   ];
 
   return (

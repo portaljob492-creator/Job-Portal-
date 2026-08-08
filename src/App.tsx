@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile } from './types';
-import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS } from './data/mockData';
+import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile, Conversation, ChatMessage, JobAlertNotification } from './types';
+import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERSATIONS, INITIAL_MESSAGES, INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from './data/mockData';
+import { processNewJobForAlerts } from './utils/jobAlertMatcher';
 
 // Component imports
 import { WelcomeScreen } from './components/auth/WelcomeScreen';
@@ -10,6 +11,9 @@ import { EmployerSignupScreen } from './components/auth/EmployerSignupScreen';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { OtpVerifyScreen } from './components/auth/OtpVerifyScreen';
 import { ForgotPasswordScreen } from './components/auth/ForgotPasswordScreen';
+import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
+import { SeekerOnboardingStep1Screen } from './components/seeker/SeekerOnboardingStep1Screen';
+import { SeekerOnboardingStep2Screen } from './components/seeker/SeekerOnboardingStep2Screen';
 import { JobSeekerWorkspace } from './components/seeker/JobSeekerWorkspace';
 import { EmployerWorkspace } from './components/employer/EmployerWorkspace';
 import { NavigationToolbar } from './components/NavigationToolbar';
@@ -22,6 +26,9 @@ export default function App() {
   const [jobs, setJobs] = useState<JobPosting[]>(INITIAL_JOBS);
   const [applications, setApplications] = useState<Application[]>(INITIAL_APPLICATIONS);
   const [applicants, setApplicants] = useState<Applicant[]>(INITIAL_APPLICANTS);
+  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
+  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+  const [jobAlerts, setJobAlerts] = useState<JobAlertNotification[]>(INITIAL_JOB_ALERTS);
 
   const [userProfile, setUserProfile] = useState<UserProfile>({
     name: 'Jane Doe',
@@ -32,6 +39,8 @@ export default function App() {
     contactPerson: 'Sarah Jenkins',
     licenseNumber: 'CA-COS-889124',
     specialties: ['Balayage', 'Color Specialist', 'Facials'],
+    portfolioItems: INITIAL_PORTFOLIO_ITEMS,
+    savedFilters: INITIAL_SAVED_FILTERS,
   });
 
   // Handlers
@@ -76,7 +85,11 @@ export default function App() {
   };
 
   const handleOtpVerified = () => {
-    setScreen('main_app');
+    if (userRole === 'seeker') {
+      setScreen('seeker_onboarding_step1');
+    } else {
+      setScreen('main_app');
+    }
   };
 
   const handleToggleBookmark = (jobId: string) => {
@@ -122,6 +135,26 @@ export default function App() {
 
   const handleAddJob = (newJob: JobPosting) => {
     setJobs((prev) => [newJob, ...prev]);
+
+    // Push notification alert engine: Check matches against user's saved search filters
+    const matchedAlerts = processNewJobForAlerts(newJob, userProfile.savedFilters || INITIAL_SAVED_FILTERS);
+    if (matchedAlerts.length > 0) {
+      setJobAlerts((prev) => [...matchedAlerts, ...prev]);
+    }
+  };
+
+  const handleMarkAlertRead = (alertId: string) => {
+    setJobAlerts((prev) =>
+      prev.map((a) => (a.id === alertId ? { ...a, isRead: true } : a))
+    );
+  };
+
+  const handleMarkAllAlertsRead = () => {
+    setJobAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
+  };
+
+  const handleClearAlert = (alertId: string) => {
+    setJobAlerts((prev) => prev.filter((a) => a.id !== alertId));
   };
 
   const handleUpdateApplicantStatus = (applicantId: string, status: Applicant['status']) => {
@@ -146,6 +179,73 @@ export default function App() {
         return app;
       })
     );
+  };
+
+  const handleSendMessage = (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => {
+    const newMsg: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      conversationId,
+      senderRole: userRole,
+      senderName: userRole === 'seeker' ? userProfile.name : (userProfile.businessName || userProfile.name),
+      senderAvatar: userProfile.avatarUrl,
+      text,
+      timestamp: 'Just now',
+      attachment
+    };
+
+    setMessages((prev) => [...prev, newMsg]);
+
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id === conversationId) {
+          return {
+            ...c,
+            lastMessage: text || (attachment ? `Sent an attachment: ${attachment.name}` : ''),
+            lastMessageTime: 'Just now',
+            unreadCountSeeker: userRole === 'employer' ? c.unreadCountSeeker + 1 : c.unreadCountSeeker,
+            unreadCountEmployer: userRole === 'seeker' ? c.unreadCountEmployer + 1 : c.unreadCountEmployer
+          };
+        }
+        return c;
+      })
+    );
+  };
+
+  const handleStartConversation = (jobId: string, targetSeekerName?: string, targetSalonName?: string): string => {
+    const job = jobs.find((j) => j.id === jobId);
+
+    // Look for existing conversation
+    const existing = conversations.find((c) => {
+      if (userRole === 'seeker') {
+        return c.jobId === jobId && (c.salonName === (targetSalonName || job?.salonName));
+      } else {
+        return c.jobId === jobId && c.seekerName === targetSeekerName;
+      }
+    });
+
+    if (existing) {
+      return existing.id;
+    }
+
+    const newConvId = `conv-${Date.now()}`;
+    const newConv: Conversation = {
+      id: newConvId,
+      jobId,
+      jobTitle: job?.title || 'Beauty Position',
+      salonName: targetSalonName || job?.salonName || 'Beauty Group',
+      salonLogo: job?.salonLogo,
+      seekerName: targetSeekerName || userProfile.name,
+      seekerEmail: userProfile.email,
+      employerName: `${job?.salonName || 'Salon'} Director`,
+      lastMessage: 'Conversation started',
+      lastMessageTime: 'Just now',
+      unreadCountSeeker: 0,
+      unreadCountEmployer: 0,
+      status: 'Inquiry'
+    };
+
+    setConversations((prev) => [newConv, ...prev]);
+    return newConvId;
   };
 
   const handleQuickDemo = (role: UserRole) => {
@@ -208,18 +308,71 @@ export default function App() {
         />
       )}
 
-      {/* SCREEN 6: OTP VERIFY */}
+      {/* SCREEN 6 & 07: OTP VERIFICATION */}
       {screen === 'otp_verify' && (
         <OtpVerifyScreen
           email={userProfile.email}
+          phone="(555) 000-1234"
           onVerify={handleOtpVerified}
           onBack={() => setScreen('login')}
+          onChangeContact={() => setScreen('seeker_signup')}
         />
       )}
 
-      {/* SCREEN 7: FORGOT PASSWORD */}
+      {/* SCREEN 08: FORGOT PASSWORD */}
       {screen === 'forgot_password' && (
-        <ForgotPasswordScreen onBackToLogin={() => setScreen('login')} />
+        <ForgotPasswordScreen
+          onBackToLogin={() => setScreen('login')}
+          onNavigateToResetPassword={() => setScreen('reset_password')}
+        />
+      )}
+
+      {/* SCREEN 09: RESET PASSWORD */}
+      {screen === 'reset_password' && (
+        <ResetPasswordScreen
+          onBackToLogin={() => setScreen('login')}
+          onSuccessLogin={() => setScreen('login')}
+        />
+      )}
+
+      {/* SCREEN 10: JOB SEEKER ONBOARDING STEP 1 */}
+      {screen === 'seeker_onboarding_step1' && (
+        <SeekerOnboardingStep1Screen
+          initialData={{
+            fullName: userProfile.name,
+            email: userProfile.email,
+            mobile: userProfile.phone,
+            avatarUrl: userProfile.avatarUrl,
+          }}
+          onBack={() => setScreen('otp_verify')}
+          onNext={(stepData) => {
+            setUserProfile((prev) => ({
+              ...prev,
+              name: stepData.fullName || prev.name,
+              email: stepData.email || prev.email,
+              phone: stepData.mobile || prev.phone,
+              avatarUrl: stepData.avatarUrl || prev.avatarUrl,
+            }));
+            setScreen('seeker_onboarding_step2');
+          }}
+        />
+      )}
+
+      {/* SCREEN 11: JOB SEEKER ONBOARDING STEP 2 */}
+      {screen === 'seeker_onboarding_step2' && (
+        <SeekerOnboardingStep2Screen
+          initialRoles={userProfile.primaryRole ? [userProfile.primaryRole] : ['Makeup Artist', 'Skin Therapist']}
+          onBack={() => setScreen('seeker_onboarding_step1')}
+          onNext={(selectedRoles) => {
+            if (selectedRoles.length > 0) {
+              setUserProfile((prev) => ({
+                ...prev,
+                primaryRole: selectedRoles[0],
+              }));
+            }
+            setScreen('main_app');
+          }}
+        />
       )}
 
       {/* SCREEN 8: MAIN WORKSPACE */}
@@ -229,10 +382,18 @@ export default function App() {
             <JobSeekerWorkspace
               jobs={jobs}
               applications={applications}
+              conversations={conversations}
+              messages={messages}
               userProfile={userProfile}
+              jobAlerts={jobAlerts}
               onToggleBookmark={handleToggleBookmark}
               onApplyJob={handleApplyJob}
+              onSendMessage={handleSendMessage}
+              onStartConversation={handleStartConversation}
               onUpdateAvatar={(url) => setUserProfile((prev) => ({ ...prev, avatarUrl: url }))}
+              onMarkAlertRead={handleMarkAlertRead}
+              onMarkAllAlertsRead={handleMarkAllAlertsRead}
+              onClearAlert={handleClearAlert}
               onSwitchRole={() => {
                 setUserRole('employer');
                 setUserProfile((prev) => ({ ...prev, role: 'employer' }));
@@ -243,9 +404,13 @@ export default function App() {
             <EmployerWorkspace
               jobs={jobs}
               applicants={applicants}
+              conversations={conversations}
+              messages={messages}
               userProfile={userProfile}
               onAddJob={handleAddJob}
               onUpdateApplicantStatus={handleUpdateApplicantStatus}
+              onSendMessage={handleSendMessage}
+              onStartConversation={handleStartConversation}
               onUpdateAvatar={(url) => setUserProfile((prev) => ({ ...prev, avatarUrl: url }))}
               onSwitchRole={() => {
                 setUserRole('seeker');

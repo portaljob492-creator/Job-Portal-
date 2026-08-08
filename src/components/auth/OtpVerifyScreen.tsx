@@ -1,39 +1,82 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, AlertCircle, RefreshCw, Mail, Phone, Edit2 } from 'lucide-react';
 
 interface OtpVerifyScreenProps {
   email?: string;
+  phone?: string;
   onVerify: () => void;
   onBack: () => void;
+  onChangeContact?: () => void;
 }
 
+export type VerificationState = 'idle' | 'sending' | 'resent' | 'wrong_code' | 'expired_code' | 'success' | 'failed';
+
 export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
-  email = 'your email',
+  email = 'jane@example.com',
+  phone = '(555) 000-1234',
   onVerify,
   onBack,
+  onChangeContact,
 }) => {
-  const [digits, setDigits] = useState<string[]>(['1', '2', '3', '4']);
+  const [digits, setDigits] = useState<string[]>(['1', '2', '3', '4', '5', '6']);
+  const [statusState, setStatusState] = useState<VerificationState>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [activeDestination, setActiveDestination] = useState<'email' | 'phone'>('email');
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  // Mask email or mobile number helper
+  const maskDestination = () => {
+    if (activeDestination === 'email') {
+      if (!email.includes('@')) return email;
+      const [name, domain] = email.split('@');
+      const visibleChars = Math.min(2, name.length);
+      const maskedName = name.slice(0, visibleChars) + '****';
+      return `${maskedName}@${domain}`;
+    } else {
+      // Phone masking
+      const cleaned = phone.replace(/\D/g, '');
+      if (cleaned.length >= 10) {
+        const last4 = cleaned.slice(-4);
+        return `(${cleaned.slice(0, 3)}) ***-**${last4.slice(-2)}`;
+      }
+      return phone;
+    }
+  };
+
   useEffect(() => {
-    // Focus first input on mount
     if (inputRefs.current[0]) {
       inputRefs.current[0].focus();
     }
   }, []);
 
   const handleChange = (index: number, value: string) => {
+    // Handle pasting a 6-digit code
     if (value.length > 1) {
-      value = value.slice(-1);
+      const pastedDigits = value.replace(/\D/g, '').slice(0, 6).split('');
+      const newDigits = [...digits];
+      pastedDigits.forEach((d, i) => {
+        if (i < 6) newDigits[i] = d;
+      });
+      setDigits(newDigits);
+      const nextFocus = Math.min(pastedDigits.length, 5);
+      inputRefs.current[nextFocus]?.focus();
+      return;
     }
 
+    const cleanValue = value.replace(/\D/g, '');
     const newDigits = [...digits];
-    newDigits[index] = value;
+    newDigits[index] = cleanValue;
     setDigits(newDigits);
 
+    // Reset error when user edits
+    if (statusState === 'wrong_code' || statusState === 'expired_code' || statusState === 'failed') {
+      setStatusState('idle');
+      setErrorMessage(null);
+    }
+
     // Auto advance focus
-    if (value && index < 3 && inputRefs.current[index + 1]) {
+    if (cleanValue && index < 5 && inputRefs.current[index + 1]) {
       inputRefs.current[index + 1]?.focus();
     }
   };
@@ -45,86 +88,313 @@ export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
   };
 
   const handleResend = () => {
-    setResendMessage('Verification code resent! Please check your inbox.');
-    setTimeout(() => setResendMessage(null), 4000);
+    setStatusState('sending');
+    setErrorMessage(null);
+    
+    setTimeout(() => {
+      setStatusState('resent');
+      setResendMessage(`A new verification code has been sent to ${maskDestination()}`);
+      setTimeout(() => setResendMessage(null), 5000);
+    }, 1200);
   };
 
   const handleVerifySubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onVerify();
+    const code = digits.join('');
+
+    if (code.length < 6) {
+      setStatusState('wrong_code');
+      setErrorMessage('Please enter all 6 digits of your verification code.');
+      return;
+    }
+
+    setStatusState('sending');
+    setErrorMessage(null);
+
+    // Simulation logic based on test inputs
+    setTimeout(() => {
+      if (code === '000000') {
+        setStatusState('expired_code');
+        setErrorMessage('This verification code has expired. Please click "Resend Code" to get a new one.');
+      } else if (code === '999999') {
+        setStatusState('failed');
+        setErrorMessage('Verification failed due to a network connection issue. Please check your signal and try again.');
+      } else if (code === '111111') {
+        setStatusState('wrong_code');
+        setErrorMessage('Incorrect verification code. Please check your inbox and try again.');
+      } else {
+        setStatusState('success');
+        setTimeout(() => {
+          onVerify();
+        }, 1200);
+      }
+    }, 1200);
   };
 
   return (
     <div className="bg-[#fdf8f8] text-[#1c1b1b] min-h-screen flex flex-col antialiased">
       {/* Header */}
-      <header className="bg-white shadow-[0_4px_12px_rgba(90,63,71,0.05)] sticky top-0 z-50 flex justify-between items-center px-5 h-16 w-full">
+      <header className="bg-white shadow-[0_4px_12px_rgba(90,63,71,0.05)] sticky top-0 z-50 flex justify-between items-center px-5 h-16 w-full border-b border-[#e6e1e1]">
         <button
           type="button"
           onClick={onBack}
           aria-label="Go back"
-          className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full cursor-pointer"
+          className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
         >
           <ArrowLeft className="w-5 h-5" />
+          <span className="hidden sm:inline">Back</span>
         </button>
-        <h1 className="font-bold text-xl text-[#8e004b]">Nexora Jobs</h1>
-        <div className="w-9" />
+        <div className="flex items-center gap-2">
+          <h1 className="font-bold text-xl text-[#8e004b]">Nexora Jobs</h1>
+          <span className="text-[10px] font-extrabold uppercase tracking-wider bg-[#ffd9e2] text-[#8e004b] px-2 py-0.5 rounded-full">
+            Route: /app/jobs/verify
+          </span>
+        </div>
+        <div className="w-16" />
       </header>
 
       {/* Main Content */}
-      <main className="flex-grow flex flex-col justify-center items-center px-5 py-8">
-        <div className="w-full max-w-md bg-white border border-[#e8e8e8] rounded-2xl shadow-[0_4px_16px_rgba(90,63,71,0.06)] p-6 md:p-8">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold text-[#1c1b1b] mb-2">
-              Verify Account
+      <main className="flex-grow flex flex-col justify-center items-center px-4 py-8">
+        <div className="w-full max-w-md bg-white border border-[#e0bec6] rounded-2xl shadow-[0_4px_20px_rgba(90,63,71,0.08)] p-6 sm:p-8">
+          
+          {/* Title & Masked Destination */}
+          <div className="text-center mb-6">
+            <h2 className="text-2xl font-extrabold text-[#1c1b1b] mb-2 tracking-tight">
+              Verify your account
             </h2>
-            <p className="text-sm text-[#594047]">
-              We sent a 4-digit code to <span className="font-medium text-[#1c1b1b]">{email}</span>.
+            <p className="text-sm text-[#594047] leading-relaxed">
+              We sent a verification code to{' '}
+              <span className="font-bold text-[#8e004b] underline decoration-[#e2007c]/30">
+                {maskDestination()}
+              </span>
             </p>
+
+            {/* Toggle destination channel (Email / Mobile) */}
+            <div className="mt-3 inline-flex items-center gap-1.5 p-1 bg-[#f1edec] rounded-xl border border-[#e0bec6]/60 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setActiveDestination('email')}
+                className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                  activeDestination === 'email'
+                    ? 'bg-white text-[#8e004b] shadow-xs font-bold'
+                    : 'text-[#8c7077] hover:text-[#1c1b1b]'
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Email</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveDestination('phone')}
+                className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                  activeDestination === 'phone'
+                    ? 'bg-white text-[#8e004b] shadow-xs font-bold'
+                    : 'text-[#8c7077] hover:text-[#1c1b1b]'
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Mobile</span>
+              </button>
+            </div>
           </div>
 
-          <form onSubmit={handleVerifySubmit} className="flex flex-col gap-8">
-            {/* OTP Inputs */}
-            <div className="flex justify-center gap-3">
-              {[0, 1, 2, 3].map((index) => (
-                <input
-                  key={index}
-                  ref={(el) => (inputRefs.current[index] = el)}
-                  type="text"
-                  maxLength={1}
-                  value={digits[index]}
-                  onChange={(e) => handleChange(index, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(index, e)}
-                  aria-label={`Digit ${index + 1}`}
-                  className="w-14 h-16 text-center text-2xl font-bold bg-[#fdf8f8] border-0 ring-1 ring-[#e0bec6] rounded-xl focus:ring-2 focus:ring-[#8e004b] focus:bg-white transition-all outline-none"
-                />
-              ))}
+          {/* Form */}
+          <form onSubmit={handleVerifySubmit} className="flex flex-col gap-6">
+            {/* 6-Digit Code Input UI */}
+            <div>
+              <label className="block text-center text-xs font-bold text-[#8c7077] uppercase tracking-wider mb-2">
+                Enter 6-Digit Code
+              </label>
+              <div className="grid grid-cols-6 gap-1.5 sm:gap-2">
+                {[0, 1, 2, 3, 4, 5].map((index) => (
+                  <input
+                    key={index}
+                    ref={(el) => (inputRefs.current[index] = el)}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digits[index]}
+                    disabled={statusState === 'sending' || statusState === 'success'}
+                    onChange={(e) => handleChange(index, e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(index, e)}
+                    aria-label={`Digit ${index + 1}`}
+                    className={`w-full h-13 sm:h-14 text-center text-xl font-extrabold rounded-xl border transition-all outline-none ${
+                      statusState === 'wrong_code' || statusState === 'expired_code' || statusState === 'failed'
+                        ? 'bg-rose-50 border-rose-400 text-rose-700 ring-1 ring-rose-300'
+                        : statusState === 'success'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-700 ring-1 ring-emerald-300'
+                        : 'bg-[#fdf8f8] border-[#e0bec6] text-[#1c1b1b] focus:ring-2 focus:ring-[#8e004b] focus:bg-white'
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
 
+            {/* Error / Status Alert State Messages */}
+            {statusState === 'wrong_code' && (
+              <div className="flex items-start gap-2.5 p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-medium animate-shake">
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Wrong Code</span>
+                  <span>{errorMessage || 'The code you entered is incorrect. Please try again.'}</span>
+                </div>
+              </div>
+            )}
+
+            {statusState === 'expired_code' && (
+              <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs font-medium">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <span className="font-bold block">Expired Code</span>
+                  <span>{errorMessage}</span>
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    className="mt-1 text-xs font-bold text-[#8e004b] underline block hover:text-[#e2007c] cursor-pointer"
+                  >
+                    Resend Code Now
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {statusState === 'failed' && (
+              <div className="flex items-start gap-2.5 p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-medium">
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Verification Failed</span>
+                  <span>{errorMessage}</span>
+                </div>
+              </div>
+            )}
+
             {resendMessage && (
-              <div className="flex items-center gap-2 p-3 bg-[#ffd9e2]/50 text-[#8e004b] rounded-lg text-xs font-medium justify-center animate-fade-in">
-                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              <div className="flex items-center gap-2 p-3 bg-[#ffd9e2] text-[#8e004b] rounded-xl text-xs font-semibold justify-center border border-[#8e004b]/20">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-[#e2007c]" />
                 <span>{resendMessage}</span>
               </div>
             )}
 
-            {/* Actions */}
-            <div className="flex flex-col gap-3">
+            {statusState === 'success' && (
+              <div className="flex items-center gap-2 p-3 bg-emerald-100 text-emerald-900 rounded-xl text-xs font-extrabold justify-center border border-emerald-300">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                <span>Verification Success! Redirecting...</span>
+              </div>
+            )}
+
+            {/* CTA Button */}
+            <button
+              type="submit"
+              disabled={statusState === 'sending' || statusState === 'success'}
+              className={`w-full h-12 rounded-full text-base font-extrabold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
+                statusState === 'sending'
+                  ? 'bg-[#8e004b]/70 text-white cursor-wait'
+                  : statusState === 'success'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-[#e2007c] hover:bg-[#8e004b] text-white active:scale-95'
+              }`}
+            >
+              {statusState === 'sending' ? (
+                <>
+                  <RefreshCw className="w-5 h-5 animate-spin text-white" />
+                  <span>Verifying...</span>
+                </>
+              ) : statusState === 'success' ? (
+                <span>Verified ✓</span>
+              ) : (
+                <span>Verify</span>
+              )}
+            </button>
+
+            {/* Links */}
+            <div className="flex items-center justify-between pt-2 border-t border-[#e6e1e1] text-xs font-bold">
               <button
-                type="submit"
-                className="w-full h-12 bg-[#e2007c] text-white rounded-full text-base font-semibold hover:bg-[#8e004b] transition-all active:scale-95 shadow-md cursor-pointer"
+                type="button"
+                onClick={handleResend}
+                disabled={statusState === 'sending'}
+                className="text-[#8e004b] hover:text-[#e2007c] hover:underline transition-colors cursor-pointer flex items-center gap-1"
               >
-                Verify
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Resend Code</span>
               </button>
 
               <button
                 type="button"
-                onClick={handleResend}
-                className="text-xs font-medium text-[#8e004b] hover:text-[#b50062] transition-colors text-center py-1 cursor-pointer"
+                onClick={() => {
+                  if (onChangeContact) onChangeContact();
+                  else onBack();
+                }}
+                className="text-[#594047] hover:text-[#1c1b1b] hover:underline transition-colors cursor-pointer flex items-center gap-1"
               >
-                Resend Code
+                <Edit2 className="w-3.5 h-3.5 text-[#8e004b]" />
+                <span>Change Email / Mobile</span>
               </button>
             </div>
           </form>
+
+          {/* Quick State Simulation Switcher (for testing all states) */}
+          <div className="mt-8 pt-4 border-t border-dashed border-[#e0bec6] bg-[#f8f4f4] rounded-xl p-3">
+            <span className="block text-[10px] font-extrabold text-[#8c7077] uppercase tracking-wider text-center mb-2">
+              🧪 State Simulation Switcher (Test Screen 07 States)
+            </span>
+            <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusState('wrong_code');
+                  setErrorMessage('Wrong code entered (e.g. 111111)');
+                }}
+                className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-lg font-bold cursor-pointer"
+              >
+                Wrong Code
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusState('expired_code');
+                  setErrorMessage('Verification code has expired (e.g. 000000)');
+                }}
+                className="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg font-bold cursor-pointer"
+              >
+                Expired Code
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusState('sending');
+                  setTimeout(() => setStatusState('idle'), 1500);
+                }}
+                className="p-1.5 bg-purple-100 hover:bg-purple-200 text-purple-900 rounded-lg font-bold cursor-pointer"
+              >
+                Sending State
+              </button>
+              <button
+                type="button"
+                onClick={handleResend}
+                className="p-1.5 bg-pink-100 hover:bg-pink-200 text-[#8e004b] rounded-lg font-bold cursor-pointer"
+              >
+                Resent
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusState('success')}
+                className="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 rounded-lg font-bold cursor-pointer"
+              >
+                Success
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusState('failed');
+                  setErrorMessage('Verification failed due to server error.');
+                }}
+                className="p-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-bold cursor-pointer"
+              >
+                Failed
+              </button>
+            </div>
+          </div>
+
         </div>
       </main>
     </div>

@@ -8,6 +8,9 @@ export type ScreenState =
   | 'login' 
   | 'otp_verify' 
   | 'forgot_password' 
+  | 'reset_password' 
+  | 'seeker_onboarding_step1'
+  | 'seeker_onboarding_step2'
   | 'main_app';
 
 export interface JobPosting {
@@ -60,6 +63,83 @@ export interface Applicant {
   portfolioUrl?: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderRole: UserRole;
+  senderName: string;
+  senderAvatar?: string;
+  text: string;
+  timestamp: string;
+  isRead?: boolean;
+  attachment?: {
+    name: string;
+    url: string;
+    type: 'image' | 'file';
+  };
+}
+
+export interface Conversation {
+  id: string;
+  jobId: string;
+  jobTitle: string;
+  salonName: string;
+  salonLogo?: string;
+  seekerName: string;
+  seekerAvatar?: string;
+  seekerEmail?: string;
+  employerName: string;
+  employerAvatar?: string;
+  lastMessage: string;
+  lastMessageTime: string;
+  unreadCountSeeker: number;
+  unreadCountEmployer: number;
+  status?: 'Inquiry' | 'Interview Requested' | 'Offer Extended' | 'Archived';
+}
+
+export interface PortfolioItem {
+  id: string;
+  title: string;
+  category: 'Hair' | 'Skin' | 'Makeup' | 'Nails' | 'Barber' | 'Other';
+  imageUrl: string;
+  description?: string;
+  technique?: string;
+  date?: string;
+  isPlaceholder?: boolean;
+}
+
+export interface SavedFilter {
+  id: string;
+  name: string;
+  searchQuery?: string;
+  category?: string;
+  location?: string;
+  jobType?: string;
+  salary?: string;
+  tag?: string;
+  sortBy?: 'relevant' | 'salary_high' | 'rating_high' | 'newest';
+  createdAt?: string;
+  notifyPush?: boolean;
+  notifyEmail?: boolean;
+  notifyInApp?: boolean;
+  matchFrequency?: 'Instant' | 'Daily' | 'Weekly';
+  lastMatchCount?: number;
+}
+
+export interface JobAlertNotification {
+  id: string;
+  savedFilterId: string;
+  savedFilterName: string;
+  jobId: string;
+  jobTitle: string;
+  salonName: string;
+  location: string;
+  salary: string;
+  category: string;
+  matchedAt: string;
+  isRead: boolean;
+}
+
 export interface UserProfile {
   name: string;
   email: string;
@@ -71,4 +151,6 @@ export interface UserProfile {
   licenseNumber?: string;
   specialties?: string[];
   bio?: string;
+  portfolioItems?: PortfolioItem[];
+  savedFilters?: SavedFilter[];
 }

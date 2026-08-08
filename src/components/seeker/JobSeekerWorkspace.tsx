@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
-import { JobPosting, Application, UserProfile } from '../../types';
+import { JobPosting, Application, UserProfile, Conversation, ChatMessage, PortfolioItem, SavedFilter, JobAlertNotification } from '../../types';
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
+import { MessagingCenter } from '../messaging/MessagingCenter';
+import { PortfolioGallery } from '../profile/PortfolioGallery';
+import { INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from '../../data/mockData';
+import { processNewJobForAlerts } from '../../utils/jobAlertMatcher';
 import {
   Search,
   MapPin,
   Bookmark,
   BookmarkCheck,
+  BookmarkPlus,
   Briefcase,
   Star,
   Clock,
@@ -28,16 +33,34 @@ import {
   ArrowUpDown,
   Tag,
   RotateCcw,
-  Camera
+  Camera,
+  MessageSquare,
+  Trash2,
+  Bell,
+  BellRing,
+  CheckCheck,
+  Volume2,
+  Smartphone,
+  Mail,
+  Radio,
+  Upload
 } from 'lucide-react';
 
 interface JobSeekerWorkspaceProps {
   jobs: JobPosting[];
   applications: Application[];
+  conversations?: Conversation[];
+  messages?: ChatMessage[];
   userProfile: UserProfile;
+  jobAlerts?: JobAlertNotification[];
   onToggleBookmark: (jobId: string) => void;
   onApplyJob: (job: JobPosting, coverNote: string) => void;
+  onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
+  onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
+  onMarkAlertRead?: (alertId: string) => void;
+  onMarkAllAlertsRead?: () => void;
+  onClearAlert?: (alertId: string) => void;
   onSwitchRole: () => void;
   onLogout: () => void;
 }
@@ -45,15 +68,34 @@ interface JobSeekerWorkspaceProps {
 export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   jobs,
   applications,
+  conversations = [],
+  messages = [],
   userProfile,
+  jobAlerts = INITIAL_JOB_ALERTS,
   onToggleBookmark,
   onApplyJob,
+  onSendMessage,
+  onStartConversation,
   onUpdateAvatar,
+  onMarkAlertRead,
+  onMarkAllAlertsRead,
+  onClearAlert,
   onSwitchRole,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<'feed' | 'applications' | 'saved' | 'profile'>('feed');
+  const [activeTab, setActiveTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile'>('feed');
+  const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
+  const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>(
+    userProfile.portfolioItems || INITIAL_PORTFOLIO_ITEMS
+  );
+  const [workspaceResumeName, setWorkspaceResumeName] = useState<string>('Jane_Doe_Beauty_CV_2026.pdf');
+  
+  // Job Alerts Push Notification State
+  const [alertsList, setAlertsList] = useState<JobAlertNotification[]>(jobAlerts);
+  const [showNotificationDrawer, setShowNotificationDrawer] = useState<boolean>(false);
+  const [pushEnabled, setPushEnabled] = useState<boolean>(true);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   
   // Filter & Search States
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -63,6 +105,146 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const [salaryFilter, setSalaryFilter] = useState<string>('All Salaries');
   const [selectedTag, setSelectedTag] = useState<string>('All Perks');
   const [sortBy, setSortBy] = useState<'relevant' | 'salary_high' | 'rating_high' | 'newest'>('relevant');
+
+  // Saved Search Filters State
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(
+    userProfile.savedFilters || INITIAL_SAVED_FILTERS
+  );
+  const [showSaveFilterModal, setShowSaveFilterModal] = useState<boolean>(false);
+  const [newFilterNameInput, setNewFilterNameInput] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 3500);
+  };
+
+  const unreadAlertsCount = alertsList.filter((a) => !a.isRead).length;
+
+  const handleMarkSingleRead = (alertId: string) => {
+    setAlertsList((prev) =>
+      prev.map((a) => (a.id === alertId ? { ...a, isRead: true } : a))
+    );
+    if (onMarkAlertRead) onMarkAlertRead(alertId);
+  };
+
+  const handleMarkAllRead = () => {
+    setAlertsList((prev) => prev.map((a) => ({ ...a, isRead: true })));
+    if (onMarkAllAlertsRead) onMarkAllAlertsRead();
+    showToast('All job match alerts marked as read');
+  };
+
+  const handleDeleteAlert = (alertId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setAlertsList((prev) => prev.filter((a) => a.id !== alertId));
+    if (onClearAlert) onClearAlert(alertId);
+    showToast('Match notification removed');
+  };
+
+  const handleToggleFilterNotification = (filterId: string, channel: 'push' | 'email' | 'inApp') => {
+    setSavedFilters((prev) =>
+      prev.map((sf) => {
+        if (sf.id === filterId) {
+          if (channel === 'push') return { ...sf, notifyPush: !sf.notifyPush };
+          if (channel === 'email') return { ...sf, notifyEmail: !sf.notifyEmail };
+          if (channel === 'inApp') return { ...sf, notifyInApp: !sf.notifyInApp };
+        }
+        return sf;
+      })
+    );
+    showToast('Notification preference updated');
+  };
+
+  // Live Push Alert Simulation Engine Trigger
+  const handleSimulateNewMatchAlert = () => {
+    const targetFilter = savedFilters[0] || INITIAL_SAVED_FILTERS[0];
+    const simulatedJob: JobPosting = {
+      id: `job-sim-${Date.now()}`,
+      title: 'Lead Colorist & Senior Stylist',
+      salonName: 'Maison de Beauté Beverly Hills',
+      location: 'Beverly Hills, CA',
+      image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=600&q=80',
+      rating: 4.9,
+      reviewsCount: 38,
+      salary: '$85,000 - $120,000/yr',
+      jobType: 'Full-time',
+      category: (targetFilter.category && targetFilter.category !== 'All' ? targetFilter.category : 'Hair') as any,
+      tags: ['Balayage', 'Commission', 'Paid Education', 'Health Benefits'],
+      description: 'Prestigious salon searching for an elite Lead Colorist. High client retention, luxury chair setup.',
+      requirements: ['5+ years salon experience', 'Valid Cosmetology License', 'Balayage Mastery'],
+      benefits: ['Medical & Dental', '401k Matching', '55% Commission Split'],
+      postedDate: 'Just now'
+    };
+
+    const newAlerts = processNewJobForAlerts(simulatedJob, [targetFilter]);
+    if (newAlerts.length > 0) {
+      setAlertsList((prev) => [...newAlerts, ...prev]);
+      showToast(`🔔 Instant Push Alert: New job match for "${targetFilter.name}"!`);
+      setShowNotificationDrawer(true);
+    } else {
+      showToast('Simulated new job posting checked against saved search filters!');
+    }
+  };
+
+  const handleApplySavedFilter = (sf: SavedFilter) => {
+    setSearchQuery(sf.searchQuery || '');
+    setSelectedCategory(sf.category || 'All');
+    setLocationFilter(sf.location || 'All Locations');
+    setJobTypeFilter(sf.jobType || 'All Types');
+    setSalaryFilter(sf.salary || 'All Salaries');
+    setSelectedTag(sf.tag || 'All Perks');
+    if (sf.sortBy) setSortBy(sf.sortBy);
+    showToast(`Re-applied saved search: "${sf.name}"`);
+  };
+
+  const handleOpenSaveModal = () => {
+    let defaultTitle = '';
+    if (searchQuery.trim()) {
+      defaultTitle = `Search: "${searchQuery.trim()}"`;
+    } else if (selectedCategory !== 'All' && locationFilter !== 'All Locations') {
+      defaultTitle = `${selectedCategory} in ${locationFilter.split(',')[0]}`;
+    } else if (selectedCategory !== 'All') {
+      defaultTitle = `${selectedCategory} Positions`;
+    } else if (locationFilter !== 'All Locations') {
+      defaultTitle = `Jobs in ${locationFilter.split(',')[0]}`;
+    } else if (jobTypeFilter !== 'All Types') {
+      defaultTitle = `${jobTypeFilter} Jobs`;
+    } else {
+      defaultTitle = 'My Preferred Beauty Search';
+    }
+    setNewFilterNameInput(defaultTitle);
+    setShowSaveFilterModal(true);
+  };
+
+  const handleSaveCurrentFilter = () => {
+    if (!newFilterNameInput.trim()) return;
+    const newFilter: SavedFilter = {
+      id: `sf-${Date.now()}`,
+      name: newFilterNameInput.trim(),
+      searchQuery,
+      category: selectedCategory,
+      location: locationFilter,
+      jobType: jobTypeFilter,
+      salary: salaryFilter,
+      tag: selectedTag,
+      sortBy,
+      createdAt: 'Just Now'
+    };
+    setSavedFilters([newFilter, ...savedFilters]);
+    setShowSaveFilterModal(false);
+    showToast(`Saved search filter "${newFilter.name}" to your profile!`);
+  };
+
+  const handleDeleteSavedFilter = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const filter = savedFilters.find((f) => f.id === id);
+    setSavedFilters(savedFilters.filter((f) => f.id !== id));
+    if (filter) {
+      showToast(`Removed "${filter.name}" from saved searches.`);
+    }
+  };
 
   const [selectedJob, setSelectedJob] = useState<JobPosting | null>(null);
   
@@ -248,8 +430,22 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             )}
           </div>
 
-          {/* User Profile & Role Switch */}
-          <div className="flex items-center gap-3">
+          {/* User Profile & Push Notification Alerts */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Job Match Notification Bell Button */}
+            <button
+              onClick={() => setShowNotificationDrawer(true)}
+              title="Job Search Match Alerts & Push Notifications"
+              className="relative p-2 text-[#594047] hover:text-[#8e004b] hover:bg-[#e6e1e1] rounded-full transition-colors cursor-pointer"
+            >
+              <Bell className="w-5 h-5 text-[#8e004b]" />
+              {unreadAlertsCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#e2007c] text-white text-[10px] font-extrabold rounded-full flex items-center justify-center animate-pulse shadow-xs">
+                  {unreadAlertsCount}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={onSwitchRole}
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ffd9e2] text-[#8e004b] text-xs font-semibold hover:bg-[#ffb0c8] transition-colors cursor-pointer"
@@ -362,6 +558,38 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('messages')}
+              className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'messages'
+                  ? 'bg-[#8e004b] text-white shadow-sm'
+                  : 'bg-white text-[#594047] hover:bg-[#f7f2f2] border border-[#e0bec6]/40'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>Messages</span>
+              {conversations.reduce((acc, c) => acc + (c.unreadCountSeeker || 0), 0) > 0 && (
+                <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-[#e2007c] text-white font-bold animate-pulse">
+                  {conversations.reduce((acc, c) => acc + (c.unreadCountSeeker || 0), 0)}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('portfolio')}
+              className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'portfolio'
+                  ? 'bg-[#8e004b] text-white shadow-sm'
+                  : 'bg-white text-[#594047] hover:bg-[#f7f2f2] border border-[#e0bec6]/40'
+              }`}
+            >
+              <Camera className="w-4 h-4" />
+              <span>Work Portfolio</span>
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-[#ffd9e2] text-[#8e004b] font-bold">
+                {portfolioItems.length}
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('profile')}
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'profile'
@@ -385,6 +613,46 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
         {/* TAB 1: EXPLORE JOBS FEED */}
         {activeTab === 'feed' && (
           <div className="flex flex-col gap-6">
+            {/* Real-Time Job Match Push Alert Banner */}
+            {unreadAlertsCount > 0 && (
+              <div className="bg-gradient-to-r from-[#8e004b] via-[#a30058] to-[#e2007c] text-white rounded-2xl p-4 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-white/20">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 bg-white/15 rounded-xl backdrop-blur-xs flex-shrink-0">
+                    <BellRing className="w-6 h-6 text-amber-300 animate-bounce" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider bg-amber-400 text-black px-2 py-0.5 rounded-md">
+                        {unreadAlertsCount} New Job Match{unreadAlertsCount > 1 ? 'es' : ''}
+                      </span>
+                      <span className="text-[11px] text-white/80">Saved Search Push Alert Engine</span>
+                    </div>
+                    <p className="text-sm font-bold mt-1 leading-snug">
+                      New job matches your filter: "{alertsList[0]?.savedFilterName}"
+                    </p>
+                    <p className="text-xs text-white/90 mt-0.5">
+                      <span className="font-extrabold">{alertsList[0]?.jobTitle}</span> at {alertsList[0]?.salonName} ({alertsList[0]?.location})
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center">
+                  <button
+                    onClick={() => setShowNotificationDrawer(true)}
+                    className="px-4 py-2 bg-white text-[#8e004b] hover:bg-[#ffd9e2] font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    View All Matches ({alertsList.length})
+                  </button>
+                  <button
+                    onClick={handleMarkAllRead}
+                    className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+                    title="Dismiss alert banner"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
             {/* Salon Role Category Tabs */}
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between">
@@ -423,6 +691,63 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                 })}
               </div>
 
+              {/* Quick Re-apply Saved Searches Bar */}
+              {savedFilters.length > 0 && (
+                <div className="bg-[#fdf8f8] p-3 rounded-2xl border border-[#ffd9e2] shadow-2xs flex flex-col gap-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-[#8e004b]">
+                    <div className="flex items-center gap-1.5">
+                      <BookmarkCheck className="w-4 h-4 text-[#e2007c]" />
+                      <span>Saved Search Preferences ({savedFilters.length})</span>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('profile')}
+                      className="text-[11px] font-semibold text-[#8e004b] hover:text-[#e2007c] hover:underline cursor-pointer transition-colors"
+                    >
+                      Manage in Profile &rarr;
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                    {savedFilters.map((sf) => {
+                      const isCurrentlyActive =
+                        (sf.searchQuery || '') === searchQuery &&
+                        (sf.category || 'All') === selectedCategory &&
+                        (sf.location || 'All Locations') === locationFilter &&
+                        (sf.jobType || 'All Types') === jobTypeFilter &&
+                        (sf.salary || 'All Salaries') === salaryFilter &&
+                        (sf.tag || 'All Perks') === selectedTag;
+
+                      return (
+                        <div
+                          key={sf.id}
+                          className={`group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                            isCurrentlyActive
+                              ? 'bg-[#8e004b] text-white border-[#8e004b] shadow-xs'
+                              : 'bg-white text-[#1c1b1b] border-[#e0bec6] hover:border-[#e2007c] hover:bg-[#ffd9e2]/40 shadow-2xs'
+                          }`}
+                          onClick={() => handleApplySavedFilter(sf)}
+                        >
+                          <Sparkles className={`w-3.5 h-3.5 ${isCurrentlyActive ? 'text-amber-300' : 'text-[#e2007c]'}`} />
+                          <span>{sf.name}</span>
+                          <span className={`text-[10px] font-normal ${isCurrentlyActive ? 'text-white/80' : 'text-[#8c7077]'}`}>
+                            ({sf.location !== 'All Locations' ? sf.location.split(',')[0] : sf.category !== 'All' ? sf.category : 'Saved'})
+                          </span>
+                          <button
+                            onClick={(e) => handleDeleteSavedFilter(sf.id, e)}
+                            className={`ml-1 opacity-0 group-hover:opacity-100 p-0.5 rounded-full hover:bg-black/10 transition-opacity ${
+                              isCurrentlyActive ? 'text-white' : 'text-[#8c7077] hover:text-rose-600'
+                            }`}
+                            title="Remove saved search"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Advanced Multi-Facet Filters Panel */}
               <div className="bg-white p-4 rounded-2xl border border-[#e0bec6]/50 shadow-xs flex flex-col gap-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#e0bec6]/30">
@@ -436,18 +761,30 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                     )}
                   </div>
 
-                  {/* Popular quick search triggers */}
-                  <div className="hidden lg:flex items-center gap-1.5 text-[11px]">
-                    <span className="text-[#8c7077] font-medium">Quick keywords:</span>
-                    {['Balayage', 'HydraFacial', 'Chair Rental', 'Manager'].map((kw) => (
-                      <button
-                        key={kw}
-                        onClick={() => setSearchQuery(kw)}
-                        className="px-2 py-0.5 rounded-md bg-[#fdf8f8] hover:bg-[#ffd9e2] text-[#8e004b] font-medium border border-[#e0bec6]/40 cursor-pointer transition-colors"
-                      >
-                        +{kw}
-                      </button>
-                    ))}
+                  <div className="flex items-center gap-2">
+                    {/* Save Current Search Button */}
+                    <button
+                      onClick={handleOpenSaveModal}
+                      className="px-3 py-1 rounded-full bg-[#8e004b] text-white hover:bg-[#b90064] text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                      title="Save current search criteria to profile"
+                    >
+                      <BookmarkPlus className="w-3.5 h-3.5" />
+                      <span>Save Current Search</span>
+                    </button>
+
+                    {/* Popular quick search triggers */}
+                    <div className="hidden lg:flex items-center gap-1.5 text-[11px] ml-2">
+                      <span className="text-[#8c7077] font-medium">Quick:</span>
+                      {['Balayage', 'HydraFacial', 'Chair Rental'].map((kw) => (
+                        <button
+                          key={kw}
+                          onClick={() => setSearchQuery(kw)}
+                          className="px-2 py-0.5 rounded-md bg-[#fdf8f8] hover:bg-[#ffd9e2] text-[#8e004b] font-medium border border-[#e0bec6]/40 cursor-pointer transition-colors"
+                        >
+                          +{kw}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
@@ -884,6 +1221,20 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                           <span>{app.interviewDate}</span>
                         </div>
                       )}
+
+                      <button
+                        onClick={() => {
+                          if (onStartConversation) {
+                            const convId = onStartConversation(app.jobId, userProfile.name, app.salonName);
+                            setActiveConvId(convId);
+                            setActiveTab('messages');
+                          }
+                        }}
+                        className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#ffd9e2] text-[#8e004b] hover:bg-[#ffb0c8] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs mt-1"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Message Salon</span>
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -966,9 +1317,38 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
           </div>
         )}
 
-        {/* TAB 4: BEAUTY PROFILE */}
+        {/* TAB 4: MESSAGING */}
+        {activeTab === 'messages' && (
+          <div className="space-y-6">
+            <MessagingCenter
+              currentRole="seeker"
+              userProfile={userProfile}
+              conversations={conversations}
+              messages={messages}
+              jobs={jobs}
+              activeConversationId={activeConvId}
+              onSelectConversation={(id) => setActiveConvId(id)}
+              onSendMessage={(convId, text, attachment) => {
+                if (onSendMessage) {
+                  onSendMessage(convId, text, attachment);
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {/* TAB 5: WORK PORTFOLIO GALLERY */}
+        {activeTab === 'portfolio' && (
+          <PortfolioGallery
+            items={portfolioItems}
+            onUpdateItems={(newItems) => setPortfolioItems(newItems)}
+            isEditable={true}
+          />
+        )}
+
+        {/* TAB 6: BEAUTY PROFILE */}
         {activeTab === 'profile' && (
-          <div className="max-w-2xl mx-auto space-y-6">
+          <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-[#e0bec6]/40 shadow-sm text-center relative overflow-hidden">
               {/* Profile Avatar Container with Camera Overlay */}
               <div className="relative w-28 h-28 mx-auto mb-4 group">
@@ -1042,6 +1422,224 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                   <ExternalLink className="w-3.5 h-3.5" /> instagram.com/janedoe_hair
                 </a>
               </div>
+            </div>
+
+            {/* RESUME / CV MANAGEMENT CARD */}
+            <div className="bg-white p-6 rounded-2xl border border-[#e0bec6]/40 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-[#e0bec6]/30 pb-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-[#8e004b]" />
+                  <h3 className="text-base font-bold text-[#1c1b1b]">Professional Resume / CV</h3>
+                </div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200">
+                  Ready for Applications
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-[#fdf8f8] rounded-xl border border-[#e0bec6]/60">
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <div className="w-12 h-12 rounded-xl bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <div className="truncate">
+                    <h4 className="text-xs font-extrabold text-[#1c1b1b] truncate">{workspaceResumeName}</h4>
+                    <p className="text-[11px] text-[#594047]">PDF format • Attached automatically to applications</p>
+                  </div>
+                </div>
+
+                <div className="relative w-full sm:w-auto flex-shrink-0">
+                  <button
+                    type="button"
+                    className="w-full sm:w-auto px-4 py-2.5 bg-[#8e004b] hover:bg-[#b90064] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Update Resume / CV</span>
+                  </button>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    aria-label="Update Professional Resume or CV"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setWorkspaceResumeName(file.name);
+                        showToast(`Resume updated: ${file.name}`);
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-[#e0bec6]/40 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#e0bec6]/30">
+                <div>
+                  <h3 className="text-base font-bold text-[#1c1b1b] flex items-center gap-2">
+                    <BookmarkCheck className="w-5 h-5 text-[#8e004b]" />
+                    <span>Saved Search Preferences & Preferred Filters</span>
+                  </h3>
+                  <p className="text-xs text-[#594047] mt-0.5">
+                    Saved search filters linked to your profile to quickly re-apply search settings on future visits.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('feed');
+                    handleOpenSaveModal();
+                  }}
+                  className="px-4 py-2 bg-[#ffd9e2] text-[#8e004b] hover:bg-[#ffb0c8] text-xs font-bold rounded-full transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create New Saved Search</span>
+                </button>
+              </div>
+
+              {savedFilters.length === 0 ? (
+                <div className="p-8 text-center bg-[#fdf8f8] rounded-xl border border-dashed border-[#e0bec6] space-y-2">
+                  <Bookmark className="w-8 h-8 text-[#8e004b] mx-auto opacity-50" />
+                  <p className="text-xs font-bold text-[#1c1b1b]">No saved search filters yet</p>
+                  <p className="text-[11px] text-[#594047]">
+                    Use the filter bar on the Explore Jobs tab or click &apos;Create New Saved Search&apos; to save search queries like &quot;Stylist in LA&quot;.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {savedFilters.map((sf) => (
+                    <div
+                      key={sf.id}
+                      className="p-4 rounded-xl border border-[#e0bec6]/60 bg-[#fdf8f8] hover:border-[#e2007c] transition-all space-y-3 flex flex-col justify-between shadow-2xs"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="text-sm font-bold text-[#1c1b1b] flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-[#e2007c]" />
+                            <span>{sf.name}</span>
+                          </h4>
+                          <button
+                            onClick={(e) => handleDeleteSavedFilter(sf.id, e)}
+                            className="text-[#8c7077] hover:text-rose-600 p-1 cursor-pointer transition-colors"
+                            title="Delete saved filter"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Criteria Badges */}
+                        <div className="flex flex-wrap gap-1.5 mt-2.5">
+                          {sf.searchQuery && (
+                            <span className="px-2 py-0.5 rounded-md bg-[#ffd9e2] text-[#8e004b] text-[10px] font-bold">
+                              Keyword: &quot;{sf.searchQuery}&quot;
+                            </span>
+                          )}
+                          {sf.category && sf.category !== 'All' && (
+                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
+                              Category: {sf.category}
+                            </span>
+                          )}
+                          {sf.location && sf.location !== 'All Locations' && (
+                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
+                              Location: {sf.location}
+                            </span>
+                          )}
+                          {sf.jobType && sf.jobType !== 'All Types' && (
+                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
+                              Type: {sf.jobType}
+                            </span>
+                          )}
+                          {sf.salary && sf.salary !== 'All Salaries' && (
+                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
+                              Salary: {sf.salary}
+                            </span>
+                          )}
+                          {sf.tag && sf.tag !== 'All Perks' && (
+                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
+                              Perk: {sf.tag}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                        {/* Notification Push Preferences Controls */}
+                        <div className="mt-3 pt-2.5 border-t border-[#e0bec6]/30 flex flex-col gap-2 bg-white/70 p-2.5 rounded-xl border border-[#e0bec6]/40">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-[#8e004b] flex items-center gap-1">
+                              <BellRing className="w-3.5 h-3.5" />
+                              <span>Job Match Alert Delivery:</span>
+                            </span>
+                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                              Active Engine
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFilterNotification(sf.id, 'push')}
+                              className={`px-2 py-1.5 rounded-lg border flex items-center justify-center gap-1 font-semibold transition-all cursor-pointer ${
+                                sf.notifyPush !== false
+                                  ? 'bg-[#ffd9e2] text-[#8e004b] border-[#8e004b]'
+                                  : 'bg-gray-50 text-gray-400 border-gray-200'
+                              }`}
+                            >
+                              <Smartphone className="w-3 h-3" />
+                              <span>Push: {sf.notifyPush !== false ? 'ON' : 'OFF'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFilterNotification(sf.id, 'inApp')}
+                              className={`px-2 py-1.5 rounded-lg border flex items-center justify-center gap-1 font-semibold transition-all cursor-pointer ${
+                                sf.notifyInApp !== false
+                                  ? 'bg-[#ffd9e2] text-[#8e004b] border-[#8e004b]'
+                                  : 'bg-gray-50 text-gray-400 border-gray-200'
+                              }`}
+                            >
+                              <Bell className="w-3 h-3" />
+                              <span>In-App: {sf.notifyInApp !== false ? 'ON' : 'OFF'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFilterNotification(sf.id, 'email')}
+                              className={`px-2 py-1.5 rounded-lg border flex items-center justify-center gap-1 font-semibold transition-all cursor-pointer ${
+                                sf.notifyEmail
+                                  ? 'bg-[#ffd9e2] text-[#8e004b] border-[#8e004b]'
+                                  : 'bg-gray-50 text-gray-400 border-gray-200'
+                              }`}
+                            >
+                              <Mail className="w-3 h-3" />
+                              <span>Email: {sf.notifyEmail ? 'ON' : 'OFF'}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                      <div className="pt-2 border-t border-[#e0bec6]/30 flex items-center justify-between text-[11px]">
+                        <span className="text-[#8c7077]">Saved {sf.createdAt || 'Recently'}</span>
+                        <button
+                          onClick={() => {
+                            setActiveTab('feed');
+                            handleApplySavedFilter(sf);
+                          }}
+                          className="px-3.5 py-1.5 rounded-full bg-[#8e004b] hover:bg-[#b90064] text-white font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                        >
+                          <Search className="w-3 h-3" />
+                          <span>Apply Filter</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Embedded Portfolio Gallery on Profile */}
+            <div className="pt-4">
+              <PortfolioGallery
+                items={portfolioItems}
+                onUpdateItems={(newItems) => setPortfolioItems(newItems)}
+                isEditable={true}
+              />
             </div>
           </div>
         )}
@@ -1221,6 +1819,286 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
           onSaveAvatar={(newUrl) => onUpdateAvatar?.(newUrl)}
           onClose={() => setShowImageUploader(false)}
         />
+      )}
+
+      {/* SAVE SEARCH FILTER MODAL */}
+      {showSaveFilterModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-[#e0bec6] space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[#e0bec6]/30">
+              <div className="flex items-center gap-2 text-[#8e004b]">
+                <BookmarkPlus className="w-5 h-5" />
+                <h3 className="text-base font-bold text-[#1c1b1b]">Save Preferred Search Filter</h3>
+              </div>
+              <button
+                onClick={() => setShowSaveFilterModal(false)}
+                className="p-1 text-[#8c7077] hover:text-[#1c1b1b]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#594047]">
+              Save this search configuration to your profile so you can quickly re-apply it anytime on future visits.
+            </p>
+
+            {/* Filter Criteria Summary */}
+            <div className="bg-[#fdf8f8] p-3 rounded-2xl border border-[#e0bec6]/60 text-xs space-y-1.5">
+              <div className="font-bold text-[11px] uppercase tracking-wider text-[#8e004b]">
+                Included Search Criteria:
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {searchQuery && (
+                  <span className="px-2 py-0.5 bg-[#ffd9e2] text-[#8e004b] font-semibold text-[11px] rounded-md">
+                    Keyword: &quot;{searchQuery}&quot;
+                  </span>
+                )}
+                {selectedCategory !== 'All' && (
+                  <span className="px-2 py-0.5 bg-white border border-[#e0bec6] text-[#1c1b1b] font-semibold text-[11px] rounded-md">
+                    Category: {selectedCategory}
+                  </span>
+                )}
+                {locationFilter !== 'All Locations' && (
+                  <span className="px-2 py-0.5 bg-white border border-[#e0bec6] text-[#1c1b1b] font-semibold text-[11px] rounded-md">
+                    Location: {locationFilter}
+                  </span>
+                )}
+                {jobTypeFilter !== 'All Types' && (
+                  <span className="px-2 py-0.5 bg-white border border-[#e0bec6] text-[#1c1b1b] font-semibold text-[11px] rounded-md">
+                    Type: {jobTypeFilter}
+                  </span>
+                )}
+                {salaryFilter !== 'All Salaries' && (
+                  <span className="px-2 py-0.5 bg-white border border-[#e0bec6] text-[#1c1b1b] font-semibold text-[11px] rounded-md">
+                    Salary: {salaryFilter}
+                  </span>
+                )}
+                {selectedTag !== 'All Perks' && (
+                  <span className="px-2 py-0.5 bg-white border border-[#e0bec6] text-[#1c1b1b] font-semibold text-[11px] rounded-md">
+                    Perk: {selectedTag}
+                  </span>
+                )}
+                {activeFiltersCount === 0 && (
+                  <span className="text-[#8c7077] italic">All Openings Feed</span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-[#1c1b1b] mb-1">
+                Saved Search Name
+              </label>
+              <input
+                type="text"
+                value={newFilterNameInput}
+                onChange={(e) => setNewFilterNameInput(e.target.value)}
+                placeholder="e.g., Stylist in LA, Balayage in Beverly Hills"
+                className="w-full p-2.5 bg-[#f1edec] rounded-xl border border-[#e0bec6]/60 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#e2007c]/30 text-[#1c1b1b]"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowSaveFilterModal(false)}
+                className="px-4 py-2 text-xs font-bold text-[#594047] hover:bg-[#f1edec] rounded-full border border-[#e0bec6]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCurrentFilter}
+                disabled={!newFilterNameInput.trim()}
+                className="px-5 py-2 bg-[#8e004b] hover:bg-[#b90064] disabled:opacity-50 text-white text-xs font-bold rounded-full shadow-md flex items-center gap-1.5 cursor-pointer"
+              >
+                <BookmarkCheck className="w-4 h-4" /> Save to Profile
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PUSH NOTIFICATION DRAWER / SLIDE-OVER */}
+      {showNotificationDrawer && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex justify-end">
+          <div className="w-full max-w-md bg-[#fdf8f8] h-full shadow-2xl flex flex-col justify-between border-l border-[#e0bec6] animate-in slide-in-from-right duration-200">
+            {/* Drawer Header */}
+            <div className="p-4 bg-[#8e004b] text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/10 rounded-xl">
+                  <BellRing className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold flex items-center gap-1.5">
+                    <span>Job Search Push Notifications</span>
+                  </h3>
+                  <p className="text-[11px] text-white/80">Matched saved search filters engine</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {alertsList.length > 0 && (
+                  <button
+                    onClick={handleMarkAllRead}
+                    className="p-1.5 hover:bg-white/10 rounded-lg text-white/90 text-[11px] font-semibold flex items-center gap-1"
+                    title="Mark all as read"
+                  >
+                    <CheckCheck className="w-4 h-4" />
+                    <span className="hidden sm:inline">Read All</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowNotificationDrawer(false)}
+                  className="p-1.5 hover:bg-white/20 rounded-full text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Notification Control Panel Bar */}
+            <div className="p-3 bg-white border-b border-[#e0bec6]/60 flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-1.5 text-[#594047] font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pushEnabled}
+                    onChange={(e) => {
+                      setPushEnabled(e.target.checked);
+                      showToast(e.target.checked ? 'Push notifications enabled' : 'Push notifications muted');
+                    }}
+                    className="rounded text-[#8e004b] focus:ring-[#8e004b]"
+                  />
+                  <span>Push Alerts</span>
+                </label>
+
+                <label className="flex items-center gap-1.5 text-[#594047] font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={soundEnabled}
+                    onChange={(e) => {
+                      setSoundEnabled(e.target.checked);
+                      showToast(e.target.checked ? 'Alert audio sound enabled' : 'Alert sound muted');
+                    }}
+                    className="rounded text-[#8e004b] focus:ring-[#8e004b]"
+                  />
+                  <Volume2 className="w-3.5 h-3.5 text-[#8e004b]" />
+                  <span>Sound</span>
+                </label>
+              </div>
+
+              {/* Simulation Trigger Button */}
+              <button
+                onClick={handleSimulateNewMatchAlert}
+                className="px-2.5 py-1 bg-[#ffd9e2] hover:bg-[#ffb0c8] text-[#8e004b] font-bold text-[11px] rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                title="Trigger a new job posting test to verify push alert matching"
+              >
+                <Sparkles className="w-3 h-3 text-[#e2007c]" />
+                <span>Test Alert</span>
+              </button>
+            </div>
+
+            {/* Notification List Content */}
+            <div className="p-4 flex-1 overflow-y-auto space-y-3">
+              {alertsList.length === 0 ? (
+                <div className="py-12 text-center space-y-3">
+                  <Bell className="w-12 h-12 text-[#8c7077]/40 mx-auto" />
+                  <p className="text-sm font-bold text-[#1c1b1b]">No Job Match Alerts Yet</p>
+                  <p className="text-xs text-[#594047] max-w-xs mx-auto leading-relaxed">
+                    When new employers post jobs matching your saved search filters, instant push alerts will appear here in real time!
+                  </p>
+                  <button
+                    onClick={handleSimulateNewMatchAlert}
+                    className="mt-2 px-4 py-2 bg-[#8e004b] text-white text-xs font-bold rounded-full shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>Simulate New Posting Match</span>
+                  </button>
+                </div>
+              ) : (
+                alertsList.map((alert) => {
+                  const matchedJob = jobs.find((j) => j.id === alert.jobId);
+
+                  return (
+                    <div
+                      key={alert.id}
+                      onClick={() => handleMarkSingleRead(alert.id)}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col gap-2 relative ${
+                        !alert.isRead
+                          ? 'bg-white border-[#8e004b] shadow-sm ring-1 ring-[#8e004b]/20'
+                          : 'bg-[#f8f4f4] border-[#e0bec6]/60 opacity-80'
+                      }`}
+                    >
+                      {!alert.isRead && (
+                        <span className="absolute top-3 right-3 w-2.5 h-2.5 bg-[#e2007c] rounded-full animate-ping" />
+                      )}
+
+                      <div className="flex items-center justify-between gap-2 pr-4">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#8e004b] bg-[#ffd9e2] px-2 py-0.5 rounded-md flex items-center gap-1">
+                          <Radio className="w-3 h-3 text-[#e2007c]" />
+                          <span>Filter: {alert.savedFilterName}</span>
+                        </span>
+                        <span className="text-[10px] text-[#8c7077] font-medium">{alert.matchedAt}</span>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-extrabold text-[#1c1b1b] leading-snug">{alert.jobTitle}</h4>
+                        <p className="text-[11px] font-semibold text-[#594047]">{alert.salonName} • {alert.location}</p>
+                        <p className="text-[11px] font-bold text-[#8e004b] mt-0.5">{alert.salary} • {alert.category}</p>
+                      </div>
+
+                      <div className="pt-2 border-t border-[#e0bec6]/30 flex items-center justify-between gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (matchedJob) {
+                              setSearchQuery(matchedJob.title);
+                              setShowNotificationDrawer(false);
+                              setActiveTab('feed');
+                            } else {
+                              setShowNotificationDrawer(false);
+                              setActiveTab('feed');
+                            }
+                          }}
+                          className="px-3 py-1 bg-[#8e004b] hover:bg-[#b90064] text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <span>View Opening</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </button>
+
+                        <button
+                          onClick={(e) => handleDeleteAlert(alert.id, e)}
+                          className="text-[#8c7077] hover:text-rose-600 p-1 text-[11px] font-medium transition-colors cursor-pointer"
+                          title="Remove alert notification"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Drawer Footer */}
+            <div className="p-3 bg-[#f1edec] border-t border-[#e0bec6] flex items-center justify-between text-[11px] text-[#594047]">
+              <span>Filter Engine Status: <strong className="text-emerald-700">Active</strong></span>
+              <button
+                onClick={() => setShowNotificationDrawer(false)}
+                className="px-3 py-1 bg-white border border-[#e0bec6] font-bold rounded-lg text-[#1c1b1b] cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FLOATING TOAST NOTIFICATION */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[#1c1b1b] text-white px-4 py-3 rounded-2xl shadow-xl border border-white/20 flex items-center gap-2.5 text-xs font-bold animate-bounce">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
       )}
     </div>
   );
