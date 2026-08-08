@@ -162,7 +162,7 @@ export const PwaInstallButton: React.FC = () => {
           <div role="dialog" aria-modal="true" aria-labelledby="pwa-install-title" className="w-full max-w-lg rounded-3xl border border-[#e0bec6] bg-white p-5 shadow-2xl sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3">
-                <img src="/icons/icon-192.png" alt="Nexora Jobs" className="h-12 w-12 rounded-xl" />
+                <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="Nexora Jobs" className="h-12 w-12 rounded-xl" />
                 <div>
                   <h2 id="pwa-install-title" className="text-lg font-extrabold text-[#1c1b1b]">Install Nexora Jobs</h2>
                   <p className="text-xs text-[#594047]">Choose your device below and follow its install method.</p>

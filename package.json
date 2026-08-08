@@ -1,11 +1,12 @@
 {
-  "name": "react-example",
+  "name": "@nexora/job-portal",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
+    "build:integrated": "VITE_APP_BASE_PATH=/job-portal/ vite build --outDir ../public/job-portal --emptyOutDir",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",

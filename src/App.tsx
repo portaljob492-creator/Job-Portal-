@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile, Conversation, ChatMessage, JobAlertNotification } from './types';
 import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERSATIONS, INITIAL_MESSAGES, INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from './data/mockData';
 import { processNewJobForAlerts } from './utils/jobAlertMatcher';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
+import { pathForScreen, resolveJobPortalRoute, type JobPortalRoute } from './routing';
 import {
   applyPendingOAuthRole,
   authBackend,
@@ -46,12 +47,14 @@ import { EmployerOnboardingStep2Screen } from './components/employer/EmployerOnb
 import { PwaInstallButton } from './components/pwa/PwaInstallButton';
 
 export default function App() {
-  const [screen, setScreen] = useState<ScreenState>('welcome');
+  const initialRoute = useRef<JobPortalRoute>(resolveJobPortalRoute()).current;
+  const pendingProtectedRoute = useRef<JobPortalRoute | null>(initialRoute.protected ? initialRoute : null);
+  const [screen, setScreen] = useState<ScreenState>(initialRoute.protected ? 'login' : initialRoute.screen);
   const [userRole, setUserRole] = useState<UserRole>('seeker');
   const [selectedJobForApply, setSelectedJobForApply] = useState<JobPosting | null>(null);
   const [selectedApplicationForInvitation, setSelectedApplicationForInvitation] = useState<Application | null>(null);
   const [selectedApplicationForOffer, setSelectedApplicationForOffer] = useState<Application | null>(null);
-  const [seekerInitialTab, setSeekerInitialTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile' | undefined>(undefined);
+  const [seekerInitialTab, setSeekerInitialTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile' | undefined>(initialRoute.seekerTab);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isBackendLoading, setIsBackendLoading] = useState(isSupabaseConfigured);
   const [backendError, setBackendError] = useState<string | null>(null);
@@ -102,7 +105,14 @@ export default function App() {
     const role = await hydrateWorkspace(userId, expectedRole);
     const onboardingComplete = await isPortalOnboardingComplete(userId);
     if (onboardingComplete) {
-      setScreen('main_app');
+      const requested = pendingProtectedRoute.current;
+      pendingProtectedRoute.current = null;
+      if (requested && (!requested.requiredRole || requested.requiredRole === role)) {
+        if (requested.seekerTab && role === 'seeker') setSeekerInitialTab(requested.seekerTab);
+        setScreen(requested.screen === 'login' ? 'main_app' : requested.screen);
+      } else {
+        setScreen('main_app');
+      }
     } else {
       setScreen(role === 'seeker' ? 'seeker_onboarding_step1' : 'employer_onboarding_step1');
     }
@@ -185,6 +195,29 @@ export default function App() {
       listener.subscription.unsubscribe();
     };
   }, [enterAuthenticatedPortal]);
+
+  useEffect(() => {
+    if (isBackendLoading) return;
+    const desiredPath = pathForScreen(screen, userRole, seekerInitialTab);
+    if (window.location.pathname !== desiredPath) {
+      window.history.replaceState({}, document.title, `${desiredPath}${window.location.search}`);
+    }
+  }, [isBackendLoading, screen, seekerInitialTab, userRole]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const route = resolveJobPortalRoute();
+      if (route.protected && !currentUserId) {
+        pendingProtectedRoute.current = route;
+        setScreen('login');
+        return;
+      }
+      if (route.seekerTab) setSeekerInitialTab(route.seekerTab);
+      setScreen(route.screen);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentUserId]);
 
   useEffect(() => {
     if (!supabase || !currentUserId) return;

@@ -5,7 +5,12 @@ import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  const requestedBase = process.env.VITE_APP_BASE_PATH?.trim() || '/';
+  const appBase = `/${requestedBase.replace(/^\/+|\/+$/g, '')}${requestedBase === '/' ? '' : '/'}`;
+  const asset = (value: string) => `${appBase}${value.replace(/^\//, '')}`;
+
   return {
+    base: appBase,
     plugins: [
       react(),
       tailwindcss(),
@@ -20,12 +25,12 @@ export default defineConfig(() => {
           'icons/icon-maskable-512.png',
         ],
         manifest: {
-          id: '/',
+          id: appBase,
           name: 'Nexora Jobs — Beauty Careers',
           short_name: 'Nexora Jobs',
           description: 'Find beauty and wellness jobs, manage applications, interviews, offers, and salon hiring.',
-          start_url: '/?source=pwa',
-          scope: '/',
+          start_url: `${appBase}?source=pwa`,
+          scope: appBase,
           display: 'standalone',
           display_override: ['window-controls-overlay', 'standalone'],
           orientation: 'portrait-primary',
@@ -35,14 +40,14 @@ export default defineConfig(() => {
           lang: 'en-IN',
           dir: 'ltr',
           icons: [
-            { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-            { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-            { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+            { src: asset('icons/icon-192.png'), sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: asset('icons/icon-512.png'), sizes: '512x512', type: 'image/png', purpose: 'any' },
+            { src: asset('icons/icon-maskable-512.png'), sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           ],
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
-          navigateFallback: '/index.html',
+          navigateFallback: asset('index.html'),
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,

@@ -17,6 +17,8 @@ const arrays = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]
 const one = <T>(value: T | T[] | null | undefined): T | null =>
   Array.isArray(value) ? value[0] ?? null : value ?? null;
 
+const appBaseUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin).toString();
+const appCallbackUrl = (query = '') => `${appBaseUrl()}${query}`;
 const backendRole = (role: UserRole) => (role === 'seeker' ? 'job_seeker' : 'employer');
 const frontendRole = (role?: string | null): UserRole => (role === 'employer' ? 'employer' : 'seeker');
 const portalLabel = (role: UserRole) => (role === 'seeker' ? 'Job Seeker' : 'Employer');
@@ -311,7 +313,7 @@ export const authBackend = {
       email,
       password: input.password,
       options: {
-        emailRedirectTo: `${window.location.origin}/?verified=1`,
+        emailRedirectTo: appCallbackUrl('?verified=1'),
         data: {
           app_context: 'jobs',
           job_role: requestedBackendRole,
@@ -377,7 +379,7 @@ export const authBackend = {
     window.localStorage.setItem('nexora_pending_role', role);
     const { data, error } = await requireSupabase().auth.signInWithOAuth({
       provider,
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: appBaseUrl() },
     });
     if (error) throw mapAuthError(error);
     return data;
@@ -385,7 +387,7 @@ export const authBackend = {
 
   async sendPasswordReset(email: string) {
     const { error } = await requireSupabase().auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/?recovery=1`,
+      redirectTo: appCallbackUrl('?recovery=1'),
     });
     if (error) throw mapAuthError(error);
   },
