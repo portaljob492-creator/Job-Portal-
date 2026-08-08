@@ -32,6 +32,12 @@
   --font-card-title: "Inter", sans-serif;
   --font-body-md: "Inter", sans-serif;
   --font-label-sm: "Inter", sans-serif;
+
+  --spacing-section-gap: 32px;
+  --spacing-gutter: 16px;
+  --spacing-stack-default: 16px;
+  --spacing-stack-sm: 8px;
+  --spacing-margin-side: 20px;
 }
 
 body {

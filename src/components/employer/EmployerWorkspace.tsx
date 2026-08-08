@@ -5,6 +5,7 @@ import { MessagingCenter } from '../messaging/MessagingCenter';
 import { PortfolioGallery } from '../profile/PortfolioGallery';
 import { RegionalSalaryAnalytics } from './RegionalSalaryAnalytics';
 import { INITIAL_PORTFOLIO_ITEMS } from '../../data/mockData';
+import { PostJobWizard } from './PostJobWizard';
 import {
   Plus,
   Building2,
@@ -28,7 +29,11 @@ import {
   MessageSquare,
   Layers,
   BarChart3,
-  TrendingUp
+  TrendingUp,
+  LayoutDashboard,
+  Bell,
+  ArrowLeft,
+  MoreVertical
 } from 'lucide-react';
 
 interface EmployerWorkspaceProps {
@@ -60,7 +65,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   onSwitchRole,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<'jobs' | 'applicants' | 'messages' | 'analytics' | 'salon'>('jobs');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'candidates' | 'messages' | 'analytics' | 'profile'>('dashboard');
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
@@ -95,7 +100,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       id: `job-${Date.now()}`,
       title,
       salonName: userProfile.businessName || 'Luxe & Co Salon Group',
-      salonLogo: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=120&h=120',
+      salonLogo: userProfile.avatarUrl || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=120&h=120',
       location,
       image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&q=80&w=800',
       rating: 5.0,
@@ -115,7 +120,6 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
 
     onAddJob(newJob);
     setShowPostModal(false);
-    // Reset form
     setTitle('');
   };
 
@@ -127,333 +131,488 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     }
   };
 
+  const NavItem = ({ icon: Icon, label, tab, filledIcon = false }: { icon: any, label: string, tab: any, filledIcon?: boolean }) => {
+    const isActive = activeTab === tab;
+    
+    return (
+      <button 
+        onClick={() => setActiveTab(tab)}
+        className={`flex items-center gap-3 p-3 rounded-lg w-full text-left transition-all active:translate-x-1 duration-150 cursor-pointer ${
+          isActive 
+            ? 'bg-[#e2007c] text-white font-bold' 
+            : 'text-[#594047] hover:bg-[#e6e1e1] hover:bg-[#ece7e7]'
+        }`}
+      >
+        <Icon className="w-5 h-5" style={isActive && filledIcon ? { fill: 'currentColor' } : {}} />
+        <span>{label}</span>
+      </button>
+    );
+  };
+
+  const MobileNavItem = ({ icon: Icon, label, tab, filledIcon = false }: { icon: any, label: string, tab: any, filledIcon?: boolean }) => {
+    const isActive = activeTab === tab;
+    
+    return (
+      <button 
+        onClick={() => setActiveTab(tab)}
+        className={`flex flex-col items-center justify-center px-2 py-1 active:scale-90 transition-transform cursor-pointer ${
+          isActive
+            ? 'bg-[#b90064] text-[#ffcbd9] rounded-full px-4'
+            : 'text-[#594047] hover:text-[#8e004b]'
+        }`}
+      >
+        <Icon className="w-6 h-6" style={isActive && filledIcon ? { fill: 'currentColor' } : {}} />
+        <span className="text-[13px] font-medium mt-1">{label}</span>
+      </button>
+    );
+  };
+
   return (
-    <div className="bg-[#fdf8f8] min-h-screen text-[#1c1b1b] flex flex-col font-sans pb-16">
-      {/* Top Header */}
-      <header className="sticky top-0 bg-white border-b border-[#e0bec6]/40 shadow-sm z-30 px-4 sm:px-6 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+    <div className="bg-[#fdf8f8] text-[#1c1b1b] min-h-screen pb-24 md:pb-0 md:pl-80 flex flex-col md:flex-row select-none">
+      {/* Navigation Drawer (Desktop) */}
+      <aside className="hidden md:flex flex-col h-full w-80 rounded-r-xl bg-[#fdf8f8] shadow-xl fixed left-0 top-0 z-50 p-4 gap-4 border-r border-[#e0bec6]">
+        <div className="flex items-center gap-4 mb-8">
+          <img 
+            alt="Employer Profile" 
+            className="w-12 h-12 rounded-full object-cover border border-[#e0bec6]" 
+            src={userProfile.avatarUrl || "https://lh3.googleusercontent.com/aida-public/AB6AXuAuZ-FXyC98oUtW9eo9ufnZH826kE3xNJbYn_zhbya-ynLr5gz9yAE4oLfkTzvPglaIhUbZmcidW1zLOMhe_utK4AXXpiCjm4Xy92Kg5LXKckRihIV2NPj2xIjbRgj7u_hcMizHTwSb0J0F0JDpf0zgZSaLkP-MqdVVs5DzNeCjtNPkD0J7XRWhnTDeGQdBPGNs_ChHRa8NGnIPTWZl9G8kHiZLiHravsS1ZhwL62__kMcGhkdwh-gME6JNbvlIYQFalg"}
+          />
+          <div>
+            <h2 className="text-base font-bold text-[#1c1b1b]">{userProfile.businessName || 'The Glamour Studio'}</h2>
+            <p className="text-[13px] font-medium text-[#594047]">Premium Employer</p>
+            <p className="text-xs font-medium text-[#8e004b] mt-1">Verified Account</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 flex flex-col gap-2">
+          <NavItem icon={LayoutDashboard} label="Dashboard" tab="dashboard" filledIcon />
+          <NavItem icon={Briefcase} label="My Jobs" tab="jobs" />
+          <NavItem icon={Users} label="Candidates" tab="candidates" />
+          <NavItem icon={MessageSquare} label="Messages" tab="messages" />
+          <NavItem icon={BarChart3} label="Analytics" tab="analytics" />
+          <NavItem icon={Building2} label="Profile" tab="profile" />
+        </nav>
+        
+        <div className="mt-auto border-t border-[#e0bec6] pt-4 flex flex-col gap-2">
+          <button
+            onClick={onSwitchRole}
+            className="flex items-center gap-3 p-3 text-[#594047] hover:bg-[#e6e1e1] rounded-lg transition-all active:translate-x-1 duration-150 cursor-pointer"
+          >
+            <UserCheck className="w-5 h-5" />
+            <span>Switch to Job Seeker</span>
+          </button>
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-3 p-3 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg transition-all active:translate-x-1 duration-150 cursor-pointer"
+          >
+            <LogOut className="w-5 h-5" />
+            <span>Log out</span>
+          </button>
+        </div>
+      </aside>
+
+      <div className="flex-1 flex flex-col min-h-screen max-w-full overflow-hidden">
+        {/* TopAppBar */}
+        <header className="flex justify-between items-center px-5 h-16 w-full z-40 bg-[#fdf8f8] shadow-[0_4px_12px_rgba(90,63,71,0.05)] sticky top-0 md:static">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#b90064] text-white flex items-center justify-center font-bold text-xl shadow-md">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="font-bold text-lg text-[#8e004b] tracking-tight block leading-none">
-                {userProfile.businessName || 'Nexora Beauty Group'}
-              </span>
-              <span className="text-[10px] font-semibold text-[#594047] uppercase tracking-wider">
-                Employer Dashboard
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowPostModal(true)}
-              className="px-4 py-2 bg-[#e2007c] text-white rounded-full text-xs font-bold hover:bg-[#b90064] transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Post New Role</span>
+            <button className="md:hidden text-[#8e004b] hover:bg-[#e6e1e1] transition-colors active:scale-95 duration-200 p-2 rounded-full cursor-pointer">
+              <ArrowLeft className="w-6 h-6" />
             </button>
-
-            <button
-              onClick={onSwitchRole}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ffd9e2] text-[#8e004b] text-xs font-semibold hover:bg-[#ffb0c8] transition-colors cursor-pointer"
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              <span>Switch to Job Seeker</span>
-            </button>
-
-            <button
-              onClick={onLogout}
-              title="Log out"
-              className="p-2 text-[#594047] hover:text-[#8e004b] hover:bg-[#e6e1e1] rounded-full transition-colors cursor-pointer ml-1"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-grow w-full">
-        {/* Key Metrics Header Card */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white p-5 rounded-2xl border border-[#e0bec6]/40 shadow-xs flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center font-bold">
-              <Briefcase className="w-6 h-6" />
-            </div>
-            <div>
-              <span className="text-2xl font-extrabold text-[#1c1b1b]">{jobs.length}</span>
-              <p className="text-xs font-medium text-[#594047]">Active Postings</p>
+            <div className="flex items-center gap-2">
+              <img 
+                alt="Logo" 
+                className="w-8 h-8 rounded-full border border-[#e0bec6] md:hidden" 
+                src="https://lh3.googleusercontent.com/aida-public/AB6AXuDrWHddqhJawn6_Y6s98bBH8_EeXeZa9k7ArYyiRW_NiTTAb4xFyvOsQFPvapS3_Fb8e_YhQYP_Etu9pLWlyiJ5jI2uX9d_AK2pd4A6hh5ndJR5RIlYOucHbdCjHIO1nFSCxDFyLY09WWI4AqpWv6Ca6eJqKdLG-RhSFTV9jGArY0ISzjUC9-Ae4-ZtC2_gZWj903Tjwje5SWF-D3Ozj4PeLha8Cwp9NlE8cu1jKx92yJSPrlnXcfAHlWHEiXPIS8RIrw"
+              />
+              <h1 className="text-2xl font-semibold text-[#8e004b] tracking-tight">Nexora Jobs</h1>
             </div>
           </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-[#e0bec6]/40 shadow-xs flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center font-bold">
-              <Users className="w-6 h-6" />
-            </div>
-            <div>
-              <span className="text-2xl font-extrabold text-[#1c1b1b]">{applicants.length}</span>
-              <p className="text-xs font-medium text-[#594047]">Total Candidates</p>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-[#e0bec6]/40 shadow-xs flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-              <Calendar className="w-6 h-6" />
-            </div>
-            <div>
-              <span className="text-2xl font-extrabold text-[#1c1b1b]">
-                {applicants.filter((a) => a.status === 'Interview Scheduled').length}
-              </span>
-              <p className="text-xs font-medium text-[#594047]">Interviews Scheduled</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Tab Selection */}
-        <div className="flex items-center gap-2 border-b border-[#e0bec6]/40 pb-3 mb-6">
-          <button
-            onClick={() => setActiveTab('jobs')}
-            className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-              activeTab === 'jobs'
-                ? 'bg-[#8e004b] text-white shadow-sm'
-                : 'bg-white text-[#594047] hover:bg-[#f7f2f2] border border-[#e0bec6]/40'
-            }`}
-          >
-            My Job Postings ({jobs.length})
+          
+          <button className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors active:scale-95 duration-200 p-2 rounded-full relative cursor-pointer">
+            <Bell className="w-6 h-6" />
+            <span className="absolute top-2 right-2 w-2 h-2 bg-[#b50062] rounded-full"></span>
           </button>
+        </header>
 
-          <button
-            onClick={() => setActiveTab('applicants')}
-            className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-              activeTab === 'applicants'
-                ? 'bg-[#8e004b] text-white shadow-sm'
-                : 'bg-white text-[#594047] hover:bg-[#f7f2f2] border border-[#e0bec6]/40'
-            }`}
-          >
-            Candidate Applicants ({applicants.length})
-          </button>
+        <main className="flex-1 p-5 md:p-8 max-w-5xl mx-auto w-full flex flex-col gap-8">
+          
+          {/* TAB: DASHBOARD */}
+          {activeTab === 'dashboard' && (
+            <>
+              {/* Welcome */}
+              <section>
+                <h2 className="text-2xl md:text-3xl font-bold text-[#1c1b1b] mb-2 tracking-tight">
+                  Welcome back, {userProfile.businessName || 'The Glamour Studio'}
+                </h2>
+                <p className="text-base text-[#594047]">Here is what's happening with your job listings today.</p>
+              </section>
 
-          <button
-            onClick={() => setActiveTab('messages')}
-            className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'messages'
-                ? 'bg-[#8e004b] text-white shadow-sm'
-                : 'bg-white text-[#594047] hover:bg-[#f7f2f2] border border-[#e0bec6]/40'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>Direct Messages</span>
-            {conversations.reduce((acc, c) => acc + (c.unreadCountEmployer || 0), 0) > 0 && (
-              <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-[#e2007c] text-white font-bold animate-pulse">
-                {conversations.reduce((acc, c) => acc + (c.unreadCountEmployer || 0), 0)}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('salon')}
-            className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-              activeTab === 'salon'
-                ? 'bg-[#8e004b] text-white shadow-sm'
-                : 'bg-white text-[#594047] hover:bg-[#f7f2f2] border border-[#e0bec6]/40'
-            }`}
-          >
-            Salon Profile & Locations
-          </button>
-
-          <button
-            onClick={() => setActiveTab('analytics')}
-            className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'analytics'
-                ? 'bg-[#8e004b] text-white shadow-sm'
-                : 'bg-white text-[#594047] hover:bg-[#f7f2f2] border border-[#e0bec6]/40'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4 text-emerald-500" />
-            <span>Regional Salary Insights</span>
-          </button>
-        </div>
-
-        {/* TAB 1: MY JOB POSTINGS */}
-        {activeTab === 'jobs' && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-lg font-bold text-[#1c1b1b]">Active Listings</h2>
-              <button
-                onClick={() => setShowPostModal(true)}
-                className="text-xs text-[#8e004b] font-bold hover:underline flex items-center gap-1"
-              >
-                + Add Another Listing
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {jobs.map((job) => (
-                <div
-                  key={job.id}
-                  className="bg-white rounded-2xl border border-[#e0bec6]/50 shadow-xs p-5 flex flex-col justify-between gap-4"
+              {/* Stats Overview Bento Grid */}
+              <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div 
+                  onClick={() => setActiveTab('jobs')}
+                  className="bg-white border border-[#e0bec6] rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#ece7e7] transition-colors cursor-pointer"
                 >
-                  <div>
-                    <div className="flex justify-between items-start gap-2 mb-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider bg-[#ffd9e2] text-[#8e004b] px-2.5 py-0.5 rounded-full">
-                        {job.jobType}
-                      </span>
-                      <span className="text-[10px] text-[#8c7077]">{job.postedDate}</span>
-                    </div>
+                  <Briefcase className="text-[#8e004b] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
+                  <span className="text-2xl md:text-3xl font-bold text-[#1c1b1b]">{jobs.length}</span>
+                  <span className="text-[13px] font-medium text-[#594047] mt-1">Active Jobs</span>
+                </div>
+                
+                <div 
+                  onClick={() => setActiveTab('candidates')}
+                  className="bg-white border border-[#e0bec6] rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#ece7e7] transition-colors cursor-pointer"
+                >
+                  <FileText className="text-[#b50062] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
+                  <span className="text-2xl md:text-3xl font-bold text-[#1c1b1b]">{applicants.length}</span>
+                  <span className="text-[13px] font-medium text-[#594047] mt-1">Applications</span>
+                </div>
+                
+                <div 
+                  onClick={() => setActiveTab('candidates')}
+                  className="bg-white border border-[#e0bec6] rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#ece7e7] transition-colors cursor-pointer"
+                >
+                  <Calendar className="text-[#51434c] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
+                  <span className="text-2xl md:text-3xl font-bold text-[#1c1b1b]">{applicants.filter(a => a.status === 'Interview Scheduled').length}</span>
+                  <span className="text-[13px] font-medium text-[#594047] mt-1">Interviews</span>
+                </div>
+                
+                <div 
+                  onClick={() => setActiveTab('candidates')}
+                  className="bg-white border border-[#e0bec6] rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#ece7e7] transition-colors cursor-pointer"
+                >
+                  <UserCheck className="text-[#8e004b] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
+                  <span className="text-2xl md:text-3xl font-bold text-[#1c1b1b]">{applicants.filter(a => a.status === 'Hired').length}</span>
+                  <span className="text-[13px] font-medium text-[#594047] mt-1">Hired</span>
+                </div>
+              </section>
 
-                    <h3 className="text-base font-bold text-[#1c1b1b] mb-1">{job.title}</h3>
-                    <p className="text-xs font-bold text-[#e2007c] mb-2">{job.salary}</p>
-                    <p className="text-xs text-[#594047] flex items-center gap-1 mb-3">
-                      <MapPin className="w-3.5 h-3.5" /> {job.location}
-                    </p>
+              {/* Quick Actions */}
+              <section className="flex gap-4 overflow-x-auto pb-4 snap-x hide-scrollbar">
+                <button 
+                  onClick={() => setShowPostModal(true)}
+                  className="snap-start shrink-0 bg-[#8e004b] text-white rounded-full px-6 py-4 text-base font-semibold flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-md cursor-pointer"
+                >
+                  <Plus className="w-5 h-5" />
+                  Post Job
+                </button>
+                <button 
+                  onClick={() => setActiveTab('candidates')}
+                  className="snap-start shrink-0 bg-white border border-[#e0bec6] text-[#1c1b1b] rounded-full px-6 py-4 text-base font-medium flex items-center gap-2 hover:bg-[#e6e1e1] active:scale-95 transition-all cursor-pointer"
+                >
+                  <Users className="text-[#8e004b] w-5 h-5" />
+                  View Candidates
+                </button>
+                <button 
+                  onClick={() => setActiveTab('messages')}
+                  className="snap-start shrink-0 bg-white border border-[#e0bec6] text-[#1c1b1b] rounded-full px-6 py-4 text-base font-medium flex items-center gap-2 hover:bg-[#e6e1e1] active:scale-95 transition-all cursor-pointer"
+                >
+                  <MessageSquare className="text-[#b50062] w-5 h-5" />
+                  Messages
+                </button>
+                <button 
+                  onClick={() => setActiveTab('analytics')}
+                  className="snap-start shrink-0 bg-white border border-[#e0bec6] text-[#1c1b1b] rounded-full px-6 py-4 text-base font-medium flex items-center gap-2 hover:bg-[#e6e1e1] active:scale-95 transition-all cursor-pointer"
+                >
+                  <BarChart3 className="text-[#51434c] w-5 h-5" />
+                  Insights
+                </button>
+              </section>
 
-                    <div className="bg-[#fdf8f8] p-3 rounded-xl border border-[#e0bec6]/30 flex items-center justify-between text-xs">
-                      <span className="text-[#594047] font-medium">Applicants Received:</span>
-                      <span className="font-extrabold text-[#8e004b] text-sm">
-                        {applicants.filter((a) => a.appliedJobId === job.id).length || job.activeApplicantsCount || 0}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="pt-3 border-t border-[#e0bec6]/30 flex gap-2">
-                    <button
-                      onClick={() => setActiveTab('applicants')}
-                      className="w-full py-2 bg-[#8e004b] text-white rounded-full text-xs font-bold hover:bg-[#b90064] transition-colors cursor-pointer"
-                    >
-                      View Candidates
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Recent Applications */}
+                <section className="bg-white border border-[#e0bec6] rounded-xl p-6 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-semibold text-[#1c1b1b]">Recent Applications</h3>
+                    <button onClick={() => setActiveTab('candidates')} className="text-[13px] font-medium text-[#8e004b] hover:underline cursor-pointer">
+                      View All
                     </button>
                   </div>
-                </div>
-              ))}
-            </div>
+                  
+                  <div className="flex flex-col gap-4">
+                    {applicants.slice(0, 3).map(applicant => (
+                      <div 
+                        key={applicant.id}
+                        onClick={() => {
+                          setCandidateFilter('All');
+                          setActiveTab('candidates');
+                        }}
+                        className="flex items-center gap-4 p-4 border border-[#e0bec6] rounded-lg hover:bg-[#f1edec] transition-colors cursor-pointer"
+                      >
+                        <div className="w-12 h-12 bg-[#e6e1e1] rounded-full flex items-center justify-center text-[#594047] font-bold">
+                          {applicant.name.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-base font-semibold text-[#1c1b1b] truncate">{applicant.name}</h4>
+                          <p className="text-[13px] font-medium text-[#594047] truncate">{applicant.appliedJobTitle}</p>
+                        </div>
+                        {applicant.status === 'New' && (
+                          <span className="bg-[#ffd9e2] text-[#3e001e] text-xs px-2 py-1 rounded-full font-medium">New</span>
+                        )}
+                      </div>
+                    ))}
+                    {applicants.length === 0 && (
+                      <p className="text-[#594047] text-[13px] italic">No recent applications.</p>
+                    )}
+                  </div>
+                </section>
 
-            {/* Embedded Regional Salary Analytics */}
-            <div className="pt-6">
-              <RegionalSalaryAnalytics jobs={jobs} defaultRegion={userProfile.location || 'Beverly Hills, CA'} />
-            </div>
-          </div>
-        )}
+                {/* Active Jobs */}
+                <section className="bg-white border border-[#e0bec6] rounded-xl p-6 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-semibold text-[#1c1b1b]">Active Jobs</h3>
+                    <button onClick={() => setActiveTab('jobs')} className="text-[13px] font-medium text-[#8e004b] hover:underline cursor-pointer">
+                      View All
+                    </button>
+                  </div>
+                  
+                  <div className="flex flex-col gap-4">
+                    {jobs.slice(0, 3).map(job => (
+                      <div 
+                        key={job.id}
+                        onClick={() => setActiveTab('jobs')}
+                        className="p-4 border border-[#e0bec6] rounded-lg hover:bg-[#f1edec] transition-colors cursor-pointer"
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="text-base font-semibold text-[#1c1b1b] truncate pr-2">{job.title}</h4>
+                          <span className="bg-[#e6e1e1] text-[#594047] text-xs px-2 py-1 rounded-full font-medium shrink-0">
+                            {applicants.filter(a => a.appliedJobId === job.id).length} Apps
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[#594047] text-[13px] font-medium">
+                          <MapPin className="w-4 h-4" />
+                          <span className="truncate">{job.location}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {jobs.length === 0 && (
+                      <p className="text-[#594047] text-[13px] italic">No active jobs posted.</p>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </>
+          )}
 
-        {/* TAB 2: CANDIDATE APPLICANTS PIPELINE */}
-        {activeTab === 'applicants' && (
-          <div className="space-y-6">
-            {/* Filter Status Pills */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {['All', 'New', 'Shortlisted', 'Interview Scheduled', 'Hired'].map((st) => (
+          {/* TAB: JOBS */}
+          {activeTab === 'jobs' && (
+            <div className="flex flex-col w-full h-full">
+              <div className="flex justify-between items-center mb-8">
+                <h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">Your Jobs</h2>
                 <button
-                  key={st}
-                  onClick={() => setCandidateFilter(st)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap cursor-pointer ${
-                    candidateFilter === st
-                      ? 'bg-[#e2007c] text-white'
-                      : 'bg-white text-[#594047] border border-[#e0bec6]/40'
-                  }`}
+                  onClick={() => setShowPostModal(true)}
+                  className="hidden md:flex bg-[#e2007c] text-white px-4 py-2 rounded-full text-[13px] font-medium items-center gap-1 hover:bg-[#b50062] transition-colors shadow-sm cursor-pointer"
                 >
-                  {st}
+                  <Plus className="w-5 h-5" /> Post Job
                 </button>
-              ))}
-            </div>
-
-            <div className="space-y-4">
-              {filteredApplicants.map((applicant) => (
-                <div
-                  key={applicant.id}
-                  className="bg-white rounded-2xl p-5 border border-[#e0bec6]/50 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4"
+              </div>
+  
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                <div className="overflow-x-auto hide-scrollbar -mx-5 px-5 md:mx-0 md:px-0">
+                  <div className="flex gap-2 min-w-max pb-1">
+                    <button className="bg-[#f2dde9] text-[#8e004b] px-4 py-2 rounded-full text-[13px] font-semibold border border-transparent cursor-pointer">Active ({jobs.length})</button>
+                    <button className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium hover:bg-[#ece7e7] transition-colors border border-transparent cursor-pointer">Draft (3)</button>
+                    <button className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium hover:bg-[#ece7e7] transition-colors border border-transparent cursor-pointer">Paused (1)</button>
+                    <button className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium hover:bg-[#ece7e7] transition-colors border border-transparent cursor-pointer">Closed (45)</button>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowPostModal(true)}
+                  className="md:hidden w-full bg-[#e2007c] text-white py-3 rounded-full text-[13px] font-medium items-center justify-center flex gap-2 hover:bg-[#b50062] transition-colors shadow-sm cursor-pointer"
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 rounded-full bg-[#8e004b] text-white font-bold text-lg flex items-center justify-center flex-shrink-0">
-                      {applicant.name.charAt(0)}
+                  <Plus className="w-5 h-5" /> Post a New Job
+                </button>
+              </div>
+  
+              <div className="flex flex-col gap-4">
+                {jobs.map((job) => {
+                  const jobApplicants = applicants.filter((a) => a.appliedJobId === job.id);
+                  const shortlisted = jobApplicants.filter(a => a.status === 'Shortlisted').length;
+                  const interviewing = jobApplicants.filter(a => a.status === 'Interview Scheduled').length;
+                  
+                  return (
+                    <div
+                      key={job.id}
+                      className="bg-white rounded-lg border border-[#e8e8e8] p-4 md:p-6 shadow-[0_4px_12px_rgba(90,63,71,0.02)] hover:shadow-[0_4px_12px_rgba(90,63,71,0.05)] transition-shadow relative group"
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active
+                            </span>
+                            <span className="text-xs text-[#594047]">{job.postedDate}</span>
+                          </div>
+                          <h2 className="text-[18px] font-semibold text-[#1c1b1b] leading-tight">{job.title}</h2>
+                          <p className="text-sm text-[#594047] mt-1 truncate max-w-full">{job.location} • {job.jobType} • {job.salary}</p>
+                        </div>
+                        <button className="text-[#594047] p-1 hover:bg-[#f1edec] rounded-full transition-colors cursor-pointer shrink-0">
+                          <MoreVertical className="w-5 h-5" />
+                        </button>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-4 md:gap-6 mt-4 pt-4 border-t border-[#e8e8e8]">
+                        <div className="flex flex-col">
+                          <span className="text-[20px] font-semibold text-[#8e004b]">{jobApplicants.length || job.activeApplicantsCount || 0}</span>
+                          <span className="text-[13px] font-medium text-[#594047]">Applicants</span>
+                        </div>
+                        <div className="w-px bg-[#e8e8e8] hidden sm:block"></div>
+                        <div className="flex flex-col">
+                          <span className="text-[20px] font-semibold text-[#b50062]">{shortlisted}</span>
+                          <span className="text-[13px] font-medium text-[#594047]">Shortlisted</span>
+                        </div>
+                        <div className="w-px bg-[#e8e8e8] hidden sm:block"></div>
+                        <div className="flex flex-col">
+                          <span className="text-[20px] font-semibold text-[#1c1b1b]">{interviewing}</span>
+                          <span className="text-[13px] font-medium text-[#594047]">Interviewing</span>
+                        </div>
+                        <div className="flex-1 flex justify-end items-center mt-2 sm:mt-0">
+                          <button 
+                            onClick={() => {
+                              setActiveTab('candidates');
+                            }}
+                            className="text-[#b50062] text-[13px] font-semibold hover:underline cursor-pointer"
+                          >
+                            View Candidates →
+                          </button>
+                        </div>
+                      </div>
                     </div>
+                  );
+                })}
+                
+                {jobs.length === 0 && (
+                  <div className="py-12 text-center border-2 border-dashed border-[#e0bec6] rounded-2xl">
+                     <p className="text-[#594047]">No jobs posted yet.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-base font-bold text-[#1c1b1b]">{applicant.name}</h3>
-                        <span className="text-[11px] font-semibold text-[#8e004b] bg-[#ffd9e2] px-2 py-0.5 rounded-full">
-                          {applicant.experienceYears} yrs exp
-                        </span>
+          {/* TAB: CANDIDATES */}
+          {activeTab === 'candidates' && (
+            <div className="space-y-8">
+              <h2 className="text-2xl font-bold text-[#1c1b1b]">Candidates Pipeline</h2>
+              
+              {/* Filter Status Pills */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 hide-scrollbar">
+                {['All', 'New', 'Shortlisted', 'Interview Scheduled', 'Hired'].map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => setCandidateFilter(st)}
+                    className={`px-4 py-1.5 rounded-full text-[13px] font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+                      candidateFilter === st
+                        ? 'bg-[#e2007c] text-white'
+                        : 'bg-white text-[#594047] border border-[#e0bec6]'
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-4">
+                {filteredApplicants.map((applicant) => (
+                  <div
+                    key={applicant.id}
+                    className="bg-white rounded-2xl p-5 border border-[#e0bec6] shadow-[0_4px_12px_rgba(90,63,71,0.03)] flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-full bg-[#8e004b] text-white font-bold text-lg flex items-center justify-center flex-shrink-0">
+                        {applicant.name.charAt(0)}
                       </div>
 
-                      <p className="text-xs font-semibold text-[#e2007c] mt-0.5 mb-1">
-                        Applied for: {applicant.appliedJobTitle}
-                      </p>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-lg font-bold text-[#1c1b1b]">{applicant.name}</h3>
+                          <span className="text-[11px] font-semibold text-[#8e004b] bg-[#ffd9e2] px-2 py-0.5 rounded-full whitespace-nowrap">
+                            {applicant.experienceYears} yrs exp
+                          </span>
+                        </div>
 
-                      <p className="text-xs text-[#594047] mb-2">
-                        License: <span className="font-medium text-[#1c1b1b]">{applicant.licenseNumber}</span> • Applied {applicant.appliedDate}
-                      </p>
-
-                      {applicant.coverNote && (
-                        <p className="text-xs bg-[#fdf8f8] p-2.5 rounded-xl border border-[#e0bec6]/30 text-[#594047] italic">
-                          "{applicant.coverNote}"
+                        <p className="text-[13px] font-semibold text-[#e2007c] mt-1 mb-1">
+                          Applied for: {applicant.appliedJobTitle}
                         </p>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* Actions & Status Dropdown */}
-                  <div className="flex flex-col md:items-end gap-2 pt-3 md:pt-0 border-t md:border-t-0 border-[#e0bec6]/30">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-[#594047] font-semibold">Status:</span>
-                      <select
-                        value={applicant.status}
-                        onChange={(e) =>
-                          onUpdateApplicantStatus(applicant.id, e.target.value as Applicant['status'])
-                        }
-                        className="text-xs font-bold bg-[#f1edec] text-[#8e004b] rounded-lg px-3 py-1.5 border border-[#e0bec6] outline-none cursor-pointer"
-                      >
-                        <option value="New">New</option>
-                        <option value="Shortlisted">Shortlisted</option>
-                        <option value="Interview Scheduled">Interview Scheduled</option>
-                        <option value="Hired">Hired</option>
-                        <option value="Declined">Declined</option>
-                      </select>
+                        <p className="text-xs text-[#594047] mb-2">
+                          License: <span className="font-medium text-[#1c1b1b]">{applicant.licenseNumber}</span> • Applied {applicant.appliedDate}
+                        </p>
+
+                        {applicant.coverNote && (
+                          <p className="text-xs bg-[#fdf8f8] p-2 rounded-xl border border-[#e0bec6]/50 text-[#594047] italic">
+                            "{applicant.coverNote}"
+                          </p>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2 mt-1 justify-end">
-                      <button
-                        onClick={() => setViewingPortfolioApplicant(applicant)}
-                        className="px-3 py-1.5 bg-[#f1edec] text-[#1c1b1b] text-xs font-bold rounded-full hover:bg-[#ffd9e2] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs border border-[#e0bec6]/60"
-                      >
-                        <Layers className="w-3.5 h-3.5 text-[#8e004b]" />
-                        <span>View Portfolio</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          if (onStartConversation) {
-                            const convId = onStartConversation(applicant.appliedJobId, applicant.name, userProfile.businessName);
-                            setActiveConvId(convId);
-                            setActiveTab('messages');
+                    {/* Actions & Status Dropdown */}
+                    <div className="flex flex-col lg:items-end gap-2 pt-2 lg:pt-0 border-t lg:border-t-0 border-[#e0bec6]/30">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[#594047] font-semibold">Status:</span>
+                        <select
+                          value={applicant.status}
+                          onChange={(e) =>
+                            onUpdateApplicantStatus(applicant.id, e.target.value as Applicant['status'])
                           }
-                        }}
-                        className="px-3 py-1.5 bg-[#ffd9e2] text-[#8e004b] text-xs font-bold rounded-full hover:bg-[#ffb0c8] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span>Message Candidate</span>
-                      </button>
+                          className="text-[13px] font-bold bg-[#f1edec] text-[#8e004b] rounded-lg px-3 py-1.5 border border-[#e0bec6] outline-none cursor-pointer"
+                        >
+                          <option value="New">New</option>
+                          <option value="Shortlisted">Shortlisted</option>
+                          <option value="Interview Scheduled">Interview Scheduled</option>
+                          <option value="Hired">Hired</option>
+                          <option value="Declined">Declined</option>
+                        </select>
+                      </div>
 
-                      <button
-                        onClick={() => {
-                          setSelectedApplicant(applicant);
-                          setShowScheduleModal(true);
-                        }}
-                        className="px-3 py-1.5 bg-[#8e004b] text-white text-xs font-semibold rounded-full hover:bg-[#b90064] transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                      >
-                        <Calendar className="w-3.5 h-3.5" />
-                        <span>Schedule Interview</span>
-                      </button>
+                      <div className="flex flex-wrap gap-2 mt-2 justify-end">
+                        <button
+                          onClick={() => setViewingPortfolioApplicant(applicant)}
+                          className="px-3 py-1.5 bg-white text-[#1c1b1b] text-xs font-bold rounded-full hover:bg-[#ece7e7] transition-colors cursor-pointer flex items-center gap-1.5 border border-[#e0bec6]"
+                        >
+                          <Layers className="w-4 h-4 text-[#8e004b]" />
+                          <span>Portfolio</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (onStartConversation) {
+                              const convId = onStartConversation(applicant.appliedJobId, applicant.name, userProfile.businessName);
+                              setActiveConvId(convId);
+                              setActiveTab('messages');
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-[#ffd9e2] text-[#8e004b] text-xs font-bold rounded-full hover:bg-[#ffb0c8] transition-colors cursor-pointer flex items-center gap-1.5"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                          <span>Message</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setSelectedApplicant(applicant);
+                            setShowScheduleModal(true);
+                          }}
+                          className="px-3 py-1.5 bg-[#8e004b] text-white text-xs font-semibold rounded-full hover:bg-[#b90064] transition-colors cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Calendar className="w-4 h-4" />
+                          <span>Interview</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+                {filteredApplicants.length === 0 && (
+                   <div className="py-12 text-center border-2 border-dashed border-[#e0bec6] rounded-2xl">
+                     <p className="text-[#594047]">No candidates found.</p>
+                   </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 3: MESSAGING CENTER */}
-        {activeTab === 'messages' && (
-          <div className="space-y-6">
+          {/* TAB: MESSAGES */}
+          {activeTab === 'messages' && (
             <MessagingCenter
               currentRole="employer"
               userProfile={userProfile}
@@ -468,244 +627,150 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                 }
               }}
             />
-          </div>
-        )}
+          )}
 
-        {/* TAB 4: REGIONAL SALARY INSIGHTS */}
-        {activeTab === 'analytics' && (
-          <div className="space-y-6">
+          {/* TAB: ANALYTICS */}
+          {activeTab === 'analytics' && (
             <RegionalSalaryAnalytics jobs={jobs} defaultRegion={userProfile.location || 'Beverly Hills, CA'} />
-          </div>
-        )}
+          )}
 
-        {/* TAB 5: SALON PROFILE */}
-        {activeTab === 'salon' && (
-          <div className="max-w-2xl mx-auto bg-white p-6 sm:p-8 rounded-2xl border border-[#e0bec6]/40 shadow-sm space-y-6">
-            <div className="flex items-center gap-4 pb-4 border-b border-[#e0bec6]/30">
-              <div className="relative group">
-                <button
-                  onClick={() => setShowImageUploader(true)}
-                  title="Update Salon Photo or Logo"
-                  className="w-16 h-16 rounded-2xl bg-[#ffd9e2] text-[#8e004b] font-bold text-2xl flex items-center justify-center overflow-hidden border border-[#e0bec6] shadow-xs cursor-pointer relative"
-                >
-                  {userProfile.avatarUrl ? (
-                    <img
-                      src={userProfile.avatarUrl}
-                      alt={userProfile.businessName || 'Salon Group'}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span>{(userProfile.businessName || 'Luxe').charAt(0)}</span>
-                  )}
-                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <Camera className="w-4 h-4 text-white" />
-                  </div>
-                </button>
+          {/* TAB: PROFILE */}
+          {activeTab === 'profile' && (
+            <div className="max-w-2xl mx-auto bg-white p-5 md:p-8 rounded-2xl border border-[#e0bec6] shadow-[0_4px_12px_rgba(90,63,71,0.03)] space-y-8 w-full">
+              <div className="flex items-center gap-4 pb-4 border-b border-[#e0bec6]/50">
+                <div className="relative group">
+                  <button
+                    onClick={() => setShowImageUploader(true)}
+                    title="Update Salon Photo or Logo"
+                    className="w-16 h-16 rounded-2xl bg-[#ffd9e2] text-[#8e004b] font-bold text-2xl flex items-center justify-center overflow-hidden border border-[#e0bec6] cursor-pointer relative"
+                  >
+                    {userProfile.avatarUrl ? (
+                      <img
+                        src={userProfile.avatarUrl}
+                        alt={userProfile.businessName || 'Salon Group'}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span>{(userProfile.businessName || 'Luxe').charAt(0)}</span>
+                    )}
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                      <Camera className="w-5 h-5 text-white" />
+                    </div>
+                  </button>
+                </div>
+
+                <div className="flex-1">
+                  <h2 className="text-xl font-bold text-[#1c1b1b]">{userProfile.businessName || 'Luxe & Co Salon Group'}</h2>
+                  <p className="text-[13px] text-[#594047]">Beverly Hills • Soho NY • Miami</p>
+                  <button
+                    onClick={() => setShowImageUploader(true)}
+                    className="mt-1 text-[13px] text-[#8e004b] font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4" /> Change Photo
+                  </button>
+                </div>
               </div>
 
-              <div className="flex-1">
-                <h2 className="text-xl font-bold text-[#1c1b1b]">{userProfile.businessName || 'Luxe & Co Salon Group'}</h2>
-                <p className="text-xs text-[#594047]">Beverly Hills • Soho NY • Miami</p>
-                <button
-                  onClick={() => setShowImageUploader(true)}
-                  className="mt-1 text-xs text-[#8e004b] font-bold hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <Camera className="w-3.5 h-3.5" /> Change Brand Headshot / Photo
-                </button>
+              <div className="space-y-4 text-[13px] text-[#594047]">
+                <div>
+                  <label className="font-bold text-[#1c1b1b] block mb-2">Salon Description</label>
+                  <p className="p-3 bg-[#fdf8f8] rounded-xl border border-[#e0bec6]/50 leading-relaxed">
+                    Premier luxury beauty group operating high-end salons and day spas across major US metropolitan markets. Known for color mastery, medical esthetics, and elite talent culture.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="font-bold text-[#1c1b1b] block mb-2">Recruitment Contact</label>
+                  <p className="p-3 bg-[#fdf8f8] rounded-xl border border-[#e0bec6]/50">
+                    Sarah Jenkins (Director of Talent & Operations) • hello@nexorabeauty.com
+                  </p>
+                </div>
               </div>
             </div>
+          )}
 
-            <div className="space-y-3 text-xs text-[#594047]">
-              <div>
-                <label className="font-bold text-[#1c1b1b] block mb-1">Salon Description</label>
-                <p className="p-3 bg-[#fdf8f8] rounded-xl border border-[#e0bec6]/30 leading-relaxed">
-                  Premier luxury beauty group operating high-end salons and day spas across major US metropolitan markets. Known for color mastery, medical esthetics, and elite talent culture.
-                </p>
-              </div>
+        </main>
+      </div>
 
-              <div>
-                <label className="font-bold text-[#1c1b1b] block mb-1">Recruitment Contact</label>
-                <p className="p-3 bg-[#fdf8f8] rounded-xl border border-[#e0bec6]/30">
-                  Sarah Jenkins (Director of Talent & Operations) • hello@nexorabeauty.com
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
+      {/* BottomNavBar (Mobile) */}
+      <nav className="md:hidden fixed bottom-0 w-full z-50 rounded-t-xl border-t border-[#e0bec6] bg-white shadow-[0_-4px_12px_rgba(90,63,71,0.05)] flex justify-around items-center px-2 py-3 pb-safe">
+        <MobileNavItem icon={LayoutDashboard} label="Dashboard" tab="dashboard" filledIcon />
+        <MobileNavItem icon={Briefcase} label="Jobs" tab="jobs" />
+        <MobileNavItem icon={Users} label="Candidates" tab="candidates" />
+        <MobileNavItem icon={MessageSquare} label="Messages" tab="messages" />
+        <MobileNavItem icon={Building2} label="Profile" tab="profile" />
+      </nav>
 
-      {/* POST NEW JOB MODAL */}
+      {/* MODALS */}
+      
+      {/* POST NEW JOB WIZARD */}
       {showPostModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 border border-[#e0bec6] shadow-2xl max-h-[90vh] overflow-y-auto animate-scale-up">
-            <div className="flex justify-between items-center pb-3 border-b border-[#e0bec6]/30 mb-4">
-              <div>
-                <h3 className="text-lg font-bold text-[#1c1b1b]">Post New Role</h3>
-                <p className="text-xs text-[#594047]">Publish job listing to Nexora Beauty Talent Network</p>
-              </div>
-              <button
-                onClick={() => setShowPostModal(false)}
-                className="p-1 text-[#594047] hover:text-[#1c1b1b] rounded-full cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handlePostJob} className="space-y-4 text-xs">
-              <div>
-                <label className="font-semibold text-[#1c1b1b] block mb-1">Job Title</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Master Balayage Colorist"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] outline-none focus:ring-2 focus:ring-[#8e004b]"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-[#1c1b1b] block mb-1">Category</label>
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value as JobPosting['category'])}
-                    className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] outline-none"
-                  >
-                    <option value="Hair">Hair</option>
-                    <option value="Skincare">Skincare</option>
-                    <option value="Nails">Nails</option>
-                    <option value="Lashes & Brows">Lashes & Brows</option>
-                    <option value="Massage">Massage</option>
-                    <option value="Management">Management</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="font-semibold text-[#1c1b1b] block mb-1">Position Type</label>
-                  <select
-                    value={jobType}
-                    onChange={(e) => setJobType(e.target.value as JobPosting['jobType'])}
-                    className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] outline-none"
-                  >
-                    <option value="Full-time">Full-time</option>
-                    <option value="Commission">Commission</option>
-                    <option value="Chair Rental">Chair Rental</option>
-                    <option value="Part-time">Part-time</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-[#1c1b1b] block mb-1">Compensation / Pay</label>
-                  <input
-                    type="text"
-                    required
-                    value={salary}
-                    onChange={(e) => setSalary(e.target.value)}
-                    className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-semibold text-[#1c1b1b] block mb-1">Location</label>
-                  <input
-                    type="text"
-                    required
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#1c1b1b] block mb-1">Role Description</label>
-                <textarea
-                  rows={3}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#1c1b1b] block mb-1">Requirements (comma separated)</label>
-                <input
-                  type="text"
-                  value={requirements}
-                  onChange={(e) => setRequirements(e.target.value)}
-                  className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#1c1b1b] block mb-1">Benefits (comma separated)</label>
-                <input
-                  type="text"
-                  value={benefits}
-                  onChange={(e) => setBenefits(e.target.value)}
-                  className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] outline-none"
-                />
-              </div>
-
-              <div className="pt-3 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowPostModal(false)}
-                  className="flex-1 py-3 rounded-full text-xs font-bold text-[#594047] bg-[#f1edec]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-3 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] shadow-md cursor-pointer"
-                >
-                  Publish Listing
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <PostJobWizard
+          onClose={() => setShowPostModal(false)}
+          onComplete={(newJobPartial) => {
+            const newJob: JobPosting = {
+              id: `job-${Date.now()}`,
+              title: newJobPartial.title || 'New Position',
+              salonName: userProfile.businessName || 'Luxe & Co Salon Group',
+              salonLogo: userProfile.avatarUrl || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=120&h=120',
+              location: newJobPartial.location || 'Beverly Hills, CA',
+              image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&q=80&w=800',
+              rating: 5.0,
+              reviewsCount: 1,
+              salary: newJobPartial.salary || '$60,000 - $85,000/yr',
+              jobType: newJobPartial.jobType || 'Commission',
+              category: newJobPartial.category || 'Hair',
+              tags: ['New Listing', 'Flexible Hours', 'Health Benefits'],
+              description: newJobPartial.description || 'We are hiring a dedicated beauty professional to join our salon team...',
+              requirements: newJobPartial.requirements || ['Valid State License', '2+ years experience'],
+              benefits: newJobPartial.benefits || ['Health Insurance', 'Paid Masterclasses', 'Product Discounts'],
+              postedDate: 'Just now',
+              isBookmarked: false,
+              isFeatured: true,
+              activeApplicantsCount: 0,
+            };
+            onAddJob(newJob);
+            setShowPostModal(false);
+          }}
+        />
       )}
 
       {/* SCHEDULE INTERVIEW MODAL */}
       {showScheduleModal && selectedApplicant && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-[#e0bec6] shadow-2xl space-y-4">
-            <h3 className="text-lg font-bold text-[#1c1b1b]">Schedule Interview with {selectedApplicant.name}</h3>
-            <p className="text-xs text-[#594047]">Position: {selectedApplicant.appliedJobTitle}</p>
+        <div className="fixed inset-0 z-[60] bg-[#1c1b1b]/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 md:p-8 border border-[#e0bec6] shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold text-[#1c1b1b]">Schedule Interview with {selectedApplicant.name}</h3>
+            <p className="text-[13px] text-[#594047]">Position: {selectedApplicant.appliedJobTitle}</p>
 
             <div>
-              <label className="text-xs font-bold text-[#1c1b1b] block mb-1">Interview Date & Time</label>
+              <label className="text-[13px] font-bold text-[#1c1b1b] block mb-2">Interview Date & Time</label>
               <input
                 type="text"
                 value={interviewTime}
                 onChange={(e) => setInterviewTime(e.target.value)}
-                className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] outline-none"
+                className="w-full bg-white border border-[#e8e8e8] rounded-lg p-3 text-[13px] text-[#1c1b1b] outline-none focus:border-[#e6007e] focus:ring-1 focus:ring-[#e6007e] transition-all"
               />
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-4 pt-2">
               <button
                 onClick={() => setShowScheduleModal(false)}
-                className="flex-1 py-2.5 rounded-full text-xs font-bold text-[#594047] bg-[#f1edec]"
+                className="flex-1 py-3 rounded-full text-[13px] font-bold text-[#8e004b] bg-white border border-[#e0bec6] hover:bg-[#f7f2f2] transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleScheduleConfirm}
-                className="flex-1 py-2.5 rounded-full text-xs font-bold text-white bg-[#8e004b] hover:bg-[#b90064]"
+                className="flex-1 py-3 rounded-full text-[13px] font-bold text-white bg-[#8e004b] hover:bg-[#b50062] transition-colors cursor-pointer"
               >
-                Confirm & Send Invite
+                Confirm & Send
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* PROFILE HEADSHOT UPLOADER & CAMERA MODAL */}
+      {/* PROFILE HEADSHOT UPLOADER MODAL */}
       {showImageUploader && (
         <ProfileImageUploader
           currentAvatar={userProfile.avatarUrl}
@@ -715,22 +780,22 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
         />
       )}
 
-      {/* CANDIDATE PORTFOLIO MODAL FOR EMPLOYERS */}
+      {/* CANDIDATE PORTFOLIO MODAL */}
       {viewingPortfolioApplicant && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-4xl w-full p-6 sm:p-8 border border-[#e0bec6] shadow-2xl space-y-6 my-8">
-            <div className="flex items-center justify-between pb-4 border-b border-[#e0bec6]/40">
-              <div className="flex items-center gap-3">
+        <div className="fixed inset-0 z-[60] bg-[#1c1b1b]/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-4xl w-full p-5 md:p-8 border border-[#e0bec6] shadow-2xl space-y-8 my-8 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-4 border-b border-[#e0bec6]/50">
+              <div className="flex items-center gap-4">
                 <img
                   src={viewingPortfolioApplicant.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
                   alt={viewingPortfolioApplicant.name}
-                  className="w-12 h-12 rounded-full object-cover ring-2 ring-[#ffd9e2]"
+                  className="w-14 h-14 rounded-full object-cover ring-2 ring-[#ffd9e2]"
                 />
                 <div>
-                  <h3 className="text-lg font-bold text-[#1c1b1b]">
-                    {viewingPortfolioApplicant.name}&apos;s Portfolio & Work Samples
+                  <h3 className="text-xl font-bold text-[#1c1b1b]">
+                    {viewingPortfolioApplicant.name}&apos;s Portfolio
                   </h3>
-                  <p className="text-xs text-[#594047]">
+                  <p className="text-[13px] text-[#594047]">
                     Applicant for <span className="font-bold text-[#8e004b]">{viewingPortfolioApplicant.appliedJobTitle}</span>
                   </p>
                 </div>
@@ -738,7 +803,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
 
               <button
                 onClick={() => setViewingPortfolioApplicant(null)}
-                className="p-2 text-[#8c7077] hover:text-[#1c1b1b] rounded-full hover:bg-[#f1edec]"
+                className="p-2 text-[#594047] hover:text-[#1c1b1b] rounded-full hover:bg-[#f1edec] transition-colors cursor-pointer"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -750,10 +815,10 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
               isEditable={false}
             />
 
-            <div className="flex justify-end pt-4 border-t border-[#e0bec6]/40">
+            <div className="flex justify-end pt-4 border-t border-[#e0bec6]/50">
               <button
                 onClick={() => setViewingPortfolioApplicant(null)}
-                className="px-6 py-2 bg-[#8e004b] text-white text-xs font-bold rounded-full hover:bg-[#b90064]"
+                className="px-8 py-3 bg-[#8e004b] text-white text-[13px] font-bold rounded-full hover:bg-[#b90064] transition-colors cursor-pointer"
               >
                 Close Portfolio
               </button>

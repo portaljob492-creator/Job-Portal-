@@ -12,7 +12,14 @@ export type ScreenState =
   | 'seeker_onboarding_step1'
   | 'seeker_onboarding_step2'
   | 'main_app'
-  | 'apply_job';
+  | 'apply_job'
+  | 'interview_invitation'
+  | 'job_offer'
+  | 'support'
+  | 'settings'
+  | 'employer_onboarding_step1'
+  | 'employer_onboarding_step2'
+  | 'employer_onboarding_step3';
 
 export interface JobPosting {
   id: string;

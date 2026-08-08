@@ -18,11 +18,20 @@ import { JobSeekerWorkspace } from './components/seeker/JobSeekerWorkspace';
 import { ApplyJobScreen } from './components/seeker/ApplyJobScreen';
 import { EmployerWorkspace } from './components/employer/EmployerWorkspace';
 import { NavigationToolbar } from './components/NavigationToolbar';
+import { InterviewInvitationScreen } from './components/seeker/InterviewInvitationScreen';
+import { JobOfferScreen } from './components/seeker/JobOfferScreen';
+import { SupportScreen } from './components/seeker/SupportScreen';
+import { SettingsScreen } from './components/seeker/SettingsScreen';
+import { EmployerOnboardingStep1Screen } from './components/employer/EmployerOnboardingStep1Screen';
+import { EmployerOnboardingStep2Screen } from './components/employer/EmployerOnboardingStep2Screen';
 
 export default function App() {
   const [screen, setScreen] = useState<ScreenState>('welcome');
   const [userRole, setUserRole] = useState<UserRole>('seeker');
   const [selectedJobForApply, setSelectedJobForApply] = useState<JobPosting | null>(null);
+  const [selectedApplicationForInvitation, setSelectedApplicationForInvitation] = useState<Application | null>(null);
+  const [selectedApplicationForOffer, setSelectedApplicationForOffer] = useState<Application | null>(null);
+  const [seekerInitialTab, setSeekerInitialTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile' | undefined>(undefined);
 
   // Application Data States
   const [jobs, setJobs] = useState<JobPosting[]>(INITIAL_JOBS);
@@ -90,7 +99,7 @@ export default function App() {
     if (userRole === 'seeker') {
       setScreen('seeker_onboarding_step1');
     } else {
-      setScreen('main_app');
+      setScreen('employer_onboarding_step1');
     }
   };
 
@@ -381,6 +390,22 @@ export default function App() {
         />
       )}
 
+      {/* SCREEN 12: EMPLOYER ONBOARDING STEP 1 */}
+      {screen === 'employer_onboarding_step1' && (
+        <EmployerOnboardingStep1Screen
+          onBack={() => setScreen('otp_verify')}
+          onContinue={() => setScreen('employer_onboarding_step2')}
+        />
+      )}
+
+      {/* SCREEN 13: EMPLOYER ONBOARDING STEP 2 */}
+      {screen === 'employer_onboarding_step2' && (
+        <EmployerOnboardingStep2Screen
+          onBack={() => setScreen('employer_onboarding_step1')}
+          onContinue={() => setScreen('main_app')}
+        />
+      )}
+
       {/* SCREEN 8: MAIN WORKSPACE */}
       {screen === 'main_app' && (
         <>
@@ -397,9 +422,11 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
               onUpdateAvatar={(url) => setUserProfile((prev) => ({ ...prev, avatarUrl: url }))}
+              onUpdateProfile={(updatedProfile) => setUserProfile(updatedProfile)}
               onMarkAlertRead={handleMarkAlertRead}
               onMarkAllAlertsRead={handleMarkAllAlertsRead}
               onClearAlert={handleClearAlert}
+              onNavigateScreen={(target) => setScreen(target)}
               onSwitchRole={() => {
                 setUserRole('employer');
                 setUserProfile((prev) => ({ ...prev, role: 'employer' }));
@@ -409,6 +436,15 @@ export default function App() {
                 setSelectedJobForApply(job);
                 setScreen('apply_job');
               }}
+              onViewInvitation={(app) => {
+                setSelectedApplicationForInvitation(app);
+                setScreen('interview_invitation');
+              }}
+              onViewOffer={(app) => {
+                setSelectedApplicationForOffer(app);
+                setScreen('job_offer');
+              }}
+              initialTab={seekerInitialTab}
             />
           ) : (
             <EmployerWorkspace
@@ -442,6 +478,73 @@ export default function App() {
           onApplyJob={handleApplyJob}
           onBack={() => setScreen('main_app')}
           onNavigateToApplications={() => {
+            setScreen('main_app');
+          }}
+        />
+      )}
+
+      {/* SCREEN: INTERVIEW INVITATION */}
+      {screen === 'interview_invitation' && (
+        <InterviewInvitationScreen
+          jobs={jobs}
+          applications={applications}
+          selectedApplication={selectedApplicationForInvitation}
+          onUpdateApplicationStatus={(appId, status, notes) => {
+            setApplications((prev) =>
+              prev.map((app) => (app.id === appId ? { ...app, status, notes } : app))
+            );
+          }}
+          onBack={() => {
+            setSeekerInitialTab('applications');
+            setScreen('main_app');
+          }}
+          onNavigateTab={(tab) => {
+            setSeekerInitialTab(tab);
+            setScreen('main_app');
+          }}
+        />
+      )}
+
+      {/* SCREEN: JOB OFFER */}
+      {screen === 'job_offer' && (
+        <JobOfferScreen
+          jobs={jobs}
+          applications={applications}
+          selectedApplication={selectedApplicationForOffer}
+          onUpdateApplicationStatus={(appId, status, notes) => {
+            setApplications((prev) =>
+              prev.map((app) => (app.id === appId ? { ...app, status, notes } : app))
+            );
+          }}
+          onBack={() => {
+            setSeekerInitialTab('applications');
+            setScreen('main_app');
+          }}
+          onNavigateTab={(tab) => {
+            setSeekerInitialTab(tab);
+            setScreen('main_app');
+          }}
+        />
+      )}
+
+      {/* SCREEN 32 — SUPPORT */}
+      {screen === 'support' && (
+        <SupportScreen
+          onBack={() => setScreen('main_app')}
+          onNavigateTab={(tab) => {
+            setSeekerInitialTab(tab);
+            setScreen('main_app');
+          }}
+        />
+      )}
+
+      {/* SCREEN 34 — SETTINGS */}
+      {screen === 'settings' && (
+        <SettingsScreen
+          onBack={() => setScreen('main_app')}
+          onLogout={() => setScreen('welcome')}
+          onNavigateTab={(tab) => {
+            setSeekerInitialTab(tab);
             setScreen('main_app');
           }}
         />

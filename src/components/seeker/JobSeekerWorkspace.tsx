@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { JobPosting, Application, UserProfile, Conversation, ChatMessage, PortfolioItem, SavedFilter, JobAlertNotification } from '../../types';
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
 import { MessagingCenter } from '../messaging/MessagingCenter';
 import { PortfolioGallery } from '../profile/PortfolioGallery';
 import { ResumePreview } from './ResumePreview';
+import { SeekerProfileTab } from './SeekerProfileTab';
 import { INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from '../../data/mockData';
 import { processNewJobForAlerts } from '../../utils/jobAlertMatcher';
 import {
@@ -49,7 +50,8 @@ import {
   Download,
   Mic,
   MicOff,
-  User
+  User,
+  HelpCircle
 } from 'lucide-react';
 
 interface JobSeekerWorkspaceProps {
@@ -64,12 +66,17 @@ interface JobSeekerWorkspaceProps {
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
+  onUpdateProfile?: (updatedProfile: UserProfile) => void;
   onMarkAlertRead?: (alertId: string) => void;
   onMarkAllAlertsRead?: () => void;
   onClearAlert?: (alertId: string) => void;
   onSwitchRole: () => void;
   onLogout: () => void;
   onStartApplyJob?: (job: JobPosting) => void;
+  initialTab?: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
+  onViewInvitation?: (application: Application) => void;
+  onViewOffer?: (application: Application) => void;
+  onNavigateScreen?: (screen: any) => void;
 }
 
 export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
@@ -84,14 +91,26 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   onSendMessage,
   onStartConversation,
   onUpdateAvatar,
+  onUpdateProfile,
   onMarkAlertRead,
   onMarkAllAlertsRead,
   onClearAlert,
   onSwitchRole,
   onLogout,
   onStartApplyJob,
+  initialTab,
+  onViewInvitation,
+  onViewOffer,
+  onNavigateScreen,
 }) => {
-  const [activeTab, setActiveTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile'>('feed');
+  const [activeTab, setActiveTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile'>(initialTab || 'feed');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>(
@@ -117,6 +136,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const [salaryFilter, setSalaryFilter] = useState<string>('All Salaries');
   const [selectedTag, setSelectedTag] = useState<string>('All Perks');
   const [sortBy, setSortBy] = useState<'relevant' | 'salary_high' | 'rating_high' | 'newest'>('relevant');
+  const [showSavedAd, setShowSavedAd] = useState<boolean>(true);
 
   // Saved Search Filters State
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(
@@ -439,9 +459,9 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   };
 
   return (
-    <div className="bg-[#fdf8f8] min-h-screen text-[#1c1b1b] flex flex-col font-sans pb-20 md:pb-8">
+    <div className="bg-[#fdf8f8] min-h-screen text-[#1c1b1b] flex flex-col font-sans pb-20 md:pb-stack-default">
       {/* Top Header */}
-      <header className="sticky top-0 bg-white border-b border-[#e0bec6]/40 shadow-sm z-30 px-4 sm:px-6 py-3">
+      <header className="sticky top-0 bg-white border-b border-[#e0bec6]/40 shadow-sm z-30 px-margin-side py-stack-default">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-[#b90064] text-white flex items-center justify-center font-bold text-xl shadow-md overflow-hidden">
@@ -494,6 +514,15 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
 
           {/* User Profile & Push Notification Alerts */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Help & Support Center Button */}
+            <button
+              onClick={() => onNavigateScreen?.('support')}
+              title="Help & Support Center"
+              className="p-2 text-[#594047] hover:text-[#8e004b] hover:bg-[#e6e1e1] rounded-full transition-colors cursor-pointer"
+            >
+              <HelpCircle className="w-5 h-5 text-[#8e004b]" />
+            </button>
+
             {/* Job Match Notification Bell Button */}
             <button
               onClick={() => setShowNotificationDrawer(true)}
@@ -578,9 +607,9 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
       </header>
 
       {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-grow w-full">
+      <main className="max-w-7xl mx-auto px-margin-side py-section-gap flex-grow w-full">
         {/* Navigation Tabs Bar */}
-        <div className="flex items-center justify-between border-b border-[#e0bec6]/40 pb-3 mb-6 overflow-x-auto gap-2">
+        <div className="flex items-center justify-between border-b border-[#e0bec6]/40 pb-stack-default mb-section-gap overflow-x-auto gap-stack-sm">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setActiveTab('feed')}
@@ -820,7 +849,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
               )}
 
               {/* Advanced Multi-Facet Filters Panel */}
-              <div className="bg-white p-4 rounded-2xl border border-[#e0bec6]/50 shadow-xs flex flex-col gap-3">
+              <div className="bg-white p-stack-default rounded-2xl border border-[#e0bec6]/50 shadow-xs flex flex-col gap-stack-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#e0bec6]/30">
                   <div className="flex items-center gap-2 text-xs font-bold text-[#8e004b]">
                     <SlidersHorizontal className="w-4 h-4" />
@@ -1075,7 +1104,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-stack-default">
                 {sortedAndFilteredJobs.map((job) => (
                   <div
                     key={job.id}
@@ -1215,8 +1244,8 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
 
         {/* TAB 2: MY APPLICATIONS */}
         {activeTab === 'applications' && (
-          <div className="space-y-6">
-            <div className="bg-white p-6 rounded-2xl border border-[#e0bec6]/40 shadow-xs flex items-center justify-between">
+          <div className="space-y-section-gap">
+            <div className="bg-white p-margin-side rounded-2xl border border-[#e0bec6]/40 shadow-xs flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-[#1c1b1b]">Application Tracker</h2>
                 <p className="text-xs text-[#594047]">Track your active role applications and upcoming interviews.</p>
@@ -1239,13 +1268,13 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-stack-default">
                 {applications.map((app) => (
                   <div
                     key={app.id}
-                    className="bg-white rounded-2xl p-5 border border-[#e0bec6]/50 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    className="bg-white rounded-2xl p-margin-side border border-[#e0bec6]/50 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-stack-default"
                   >
-                    <div className="flex items-start gap-4">
+                    <div className="flex items-start gap-stack-default">
                       {app.salonLogo ? (
                         <img
                           src={app.salonLogo}
@@ -1267,7 +1296,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                         </p>
 
                         {app.notes && (
-                          <div className="mt-2 text-xs bg-[#fdf8f8] p-2.5 rounded-lg border border-[#e0bec6]/30 text-[#1c1b1b]">
+                          <div className="mt-stack-sm text-xs bg-[#fdf8f8] p-stack-sm rounded-lg border border-[#e0bec6]/30 text-[#1c1b1b]">
                             <span className="font-semibold text-[#8e004b]">Note: </span>
                             {app.notes}
                           </div>
@@ -1275,7 +1304,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex flex-col md:items-end gap-2 pt-3 md:pt-0 border-t md:border-t-0 border-[#e0bec6]/30">
+                    <div className="flex flex-col md:items-end gap-stack-sm pt-stack-sm md:pt-0 border-t md:border-t-0 border-[#e0bec6]/30">
                       <span
                         className={`px-3 py-1 rounded-full text-xs font-bold w-fit ${
                           app.status === 'Interview Scheduled'
@@ -1297,19 +1326,41 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                         </div>
                       )}
 
-                      <button
-                        onClick={() => {
-                          if (onStartConversation) {
-                            const convId = onStartConversation(app.jobId, userProfile.name, app.salonName);
-                            setActiveConvId(convId);
-                            setActiveTab('messages');
-                          }
-                        }}
-                        className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#ffd9e2] text-[#8e004b] hover:bg-[#ffb0c8] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs mt-1"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span>Message Salon</span>
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        {app.status === 'Interview Scheduled' && onViewInvitation && (
+                          <button
+                            onClick={() => onViewInvitation(app)}
+                            className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#8e004b] text-white hover:bg-[#b90064] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs mt-stack-sm"
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>View Invitation</span>
+                          </button>
+                        )}
+
+                        {app.status === 'Offer Extended' && onViewOffer && (
+                          <button
+                            onClick={() => onViewOffer(app)}
+                            className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#e2007c] text-white hover:bg-[#b50062] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs mt-stack-sm"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>View Offer</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            if (onStartConversation) {
+                              const convId = onStartConversation(app.jobId, userProfile.name, app.salonName);
+                              setActiveConvId(convId);
+                              setActiveTab('messages');
+                            }
+                          }}
+                          className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#ffd9e2] text-[#8e004b] hover:bg-[#ffb0c8] transition-colors cursor-pointer flex items-center gap-stack-sm shadow-2xs mt-stack-sm"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Message Salon</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -1320,8 +1371,8 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
 
         {/* TAB 3: SAVED JOBS */}
         {activeTab === 'saved' && (
-          <div className="space-y-6">
-            <div className="bg-white p-6 rounded-2xl border border-[#e0bec6]/40 shadow-xs flex items-center justify-between">
+          <div className="space-y-section-gap">
+            <div className="bg-white p-margin-side rounded-2xl border border-[#e0bec6]/40 shadow-xs flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-[#1c1b1b]">Saved Positions</h2>
                 <p className="text-xs text-[#594047]">Your bookmarked salon opportunities.</p>
@@ -1330,6 +1381,71 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                 {savedJobs.length} Saved
               </span>
             </div>
+
+            {showSavedAd && (
+              <div className="relative overflow-hidden bg-gradient-to-r from-[#ffd9e2]/20 via-[#fdf8f8] to-white rounded-2xl border border-[#e0bec6]/45 p-6 shadow-xs animate-in fade-in slide-in-from-top-4 duration-500">
+                {/* Close Button */}
+                <button
+                  onClick={() => setShowSavedAd(false)}
+                  className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-[#ffd9e2]/60 text-[#594047] hover:text-[#8e004b] transition-all cursor-pointer z-10"
+                  title="Dismiss advertisement"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                  {/* Text Content */}
+                  <div className="flex-1 space-y-3">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#8e004b] text-white text-[10px] font-extrabold uppercase tracking-wide">
+                      <Sparkles className="w-3 h-3 animate-pulse text-[#ffd9e2]" />
+                      <span>Partner Spotlight</span>
+                    </div>
+
+                    <h3 className="text-lg md:text-xl font-bold text-[#1c1b1b] leading-tight">
+                      Dyson Professional Masterclass: Elite Styling 2026
+                    </h3>
+                    
+                    <p className="text-xs text-[#594047] leading-relaxed max-w-xl">
+                      Master advanced thermal technology, ergonomic styling, and modern precision drying with Dyson's Global Educators. Get certified and earn an exclusive <strong className="text-[#8e004b] font-bold">"Verified Advanced Stylist"</strong> badge on your Nexora profile.
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-4 pt-1">
+                      <a
+                        href="https://www.dyson.com/hair-care/professional/masterclass"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-4 py-2 bg-[#8e004b] text-white text-xs font-bold rounded-full hover:bg-[#b90064] transition-all flex items-center gap-1.5 shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
+                      >
+                        <span>Reserve Free Seat</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                      <span className="text-[11px] text-[#594047] font-semibold">
+                        Exclusive 15% off Dyson Professional tools for attendees
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Visual Asset Block */}
+                  <div className="relative shrink-0 w-full md:w-48 h-32 bg-[#ffd9e2]/10 rounded-xl overflow-hidden border border-[#e0bec6]/30 flex items-center justify-center">
+                    {/* Background decorative circles */}
+                    <div className="absolute -top-10 -right-10 w-24 h-24 rounded-full bg-[#e2007c]/5 blur-lg" />
+                    <div className="absolute -bottom-6 -left-6 w-20 h-20 rounded-full bg-[#8e004b]/5 blur-lg" />
+                    
+                    <img
+                      src="https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&q=80&w=300"
+                      alt="Premium Hair Dryer Styling Tool"
+                      className="w-full h-full object-cover opacity-90 transition-transform duration-700 hover:scale-105"
+                      referrerPolicy="no-referrer"
+                    />
+
+                    {/* Tiny Floating Badge */}
+                    <div className="absolute bottom-2 left-2 bg-white/95 backdrop-blur-xs border border-[#e0bec6]/40 px-2 py-1 rounded-md text-[9px] font-extrabold text-[#8e004b] shadow-2xs">
+                      Nexora Certified
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {savedJobs.length === 0 ? (
               <div className="bg-white rounded-2xl p-12 text-center border border-[#e0bec6]/40">
@@ -1344,11 +1460,11 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-stack-default">
                 {savedJobs.map((job) => (
-                  <div key={job.id} className="bg-white rounded-2xl border border-[#e0bec6]/50 p-4 flex flex-col justify-between gap-3 shadow-xs">
+                  <div key={job.id} className="bg-white rounded-2xl border border-[#e0bec6]/50 p-stack-default flex flex-col justify-between gap-stack-sm shadow-xs">
                     <div>
-                      <div className="flex justify-between items-start gap-2 mb-2">
+                      <div className="flex justify-between items-start gap-stack-sm mb-stack-sm">
                         <div>
                           <span className="text-xs font-semibold text-[#8e004b]">{job.salonName}</span>
                           <h3 className="text-base font-bold text-[#1c1b1b]">{job.title}</h3>
@@ -1362,13 +1478,13 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                         </button>
                       </div>
 
-                      <p className="text-xs font-bold text-[#e2007c] mb-2">{job.salary}</p>
-                      <p className="text-xs text-[#594047] flex items-center gap-1 mb-3">
+                      <p className="text-xs font-bold text-[#e2007c] mb-stack-sm">{job.salary}</p>
+                      <p className="text-xs text-[#594047] flex items-center gap-stack-sm mb-stack-default">
                         <MapPin className="w-3 h-3" /> {job.location}
                       </p>
                     </div>
 
-                    <div className="pt-3 border-t border-[#e0bec6]/30 flex gap-2">
+                    <div className="pt-stack-sm border-t border-[#e0bec6]/30 flex gap-stack-sm">
                       <button
                         onClick={() => setSelectedJob(job)}
                         className="flex-1 py-2 rounded-full text-xs font-semibold text-[#8e004b] bg-[#f1edec] hover:bg-[#ffd9e2] transition-colors cursor-pointer"
@@ -1398,7 +1514,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
 
         {/* TAB 4: MESSAGING */}
         {activeTab === 'messages' && (
-          <div className="space-y-6">
+          <div className="space-y-section-gap">
             <MessagingCenter
               currentRole="seeker"
               userProfile={userProfile}
@@ -1427,353 +1543,13 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
 
         {/* TAB 6: BEAUTY PROFILE */}
         {activeTab === 'profile' && (
-          <div className="max-w-4xl mx-auto space-y-6">
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-[#e0bec6]/40 shadow-sm text-center relative overflow-hidden">
-              {/* Profile Avatar Container with Camera Overlay */}
-              <div className="relative w-28 h-28 mx-auto mb-4 group">
-                <div className="w-28 h-28 rounded-full bg-[#8e004b] text-white font-bold text-4xl flex items-center justify-center overflow-hidden shadow-lg border-2 border-white ring-4 ring-[#ffd9e2]">
-                  {userProfile.avatarUrl ? (
-                    <img
-                      src={userProfile.avatarUrl}
-                      alt={userProfile.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span>{userProfile.name.charAt(0)}</span>
-                  )}
-                </div>
-
-                {/* Camera Trigger Badge */}
-                <button
-                  onClick={() => setShowImageUploader(true)}
-                  title="Take or Upload Headshot"
-                  className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-[#e2007c] hover:bg-[#b90064] text-white flex items-center justify-center shadow-md transition-all hover:scale-110 cursor-pointer border-2 border-white"
-                >
-                  <Camera className="w-4 h-4" />
-                </button>
-              </div>
-
-              <h2 className="text-xl font-bold text-[#1c1b1b]">{userProfile.name}</h2>
-              <p className="text-xs font-semibold text-[#e2007c] mt-0.5 mb-2">Licensed Cosmetologist & Color Specialist</p>
-
-              {/* Headshot Quick Action Button */}
-              <div className="mt-2 mb-4">
-                <button
-                  onClick={() => setShowImageUploader(true)}
-                  className="px-4 py-1.5 rounded-full bg-[#ffd9e2] hover:bg-[#ffb0c8] text-[#8e004b] text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>{userProfile.avatarUrl ? 'Update Headshot' : 'Take Professional Headshot'}</span>
-                </button>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
-                <span className="px-3 py-1 bg-[#ffd9e2] text-[#8e004b] rounded-full text-xs font-bold flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5" /> License: CA-COS-889124 (Active)
-                </span>
-                <span className="px-3 py-1 bg-[#f1edec] text-[#594047] rounded-full text-xs font-semibold">
-                  5 Years Experience
-                </span>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl border border-[#e0bec6]/40 shadow-xs space-y-4">
-              <h3 className="text-base font-bold text-[#1c1b1b] border-b border-[#e0bec6]/30 pb-2">
-                Specialty Skills & Certifications
-              </h3>
-
-              <div className="flex flex-wrap gap-2">
-                {['Balayage & Dimensional Color', 'Kérastase Master Certified', 'Scalp Treatments', 'Foilayage', 'Client Consultation', 'Retail Sales'].map((skill) => (
-                  <span key={skill} className="px-3 py-1.5 bg-[#fdf8f8] border border-[#e0bec6] rounded-xl text-xs font-semibold text-[#1c1b1b]">
-                    ✓ {skill}
-                  </span>
-                ))}
-              </div>
-
-              <div className="pt-4 border-t border-[#e0bec6]/30">
-                <h4 className="text-xs font-bold text-[#594047] uppercase tracking-wider mb-2">Portfolio Link</h4>
-                <a
-                  href="https://instagram.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-[#8e004b] font-semibold flex items-center gap-1 hover:underline"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" /> instagram.com/janedoe_hair
-                </a>
-              </div>
-            </div>
-
-            {/* RESUME / CV MANAGEMENT CARD */}
-            <div
-              key={workspaceResumeName}
-              id="upload-zone"
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsDraggingOver(true);
-              }}
-              onDragLeave={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsDraggingOver(false);
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsDraggingOver(false);
-                const file = e.dataTransfer.files?.[0];
-                if (file) {
-                  setWorkspaceResumeName(file.name);
-                  setResumeFileUrl(URL.createObjectURL(file));
-                  setIsJustUploaded(true);
-                  setTimeout(() => setIsJustUploaded(false), 2500);
-                  showToast(`Resume updated successfully: ${file.name}`);
-                }
-              }}
-              className={`bg-white p-6 rounded-2xl border transition-all duration-700 ease-out shadow-xs space-y-4 relative animate-in fade-in zoom-in-95 ${
-                isDraggingOver 
-                  ? 'border-2 border-dashed border-[#8e004b] bg-[#ffd9e2]/25 scale-[1.01] shadow-lg' 
-                  : isJustUploaded 
-                    ? 'border-2 border-emerald-500 bg-emerald-50/40 scale-102 shadow-xl ring-4 ring-emerald-100' 
-                    : 'border-[#e0bec6]/40 hover:border-[#8e004b]/50'
-              }`}
-            >
-              {isDraggingOver && (
-                <div className="absolute inset-0 z-25 bg-[#8e004b]/10 backdrop-blur-3xs rounded-2xl flex flex-col items-center justify-center p-4 text-center pointer-events-none animate-in fade-in duration-200">
-                  <Upload className="w-10 h-10 text-[#8e004b] animate-bounce mb-2" />
-                  <p className="text-sm font-extrabold text-[#8e004b]">Drop file here to update resume</p>
-                  <p className="text-xs text-[#594047] mt-0.5">Supports PDF, DOC, DOCX</p>
-                </div>
-              )}
-              <div className="flex items-center justify-between border-b border-[#e0bec6]/30 pb-3 transition-all duration-300">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-[#8e004b] transition-transform duration-300 hover:scale-110" />
-                  <h3 className="text-base font-bold text-[#1c1b1b]">Professional Resume / CV</h3>
-                </div>
-                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 shadow-2xs transition-all duration-300">
-                  Ready for Applications
-                </span>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-[#fdf8f8] rounded-xl border border-[#e0bec6]/60 transition-all duration-500 hover:bg-[#fff5f8]">
-                <div className="flex items-center gap-3 w-full sm:w-auto">
-                  <div className="w-12 h-12 rounded-xl bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center flex-shrink-0 transition-transform duration-300 hover:rotate-6">
-                    <FileText className="w-6 h-6 animate-pulse" />
-                  </div>
-                  <div className="truncate">
-                    <h4 className="text-xs font-extrabold text-[#1c1b1b] truncate">{workspaceResumeName}</h4>
-                    <p className="text-[11px] text-[#594047]">PDF format • Attached automatically to applications</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={() => setShowResumePreviewModal(true)}
-                    className="flex-1 sm:flex-initial px-4 py-2.5 bg-white border border-[#e0bec6] hover:bg-[#ffd9e2]/30 text-[#8e004b] text-xs font-bold rounded-xl shadow-2xs transition-all duration-300 flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-                  >
-                    <Eye className="w-4 h-4 text-[#8e004b]" />
-                    <span>Preview</span>
-                  </button>
-                  <div className="relative flex-1 sm:flex-initial">
-                    <button
-                      type="button"
-                      className="w-full px-4 py-2.5 bg-[#8e004b] hover:bg-[#b90064] text-white text-xs font-bold rounded-xl shadow-xs transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
-                    >
-                      <Upload className="w-4 h-4 animate-bounce" />
-                      <span>Update</span>
-                    </button>
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx"
-                      aria-label="Update Professional Resume or CV"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          setWorkspaceResumeName(file.name);
-                          setResumeFileUrl(URL.createObjectURL(file));
-                          setIsJustUploaded(true);
-                          setTimeout(() => setIsJustUploaded(false), 2500);
-                          showToast(`Resume updated successfully: ${file.name}`);
-                        }
-                      }}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-[#e0bec6]/40 shadow-sm space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#e0bec6]/30">
-                <div>
-                  <h3 className="text-base font-bold text-[#1c1b1b] flex items-center gap-2">
-                    <BookmarkCheck className="w-5 h-5 text-[#8e004b]" />
-                    <span>Saved Search Preferences & Preferred Filters</span>
-                  </h3>
-                  <p className="text-xs text-[#594047] mt-0.5">
-                    Saved search filters linked to your profile to quickly re-apply search settings on future visits.
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setActiveTab('feed');
-                    handleOpenSaveModal();
-                  }}
-                  className="px-4 py-2 bg-[#ffd9e2] text-[#8e004b] hover:bg-[#ffb0c8] text-xs font-bold rounded-full transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Create New Saved Search</span>
-                </button>
-              </div>
-
-              {savedFilters.length === 0 ? (
-                <div className="p-8 text-center bg-[#fdf8f8] rounded-xl border border-dashed border-[#e0bec6] space-y-2">
-                  <Bookmark className="w-8 h-8 text-[#8e004b] mx-auto opacity-50" />
-                  <p className="text-xs font-bold text-[#1c1b1b]">No saved search filters yet</p>
-                  <p className="text-[11px] text-[#594047]">
-                    Use the filter bar on the Explore Jobs tab or click &apos;Create New Saved Search&apos; to save search queries like &quot;Stylist in LA&quot;.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {savedFilters.map((sf) => (
-                    <div
-                      key={sf.id}
-                      className="p-4 rounded-xl border border-[#e0bec6]/60 bg-[#fdf8f8] hover:border-[#e2007c] transition-all space-y-3 flex flex-col justify-between shadow-2xs"
-                    >
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <h4 className="text-sm font-bold text-[#1c1b1b] flex items-center gap-1.5">
-                            <Sparkles className="w-4 h-4 text-[#e2007c]" />
-                            <span>{sf.name}</span>
-                          </h4>
-                          <button
-                            onClick={(e) => handleDeleteSavedFilter(sf.id, e)}
-                            className="text-[#8c7077] hover:text-rose-600 p-1 cursor-pointer transition-colors"
-                            title="Delete saved filter"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-
-                        {/* Criteria Badges */}
-                        <div className="flex flex-wrap gap-1.5 mt-2.5">
-                          {sf.searchQuery && (
-                            <span className="px-2 py-0.5 rounded-md bg-[#ffd9e2] text-[#8e004b] text-[10px] font-bold">
-                              Keyword: &quot;{sf.searchQuery}&quot;
-                            </span>
-                          )}
-                          {sf.category && sf.category !== 'All' && (
-                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
-                              Category: {sf.category}
-                            </span>
-                          )}
-                          {sf.location && sf.location !== 'All Locations' && (
-                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
-                              Location: {sf.location}
-                            </span>
-                          )}
-                          {sf.jobType && sf.jobType !== 'All Types' && (
-                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
-                              Type: {sf.jobType}
-                            </span>
-                          )}
-                          {sf.salary && sf.salary !== 'All Salaries' && (
-                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
-                              Salary: {sf.salary}
-                            </span>
-                          )}
-                          {sf.tag && sf.tag !== 'All Perks' && (
-                            <span className="px-2 py-0.5 rounded-md bg-white border border-[#e0bec6] text-[10px] font-semibold text-[#1c1b1b]">
-                              Perk: {sf.tag}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                        {/* Notification Push Preferences Controls */}
-                        <div className="mt-3 pt-2.5 border-t border-[#e0bec6]/30 flex flex-col gap-2 bg-white/70 p-2.5 rounded-xl border border-[#e0bec6]/40">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-[#8e004b] flex items-center gap-1">
-                              <BellRing className="w-3.5 h-3.5" />
-                              <span>Job Match Alert Delivery:</span>
-                            </span>
-                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                              Active Engine
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleFilterNotification(sf.id, 'push')}
-                              className={`px-2 py-1.5 rounded-lg border flex items-center justify-center gap-1 font-semibold transition-all cursor-pointer ${
-                                sf.notifyPush !== false
-                                  ? 'bg-[#ffd9e2] text-[#8e004b] border-[#8e004b]'
-                                  : 'bg-gray-50 text-gray-400 border-gray-200'
-                              }`}
-                            >
-                              <Smartphone className="w-3 h-3" />
-                              <span>Push: {sf.notifyPush !== false ? 'ON' : 'OFF'}</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleToggleFilterNotification(sf.id, 'inApp')}
-                              className={`px-2 py-1.5 rounded-lg border flex items-center justify-center gap-1 font-semibold transition-all cursor-pointer ${
-                                sf.notifyInApp !== false
-                                  ? 'bg-[#ffd9e2] text-[#8e004b] border-[#8e004b]'
-                                  : 'bg-gray-50 text-gray-400 border-gray-200'
-                              }`}
-                            >
-                              <Bell className="w-3 h-3" />
-                              <span>In-App: {sf.notifyInApp !== false ? 'ON' : 'OFF'}</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleToggleFilterNotification(sf.id, 'email')}
-                              className={`px-2 py-1.5 rounded-lg border flex items-center justify-center gap-1 font-semibold transition-all cursor-pointer ${
-                                sf.notifyEmail
-                                  ? 'bg-[#ffd9e2] text-[#8e004b] border-[#8e004b]'
-                                  : 'bg-gray-50 text-gray-400 border-gray-200'
-                              }`}
-                            >
-                              <Mail className="w-3 h-3" />
-                              <span>Email: {sf.notifyEmail ? 'ON' : 'OFF'}</span>
-                            </button>
-                          </div>
-                        </div>
-
-                      <div className="pt-2 border-t border-[#e0bec6]/30 flex items-center justify-between text-[11px]">
-                        <span className="text-[#8c7077]">Saved {sf.createdAt || 'Recently'}</span>
-                        <button
-                          onClick={() => {
-                            setActiveTab('feed');
-                            handleApplySavedFilter(sf);
-                          }}
-                          className="px-3.5 py-1.5 rounded-full bg-[#8e004b] hover:bg-[#b90064] text-white font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                        >
-                          <Search className="w-3 h-3" />
-                          <span>Apply Filter</span>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Embedded Portfolio Gallery on Profile */}
-            <div className="pt-4">
-              <PortfolioGallery
-                items={portfolioItems}
-                onUpdateItems={(newItems) => setPortfolioItems(newItems)}
-                isEditable={true}
-              />
-            </div>
-          </div>
+          <SeekerProfileTab
+            userProfile={userProfile}
+            onUpdateProfile={onUpdateProfile}
+            onLogout={onLogout}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+            onNavigateScreen={onNavigateScreen}
+          />
         )}
       </main>
 
