@@ -129,6 +129,19 @@ node scripts/test-supabase-backend.mjs
 
 The test creates temporary users and fixtures, validates the full seeker/employer workflow and RLS isolation, then removes its data. Never run it against production without explicit approval.
 
+## Vercel deployment
+
+1. In Vercel, choose **Add New → Project** and import `portaljob492-creator/Job-Portal-`.
+2. Keep **Framework Preset: Vite**. `vercel.json` already defines `npm ci`, `npm run build`, `dist`, and `/app/jobs` SPA rewrites.
+3. Add these Production, Preview, and Development variables:
+
+```env
+VITE_SUPABASE_URL=https://qwaehqsmodekbgvnaavz.supabase.co
+VITE_SUPABASE_ANON_KEY=YOUR_STAGING_PUBLISHABLE_KEY
+```
+
+4. Deploy, then copy the final `https://*.vercel.app` domain into Supabase Auth URL Configuration before testing OAuth or recovery links.
+
 ## Auth configuration
 
 1. Set the correct Site URL and redirect URLs in **Authentication → URL Configuration**.
