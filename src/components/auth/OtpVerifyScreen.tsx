@@ -4,8 +4,7 @@ import { ArrowLeft, CheckCircle2, AlertCircle, RefreshCw, Mail, Phone, Edit2 } f
 interface OtpVerifyScreenProps {
   email?: string;
   phone?: string;
-  onVerify: (code: string) => Promise<void> | void;
-  onResend?: () => Promise<void> | void;
+  onVerify: () => void;
   onBack: () => void;
   onChangeContact?: () => void;
 }
@@ -16,11 +15,10 @@ export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
   email = 'jane@example.com',
   phone = '(555) 000-1234',
   onVerify,
-  onResend,
   onBack,
   onChangeContact,
 }) => {
-  const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [digits, setDigits] = useState<string[]>(['1', '2', '3', '4', '5', '6']);
   const [statusState, setStatusState] = useState<VerificationState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
@@ -89,22 +87,18 @@ export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
     }
   };
 
-  const handleResend = async () => {
-    if (!onResend) return;
+  const handleResend = () => {
     setStatusState('sending');
     setErrorMessage(null);
-    try {
-      await onResend();
+    
+    setTimeout(() => {
       setStatusState('resent');
       setResendMessage(`A new verification code has been sent to ${maskDestination()}`);
-      window.setTimeout(() => setResendMessage(null), 5000);
-    } catch (resendError) {
-      setStatusState('failed');
-      setErrorMessage(resendError instanceof Error ? resendError.message : 'Unable to resend the verification code.');
-    }
+      setTimeout(() => setResendMessage(null), 5000);
+    }, 1200);
   };
 
-  const handleVerifySubmit = async (e: React.FormEvent) => {
+  const handleVerifySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const code = digits.join('');
 
@@ -116,14 +110,25 @@ export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
 
     setStatusState('sending');
     setErrorMessage(null);
-    try {
-      await onVerify(code);
-      setStatusState('success');
-    } catch (verifyError) {
-      const message = verifyError instanceof Error ? verifyError.message : 'Verification failed. Please try again.';
-      setStatusState(message.toLowerCase().includes('expired') ? 'expired_code' : 'wrong_code');
-      setErrorMessage(message);
-    }
+
+    // Simulation logic based on test inputs
+    setTimeout(() => {
+      if (code === '000000') {
+        setStatusState('expired_code');
+        setErrorMessage('This verification code has expired. Please click "Resend Code" to get a new one.');
+      } else if (code === '999999') {
+        setStatusState('failed');
+        setErrorMessage('Verification failed due to a network connection issue. Please check your signal and try again.');
+      } else if (code === '111111') {
+        setStatusState('wrong_code');
+        setErrorMessage('Incorrect verification code. Please check your inbox and try again.');
+      } else {
+        setStatusState('success');
+        setTimeout(() => {
+          onVerify();
+        }, 1200);
+      }
+    }, 1200);
   };
 
   return (
@@ -180,9 +185,12 @@ export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
               </button>
               <button
                 type="button"
-                disabled
-                title="Phone verification is not enabled for this project"
-                className="px-3 py-1 rounded-lg flex items-center gap-1 cursor-not-allowed text-[#8c7077] opacity-50"
+                onClick={() => setActiveDestination('phone')}
+                className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                  activeDestination === 'phone'
+                    ? 'bg-white text-[#8e004b] shadow-xs font-bold'
+                    : 'text-[#8c7077] hover:text-[#1c1b1b]'
+                }`}
               >
                 <Phone className="w-3.5 h-3.5" />
                 <span>Mobile</span>
@@ -323,6 +331,69 @@ export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
               </button>
             </div>
           </form>
+
+          {/* Quick State Simulation Switcher (for testing all states) */}
+          <div className="mt-8 pt-4 border-t border-dashed border-[#e0bec6] bg-[#f8f4f4] rounded-xl p-3">
+            <span className="block text-[10px] font-extrabold text-[#8c7077] uppercase tracking-wider text-center mb-2">
+              🧪 State Simulation Switcher (Test Screen 07 States)
+            </span>
+            <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusState('wrong_code');
+                  setErrorMessage('Wrong code entered (e.g. 111111)');
+                }}
+                className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-lg font-bold cursor-pointer"
+              >
+                Wrong Code
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusState('expired_code');
+                  setErrorMessage('Verification code has expired (e.g. 000000)');
+                }}
+                className="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg font-bold cursor-pointer"
+              >
+                Expired Code
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusState('sending');
+                  setTimeout(() => setStatusState('idle'), 1500);
+                }}
+                className="p-1.5 bg-purple-100 hover:bg-purple-200 text-purple-900 rounded-lg font-bold cursor-pointer"
+              >
+                Sending State
+              </button>
+              <button
+                type="button"
+                onClick={handleResend}
+                className="p-1.5 bg-pink-100 hover:bg-pink-200 text-[#8e004b] rounded-lg font-bold cursor-pointer"
+              >
+                Resent
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusState('success')}
+                className="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 rounded-lg font-bold cursor-pointer"
+              >
+                Success
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusState('failed');
+                  setErrorMessage('Verification failed due to server error.');
+                }}
+                className="p-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-bold cursor-pointer"
+              >
+                Failed
+              </button>
+            </div>
+          </div>
 
         </div>
       </main>

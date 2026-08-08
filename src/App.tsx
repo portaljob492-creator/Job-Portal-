@@ -1,24 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile, Conversation, ChatMessage, JobAlertNotification } from './types';
 import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERSATIONS, INITIAL_MESSAGES, INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from './data/mockData';
 import { processNewJobForAlerts } from './utils/jobAlertMatcher';
-import { isSupabaseConfigured, supabase } from './lib/supabase';
-import {
-  applyPendingOAuthRole,
-  authBackend,
-  createApplication,
-  createConversationRecord,
-  createJob,
-  deleteAlert,
-  getUserRole,
-  loadWorkspace,
-  markAllAlertsRead,
-  saveProfile,
-  sendMessageRecord,
-  setBookmark,
-  updateAlertRead,
-  updateApplicationStatus,
-} from './services/backend';
 
 // Component imports
 import { WelcomeScreen } from './components/auth/WelcomeScreen';
@@ -49,9 +32,6 @@ export default function App() {
   const [selectedApplicationForInvitation, setSelectedApplicationForInvitation] = useState<Application | null>(null);
   const [selectedApplicationForOffer, setSelectedApplicationForOffer] = useState<Application | null>(null);
   const [seekerInitialTab, setSeekerInitialTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile' | undefined>(undefined);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [isBackendLoading, setIsBackendLoading] = useState(isSupabaseConfigured);
-  const [backendError, setBackendError] = useState<string | null>(null);
 
   // Application Data States
   const [jobs, setJobs] = useState<JobPosting[]>(INITIAL_JOBS);
@@ -74,94 +54,6 @@ export default function App() {
     savedFilters: INITIAL_SAVED_FILTERS,
   });
 
-  const hydrateWorkspace = useCallback(async (userId: string, fallbackRole?: UserRole) => {
-    if (!supabase) return fallbackRole || 'seeker';
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError) throw userError;
-    if (!userData.user || userData.user.id !== userId) throw new Error('Your session is no longer valid.');
-
-    const role = await getUserRole(userData.user).catch(() => fallbackRole || 'seeker');
-    const workspace = await loadWorkspace(userData.user, role);
-    setCurrentUserId(userId);
-    setUserRole(role);
-    setUserProfile(workspace.profile);
-    setJobs(workspace.jobs);
-    setApplications(workspace.applications);
-    setApplicants(workspace.applicants);
-    setConversations(workspace.conversations);
-    setMessages(workspace.messages);
-    setJobAlerts(workspace.alerts);
-    return role;
-  }, []);
-
-  useEffect(() => {
-    if (!supabase) {
-      setIsBackendLoading(false);
-      return;
-    }
-
-    let active = true;
-    const bootstrap = async () => {
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        if (!active) return;
-
-        const isRecovery = new URLSearchParams(window.location.search).get('recovery') === '1';
-        if (isRecovery) {
-          setScreen('reset_password');
-        } else if (data.session?.user) {
-          await applyPendingOAuthRole(data.session.user.id);
-          await hydrateWorkspace(data.session.user.id, data.session.user.user_metadata?.role as UserRole | undefined);
-          if (active) setScreen('main_app');
-        }
-      } catch (error) {
-        if (active) setBackendError(error instanceof Error ? error.message : 'Unable to connect to the backend.');
-      } finally {
-        if (active) setIsBackendLoading(false);
-      }
-    };
-
-    void bootstrap();
-    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setScreen('reset_password');
-      if (event === 'SIGNED_OUT') {
-        setCurrentUserId(null);
-        setScreen('welcome');
-      }
-    });
-
-    return () => {
-      active = false;
-      listener.subscription.unsubscribe();
-    };
-  }, [hydrateWorkspace]);
-
-  useEffect(() => {
-    if (!supabase || !currentUserId) return;
-    let refreshTimer: number | undefined;
-    const refresh = () => {
-      window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => {
-        void hydrateWorkspace(currentUserId, userRole).catch((error) =>
-          setBackendError(error instanceof Error ? error.message : 'Unable to refresh data.'),
-        );
-      }, 250);
-    };
-
-    const channel = supabase
-      .channel(`workspace-${currentUserId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'job_alerts' }, refresh)
-      .subscribe();
-
-    return () => {
-      window.clearTimeout(refreshTimer);
-      void supabase.removeChannel(channel);
-    };
-  }, [currentUserId, hydrateWorkspace, userRole]);
-
   // Handlers
   const handleSelectRole = (role: UserRole) => {
     setUserRole(role);
@@ -172,7 +64,7 @@ export default function App() {
     }
   };
 
-  const handleSeekerSignup = async (formData: { name: string; email: string; phone: string; password: string }) => {
+  const handleSeekerSignup = (formData: { name: string; email: string; phone: string }) => {
     setUserRole('seeker');
     setUserProfile((prev) => ({
       ...prev,
@@ -181,23 +73,10 @@ export default function App() {
       phone: formData.phone,
       role: 'seeker',
     }));
-    const { user, session } = await authBackend.signUp({
-      role: 'seeker',
-      email: formData.email,
-      password: formData.password,
-      name: formData.name,
-      phone: formData.phone,
-    });
-    if (session && user) {
-      setCurrentUserId(user.id);
-      await hydrateWorkspace(user.id, 'seeker');
-      setScreen('seeker_onboarding_step1');
-    } else {
-      setScreen('otp_verify');
-    }
+    setScreen('otp_verify');
   };
 
-  const handleEmployerSignup = async (formData: { businessName: string; contactPerson: string; email: string; password: string }) => {
+  const handleEmployerSignup = (formData: { businessName: string; contactPerson: string; email: string }) => {
     setUserRole('employer');
     setUserProfile((prev) => ({
       ...prev,
@@ -207,62 +86,33 @@ export default function App() {
       contactPerson: formData.contactPerson,
       role: 'employer',
     }));
-    const { user, session } = await authBackend.signUp({
-      role: 'employer',
-      email: formData.email,
-      password: formData.password,
-      name: formData.contactPerson,
-      businessName: formData.businessName,
-    });
-    if (session && user) {
-      setCurrentUserId(user.id);
-      await hydrateWorkspace(user.id, 'employer');
-      setScreen('employer_onboarding_step1');
-    } else {
-      setScreen('otp_verify');
-    }
+    setScreen('otp_verify');
   };
 
-  const handleLoginSuccess = async (_selectedRole: UserRole, email: string, password: string) => {
-    const { user } = await authBackend.signIn(email, password);
-    if (!user) throw new Error('Login succeeded but no user session was returned.');
-    await hydrateWorkspace(user.id, user.user_metadata?.role as UserRole | undefined);
+  const handleLoginSuccess = (role: UserRole) => {
+    setUserRole(role);
+    setUserProfile((prev) => ({ ...prev, role }));
     setScreen('main_app');
   };
 
-  const handleSocialLogin = async (provider: 'google' | 'apple', role: UserRole) => {
-    await authBackend.signInWithProvider(provider, role);
-  };
-
-  const handleOtpVerified = async (code: string) => {
-    const { user } = await authBackend.verifySignupOtp(userProfile.email, code);
-    if (!user) throw new Error('Verification succeeded but no user was returned.');
-    await hydrateWorkspace(user.id, userRole);
-    setScreen(userRole === 'seeker' ? 'seeker_onboarding_step1' : 'employer_onboarding_step1');
-  };
-
-  const handleToggleBookmark = (jobId: string) => {
-    const job = jobs.find((item) => item.id === jobId);
-    const nextValue = !job?.isBookmarked;
-    setJobs((prevJobs) =>
-      prevJobs.map((item) => (item.id === jobId ? { ...item, isBookmarked: nextValue } : item))
-    );
-    if (currentUserId) {
-      void setBookmark(currentUserId, jobId, nextValue).catch((error) => {
-        setJobs((prevJobs) =>
-          prevJobs.map((item) => (item.id === jobId ? { ...item, isBookmarked: !nextValue } : item)),
-        );
-        setBackendError(error instanceof Error ? error.message : 'Unable to update bookmark.');
-      });
+  const handleOtpVerified = () => {
+    if (userRole === 'seeker') {
+      setScreen('seeker_onboarding_step1');
+    } else {
+      setScreen('employer_onboarding_step1');
     }
   };
 
-  const handleApplyJob = (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string) => {
-    const applicationId = currentUserId ? crypto.randomUUID() : `app-${Date.now()}`;
+  const handleToggleBookmark = (jobId: string) => {
+    setJobs((prevJobs) =>
+      prevJobs.map((j) => (j.id === jobId ? { ...j, isBookmarked: !j.isBookmarked } : j))
+    );
+  };
 
+  const handleApplyJob = (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string) => {
     // Add to Seeker applications
     const newApp: Application = {
-      id: applicationId,
+      id: `app-${Date.now()}`,
       jobId: job.id,
       jobTitle: job.title,
       salonName: job.salonName,
@@ -296,34 +146,12 @@ export default function App() {
     };
 
     setApplicants((prev) => [newApplicant, ...prev]);
-
-    if (currentUserId) {
-      void createApplication(
-        currentUserId,
-        job,
-        coverNote,
-        expectedSalary,
-        availability,
-        applicationId,
-      ).catch((error) => {
-        setApplications((prev) => prev.filter((application) => application.id !== applicationId));
-        setApplicants((prev) => prev.filter((applicant) => applicant.id !== newApplicant.id));
-        setBackendError(error instanceof Error ? error.message : 'Unable to submit application.');
-      });
-    }
   };
 
   const handleAddJob = (newJob: JobPosting) => {
-    if (currentUserId) {
-      void createJob(currentUserId, newJob)
-        .then((savedJob) => setJobs((prev) => [savedJob, ...prev]))
-        .catch((error) => setBackendError(error instanceof Error ? error.message : 'Unable to publish job.'));
-      return;
-    }
-
     setJobs((prev) => [newJob, ...prev]);
 
-    // Demo-mode alert matcher. Supabase creates these through a database trigger.
+    // Push notification alert engine: Check matches against user's saved search filters
     const matchedAlerts = processNewJobForAlerts(newJob, userProfile.savedFilters || INITIAL_SAVED_FILTERS);
     if (matchedAlerts.length > 0) {
       setJobAlerts((prev) => [...matchedAlerts, ...prev]);
@@ -334,29 +162,14 @@ export default function App() {
     setJobAlerts((prev) =>
       prev.map((a) => (a.id === alertId ? { ...a, isRead: true } : a))
     );
-    if (currentUserId) {
-      void updateAlertRead(alertId).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to update alert.'),
-      );
-    }
   };
 
   const handleMarkAllAlertsRead = () => {
     setJobAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
-    if (currentUserId) {
-      void markAllAlertsRead(currentUserId).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to update alerts.'),
-      );
-    }
   };
 
   const handleClearAlert = (alertId: string) => {
     setJobAlerts((prev) => prev.filter((a) => a.id !== alertId));
-    if (currentUserId) {
-      void deleteAlert(alertId).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to delete alert.'),
-      );
-    }
   };
 
   const handleUpdateApplicantStatus = (applicantId: string, status: Applicant['status']) => {
@@ -365,12 +178,6 @@ export default function App() {
     );
 
     // Also sync Seeker applications if matching
-    if (currentUserId) {
-      void updateApplicationStatus(applicantId, status).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to update applicant status.'),
-      );
-    }
-
     setApplications((prev) =>
       prev.map((app) => {
         if (status === 'Interview Scheduled') {
@@ -391,7 +198,7 @@ export default function App() {
 
   const handleSendMessage = (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => {
     const newMsg: ChatMessage = {
-      id: currentUserId ? crypto.randomUUID() : `msg-${Date.now()}`,
+      id: `msg-${Date.now()}`,
       conversationId,
       senderRole: userRole,
       senderName: userRole === 'seeker' ? userProfile.name : (userProfile.businessName || userProfile.name),
@@ -417,13 +224,6 @@ export default function App() {
         return c;
       })
     );
-
-    if (currentUserId) {
-      void sendMessageRecord(currentUserId, newMsg).catch((error) => {
-        setMessages((prev) => prev.filter((message) => message.id !== newMsg.id));
-        setBackendError(error instanceof Error ? error.message : 'Unable to send message.');
-      });
-    }
   };
 
   const handleStartConversation = (jobId: string, targetSeekerName?: string, targetSalonName?: string): string => {
@@ -442,8 +242,7 @@ export default function App() {
       return existing.id;
     }
 
-    const newConvId = currentUserId ? crypto.randomUUID() : `conv-${Date.now()}`;
-    const targetApplicant = applicants.find((applicant) => applicant.name === targetSeekerName);
+    const newConvId = `conv-${Date.now()}`;
     const newConv: Conversation = {
       id: newConvId,
       jobId,
@@ -451,7 +250,7 @@ export default function App() {
       salonName: targetSalonName || job?.salonName || 'Beauty Group',
       salonLogo: job?.salonLogo,
       seekerName: targetSeekerName || userProfile.name,
-      seekerEmail: userRole === 'seeker' ? userProfile.email : targetApplicant?.email,
+      seekerEmail: userProfile.email,
       employerName: `${job?.salonName || 'Salon'} Director`,
       lastMessage: 'Conversation started',
       lastMessageTime: 'Just now',
@@ -461,23 +260,10 @@ export default function App() {
     };
 
     setConversations((prev) => [newConv, ...prev]);
-    if (currentUserId) {
-      void createConversationRecord({
-        id: newConvId,
-        userId: currentUserId,
-        role: userRole,
-        jobId,
-        targetSeekerEmail: newConv.seekerEmail,
-      }).catch((error) => {
-        setConversations((prev) => prev.filter((conversation) => conversation.id !== newConvId));
-        setBackendError(error instanceof Error ? error.message : 'Unable to start conversation.');
-      });
-    }
     return newConvId;
   };
 
   const handleQuickDemo = (role: UserRole) => {
-    setCurrentUserId(null);
     setUserRole(role);
     setUserProfile((prev) => ({ ...prev, role }));
     setScreen('main_app');
@@ -491,57 +277,8 @@ export default function App() {
     setScreen(targetScreen);
   };
 
-  const handleProfileUpdate = (updatedProfile: UserProfile) => {
-    setUserProfile(updatedProfile);
-    if (currentUserId) {
-      void saveProfile(currentUserId, updatedProfile).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to save profile.'),
-      );
-    }
-  };
-
-  const handleAvatarUpdate = (avatarUrl: string | undefined) => {
-    const updatedProfile = { ...userProfile, avatarUrl };
-    setUserProfile(updatedProfile);
-    if (currentUserId) {
-      void saveProfile(currentUserId, updatedProfile).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to save profile photo.'),
-      );
-    }
-  };
-
-  const handleLogout = () => {
-    if (currentUserId) {
-      void authBackend.signOut().catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to sign out.'),
-      );
-    } else {
-      setScreen('welcome');
-    }
-  };
-
-  if (isBackendLoading) {
-    return (
-      <div className="min-h-screen bg-[#fdf8f8] flex items-center justify-center text-[#8e004b]">
-        <div className="text-center space-y-3">
-          <div className="mx-auto h-9 w-9 rounded-full border-4 border-[#ffd9e2] border-t-[#e2007c] animate-spin" />
-          <p className="text-sm font-semibold">Loading your workspace…</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#fdf8f8] font-sans antialiased">
-      {backendError && (
-        <div role="alert" className="fixed top-3 left-1/2 -translate-x-1/2 z-[100] w-[min(92vw,560px)] rounded-xl border border-rose-200 bg-white px-4 py-3 shadow-xl flex items-start gap-3">
-          <p className="flex-1 text-xs font-semibold text-rose-700">{backendError}</p>
-          <button type="button" onClick={() => setBackendError(null)} className="text-xs font-bold text-rose-700 hover:underline">
-            Dismiss
-          </button>
-        </div>
-      )}
-
       {/* SCREEN 1: WELCOME */}
       {screen === 'welcome' && (
         <WelcomeScreen
@@ -563,7 +300,6 @@ export default function App() {
       {screen === 'seeker_signup' && (
         <JobSeekerSignupScreen
           onSubmit={handleSeekerSignup}
-          onSocialSignup={(provider) => handleSocialLogin(provider, 'seeker')}
           onBack={() => setScreen('role_select')}
           onLogin={() => setScreen('login')}
         />
@@ -582,7 +318,6 @@ export default function App() {
       {screen === 'login' && (
         <LoginScreen
           onLoginSuccess={handleLoginSuccess}
-          onSocialLogin={handleSocialLogin}
           onSignUp={() => setScreen('role_select')}
           onForgotPassword={() => setScreen('forgot_password')}
         />
@@ -592,11 +327,10 @@ export default function App() {
       {screen === 'otp_verify' && (
         <OtpVerifyScreen
           email={userProfile.email}
-          phone={userProfile.phone}
+          phone="(555) 000-1234"
           onVerify={handleOtpVerified}
-          onResend={() => authBackend.resendSignupOtp(userProfile.email)}
           onBack={() => setScreen('login')}
-          onChangeContact={() => setScreen(userRole === 'seeker' ? 'seeker_signup' : 'employer_signup')}
+          onChangeContact={() => setScreen('seeker_signup')}
         />
       )}
 
@@ -604,7 +338,7 @@ export default function App() {
       {screen === 'forgot_password' && (
         <ForgotPasswordScreen
           onBackToLogin={() => setScreen('login')}
-          onSendResetLink={(email) => authBackend.sendPasswordReset(email)}
+          onNavigateToResetPassword={() => setScreen('reset_password')}
         />
       )}
 
@@ -612,7 +346,6 @@ export default function App() {
       {screen === 'reset_password' && (
         <ResetPasswordScreen
           onBackToLogin={() => setScreen('login')}
-          onUpdatePassword={(password) => authBackend.updatePassword(password)}
           onSuccessLogin={() => setScreen('login')}
         />
       )}
@@ -628,13 +361,13 @@ export default function App() {
           }}
           onBack={() => setScreen('otp_verify')}
           onNext={(stepData) => {
-            handleProfileUpdate({
-              ...userProfile,
-              name: stepData.fullName || userProfile.name,
-              email: stepData.email || userProfile.email,
-              phone: stepData.mobile || userProfile.phone,
-              avatarUrl: stepData.avatarUrl || userProfile.avatarUrl,
-            });
+            setUserProfile((prev) => ({
+              ...prev,
+              name: stepData.fullName || prev.name,
+              email: stepData.email || prev.email,
+              phone: stepData.mobile || prev.phone,
+              avatarUrl: stepData.avatarUrl || prev.avatarUrl,
+            }));
             setScreen('seeker_onboarding_step2');
           }}
         />
@@ -647,11 +380,10 @@ export default function App() {
           onBack={() => setScreen('seeker_onboarding_step1')}
           onNext={(selectedRoles) => {
             if (selectedRoles.length > 0) {
-              handleProfileUpdate({
-                ...userProfile,
+              setUserProfile((prev) => ({
+                ...prev,
                 primaryRole: selectedRoles[0],
-                specialties: Array.from(new Set([selectedRoles[0], ...(userProfile.specialties || [])])),
-              });
+              }));
             }
             setScreen('main_app');
           }}
@@ -689,8 +421,8 @@ export default function App() {
               onApplyJob={handleApplyJob}
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
-              onUpdateAvatar={handleAvatarUpdate}
-              onUpdateProfile={handleProfileUpdate}
+              onUpdateAvatar={(url) => setUserProfile((prev) => ({ ...prev, avatarUrl: url }))}
+              onUpdateProfile={(updatedProfile) => setUserProfile(updatedProfile)}
               onMarkAlertRead={handleMarkAlertRead}
               onMarkAllAlertsRead={handleMarkAllAlertsRead}
               onClearAlert={handleClearAlert}
@@ -699,7 +431,7 @@ export default function App() {
                 setUserRole('employer');
                 setUserProfile((prev) => ({ ...prev, role: 'employer' }));
               }}
-              onLogout={handleLogout}
+              onLogout={() => setScreen('welcome')}
               onStartApplyJob={(job) => {
                 setSelectedJobForApply(job);
                 setScreen('apply_job');
@@ -725,12 +457,12 @@ export default function App() {
               onUpdateApplicantStatus={handleUpdateApplicantStatus}
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
-              onUpdateAvatar={handleAvatarUpdate}
+              onUpdateAvatar={(url) => setUserProfile((prev) => ({ ...prev, avatarUrl: url }))}
               onSwitchRole={() => {
                 setUserRole('seeker');
                 setUserProfile((prev) => ({ ...prev, role: 'seeker' }));
               }}
-              onLogout={handleLogout}
+              onLogout={() => setScreen('welcome')}
             />
           )}
         </>
@@ -810,7 +542,7 @@ export default function App() {
       {screen === 'settings' && (
         <SettingsScreen
           onBack={() => setScreen('main_app')}
-          onLogout={handleLogout}
+          onLogout={() => setScreen('welcome')}
           onNavigateTab={(tab) => {
             setSeekerInitialTab(tab);
             setScreen('main_app');

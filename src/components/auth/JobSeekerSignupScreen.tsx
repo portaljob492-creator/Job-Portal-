@@ -2,65 +2,28 @@ import React, { useState } from 'react';
 import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, Bell, Apple } from 'lucide-react';
 
 interface JobSeekerSignupScreenProps {
-  onSubmit: (formData: { name: string; email: string; phone: string; password: string }) => Promise<void> | void;
-  onSocialSignup?: (provider: 'google' | 'apple') => Promise<void> | void;
+  onSubmit: (formData: { name: string; email: string; phone: string }) => void;
   onBack: () => void;
   onLogin: () => void;
 }
 
 export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
   onSubmit,
-  onSocialSignup,
   onBack,
   onLogin,
 }) => {
   const [fullName, setFullName] = useState('Jane Doe');
   const [email, setEmail] = useState('jane@example.com');
   const [phone, setPhone] = useState('(555) 000-0000');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [password, setPassword] = useState('••••••••');
+  const [confirmPassword, setConfirmPassword] = useState('••••••••');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    if (!agreedToTerms) {
-      setError('Please accept the Terms of Service and Privacy Policy.');
-      return;
-    }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await onSubmit({ name: fullName, email, phone, password });
-    } catch (signupError) {
-      setError(signupError instanceof Error ? signupError.message : 'Unable to create account.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleSocialSignup = async (provider: 'google' | 'apple') => {
-    if (!onSocialSignup) return;
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      await onSocialSignup(provider);
-    } catch (signupError) {
-      setError(signupError instanceof Error ? signupError.message : 'Unable to start social sign-up.');
-      setIsSubmitting(false);
-    }
+    onSubmit({ name: fullName, email, phone });
   };
 
   return (
@@ -239,19 +202,12 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
             </label>
           </div>
 
-          {error && (
-            <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 border border-rose-200">
-              {error}
-            </p>
-          )}
-
           {/* Submit CTA */}
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="mt-2 w-full py-3.5 bg-[#e2007c] disabled:opacity-60 disabled:cursor-wait text-white rounded-full text-sm font-bold tracking-wide hover:bg-[#b90064] active:scale-95 transition-all shadow-md cursor-pointer"
+            className="mt-2 w-full py-3.5 bg-[#e2007c] text-white rounded-full text-sm font-bold tracking-wide hover:bg-[#b90064] active:scale-95 transition-all shadow-md cursor-pointer"
           >
-            {isSubmitting ? 'Creating account…' : 'Create Account'}
+            Create Account
           </button>
         </form>
 
@@ -266,8 +222,7 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
         <div className="flex flex-col gap-3">
           <button
             type="button"
-            disabled={isSubmitting || !onSocialSignup}
-            onClick={() => handleSocialSignup('google')}
+            onClick={() => onSubmit({ name: 'Google User', email: 'user@google.com', phone: '(555) 123-4567' })}
             className="w-full py-3 bg-white border border-[#e0bec6] rounded-full flex items-center justify-center gap-3 text-[#1c1b1b] text-sm font-medium hover:bg-[#f7f2f2] transition-colors active:scale-95 cursor-pointer"
           >
             <img
@@ -281,8 +236,7 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
 
           <button
             type="button"
-            disabled={isSubmitting || !onSocialSignup}
-            onClick={() => handleSocialSignup('apple')}
+            onClick={() => onSubmit({ name: 'Apple User', email: 'user@apple.com', phone: '(555) 765-4321' })}
             className="w-full py-3 bg-[#1c1b1b] text-white rounded-full flex items-center justify-center gap-3 text-sm font-medium hover:bg-[#313030] transition-colors active:scale-95 cursor-pointer"
           >
             <Apple className="w-5 h-5" />

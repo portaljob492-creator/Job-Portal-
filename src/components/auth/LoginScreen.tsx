@@ -3,48 +3,24 @@ import { UserRole } from '../../types';
 import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple } from 'lucide-react';
 
 interface LoginScreenProps {
-  onLoginSuccess: (role: UserRole, email: string, password: string) => Promise<void> | void;
-  onSocialLogin?: (provider: 'google' | 'apple', role: UserRole) => Promise<void> | void;
+  onLoginSuccess: (role: UserRole) => void;
   onSignUp: () => void;
   onForgotPassword: () => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onLoginSuccess,
-  onSocialLogin,
   onSignUp,
   onForgotPassword,
 }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('your@email.com');
+  const [password, setPassword] = useState('••••••••');
   const [showPassword, setShowPassword] = useState(false);
   const [activeRole, setActiveRole] = useState<UserRole>('seeker');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setIsLoading(true);
-    try {
-      await onLoginSuccess(activeRole, email, password);
-    } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : 'Unable to sign in. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSocialLogin = async (provider: 'google' | 'apple') => {
-    if (!onSocialLogin) return;
-    setError(null);
-    setIsLoading(true);
-    try {
-      await onSocialLogin(provider, activeRole);
-    } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : 'Unable to start social sign-in.');
-      setIsLoading(false);
-    }
+    onLoginSuccess(activeRole);
   };
 
   return (
@@ -142,19 +118,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               </div>
             </div>
 
-            {error && (
-              <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 border border-rose-200">
-                {error}
-              </p>
-            )}
-
             {/* Primary CTA */}
             <button
               type="submit"
-              disabled={isLoading}
-              className="w-full bg-[#e6007e] disabled:opacity-60 disabled:cursor-wait text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#b50062] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+              className="w-full bg-[#e6007e] text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#b50062] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
             >
-              <span>{isLoading ? 'Signing in…' : 'Login'}</span>
+              <span>Login</span>
             </button>
           </form>
         </div>
@@ -172,9 +141,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         <div className="flex flex-col gap-2.5">
           <button
             type="button"
-            disabled={isLoading || !onSocialLogin}
-            onClick={() => handleSocialLogin('google')}
-            className="w-full bg-white disabled:opacity-50 text-[#1c1b1b] text-sm font-medium py-2.5 px-4 rounded-full border border-[#e0bec6] hover:bg-[#f7f2f2] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
+            onClick={() => onLoginSuccess(activeRole)}
+            className="w-full bg-white text-[#1c1b1b] text-sm font-medium py-2.5 px-4 rounded-full border border-[#e0bec6] hover:bg-[#f7f2f2] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
           >
             <img
               src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRbDCIKGSzKAwLwg9STfs20v54KkKGSB9qroIJqrchZBktxb-HOmv1SuO6rSCuxXmdhd3ISGwjmykxVjNRKlFd5INc_5LQEJFQNv976AxWpCLvCXXbtZW3baq1OG4TOXhoRWd1yHx1yFYUMVuzis66Q8SK7Jehg5A4zWyxgu84lNRYX_LWUaXcjGOdPcjG4UD7dlMfnlGJnDg-zh7wkhbv2RegItvEiRVSvosJ2PWzKhZZYQlIbgbN"
@@ -187,9 +155,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
           <button
             type="button"
-            disabled={isLoading || !onSocialLogin}
-            onClick={() => handleSocialLogin('apple')}
-            className="w-full bg-white disabled:opacity-50 text-[#1c1b1b] text-sm font-medium py-2.5 px-4 rounded-full border border-[#e0bec6] hover:bg-[#f7f2f2] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
+            onClick={() => onLoginSuccess(activeRole)}
+            className="w-full bg-white text-[#1c1b1b] text-sm font-medium py-2.5 px-4 rounded-full border border-[#e0bec6] hover:bg-[#f7f2f2] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
           >
             <Apple className="w-4 h-4" />
             <span>Continue with Apple</span>

@@ -165,7 +165,6 @@ export interface UserProfile {
   contactPerson?: string;
   licenseNumber?: string;
   specialties?: string[];
-  primaryRole?: string;
   bio?: string;
   portfolioItems?: PortfolioItem[];
   savedFilters?: SavedFilter[];
