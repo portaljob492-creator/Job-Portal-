@@ -36,7 +36,6 @@ import { SeekerOnboardingStep2Screen } from './components/seeker/SeekerOnboardin
 import { JobSeekerWorkspace } from './components/seeker/JobSeekerWorkspace';
 import { ApplyJobScreen } from './components/seeker/ApplyJobScreen';
 import { EmployerWorkspace } from './components/employer/EmployerWorkspace';
-import { NavigationToolbar } from './components/NavigationToolbar';
 import { InterviewInvitationScreen } from './components/seeker/InterviewInvitationScreen';
 import { JobOfferScreen } from './components/seeker/JobOfferScreen';
 import { SupportScreen } from './components/seeker/SupportScreen';
@@ -76,13 +75,13 @@ export default function App() {
     savedFilters: INITIAL_SAVED_FILTERS,
   });
 
-  const hydrateWorkspace = useCallback(async (userId: string, fallbackRole?: UserRole) => {
-    if (!supabase) return fallbackRole || 'seeker';
+  const hydrateWorkspace = useCallback(async (userId: string, _expectedRole?: UserRole) => {
+    if (!supabase) throw new Error('Supabase is not configured.');
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError) throw userError;
     if (!userData.user || userData.user.id !== userId) throw new Error('Your session is no longer valid.');
 
-    const role = await getUserRole(userData.user).catch(() => fallbackRole || 'seeker');
+    const role = await getUserRole(userData.user);
     const workspace = await loadWorkspace(userData.user, role);
     setCurrentUserId(userId);
     setUserRole(role);
@@ -118,7 +117,12 @@ export default function App() {
           if (active) setScreen('main_app');
         }
       } catch (error) {
-        if (active) setBackendError(error instanceof Error ? error.message : 'Unable to connect to the backend.');
+        await supabase.auth.signOut();
+        if (active) {
+          setCurrentUserId(null);
+          setScreen('welcome');
+          setBackendError(error instanceof Error ? error.message : 'Unable to validate your portal access.');
+        }
       } finally {
         if (active) setIsBackendLoading(false);
       }
@@ -226,9 +230,8 @@ export default function App() {
   };
 
   const handleLoginSuccess = async (selectedRole: UserRole, email: string, password: string) => {
-    const { user } = await authBackend.signIn(email, password);
+    const { user } = await authBackend.signIn(email, password, selectedRole);
     if (!user) throw new Error('Login succeeded but no user session was returned.');
-    await authBackend.registerRole(selectedRole);
     await hydrateWorkspace(user.id, selectedRole);
     setScreen('main_app');
   };
@@ -479,21 +482,6 @@ export default function App() {
     return newConvId;
   };
 
-  const handleQuickDemo = (role: UserRole) => {
-    setCurrentUserId(null);
-    setUserRole(role);
-    setUserProfile((prev) => ({ ...prev, role }));
-    setScreen('main_app');
-  };
-
-  const handleNavigateToolbar = (targetScreen: ScreenState, role?: UserRole) => {
-    if (role) {
-      setUserRole(role);
-      setUserProfile((prev) => ({ ...prev, role }));
-    }
-    setScreen(targetScreen);
-  };
-
   const handleProfileUpdate = (updatedProfile: UserProfile) => {
     setUserProfile(updatedProfile);
     if (currentUserId) {
@@ -550,7 +538,6 @@ export default function App() {
         <WelcomeScreen
           onGetStarted={() => setScreen('role_select')}
           onLogin={() => setScreen('login')}
-          onQuickDemo={handleQuickDemo}
         />
       )}
 
@@ -713,10 +700,6 @@ export default function App() {
               onMarkAllAlertsRead={handleMarkAllAlertsRead}
               onClearAlert={handleClearAlert}
               onNavigateScreen={(target) => setScreen(target)}
-              onSwitchRole={() => {
-                setUserRole('employer');
-                setUserProfile((prev) => ({ ...prev, role: 'employer' }));
-              }}
               onLogout={handleLogout}
               onStartApplyJob={(job) => {
                 setSelectedJobForApply(job);
@@ -744,10 +727,6 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
               onUpdateAvatar={handleAvatarUpdate}
-              onSwitchRole={() => {
-                setUserRole('seeker');
-                setUserProfile((prev) => ({ ...prev, role: 'seeker' }));
-              }}
               onLogout={handleLogout}
             />
           )}
@@ -835,13 +814,6 @@ export default function App() {
           }}
         />
       )}
-
-      {/* Floating Toolbar to preview any screen easily */}
-      <NavigationToolbar
-        currentScreen={screen}
-        currentRole={userRole}
-        onNavigate={handleNavigateToolbar}
-      />
     </div>
   );
 }

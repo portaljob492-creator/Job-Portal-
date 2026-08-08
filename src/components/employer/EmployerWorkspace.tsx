@@ -53,7 +53,6 @@ interface EmployerWorkspaceProps {
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
-  onSwitchRole: () => void;
   onLogout: () => void;
 }
 
@@ -68,7 +67,6 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   onSendMessage,
   onStartConversation,
   onUpdateAvatar,
-  onSwitchRole,
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'candidates' | 'messages' | 'analytics' | 'profile'>('dashboard');
@@ -205,13 +203,6 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
         </nav>
         
         <div className="mt-auto border-t border-[#e0bec6] pt-4 flex flex-col gap-2">
-          <button
-            onClick={onSwitchRole}
-            className="flex items-center gap-3 p-3 text-[#594047] hover:bg-[#e6e1e1] rounded-lg transition-all active:translate-x-1 duration-150 cursor-pointer"
-          >
-            <UserCheck className="w-5 h-5" />
-            <span>Switch to Job Seeker</span>
-          </button>
           <button
             onClick={onLogout}
             className="flex items-center gap-3 p-3 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg transition-all active:translate-x-1 duration-150 cursor-pointer"

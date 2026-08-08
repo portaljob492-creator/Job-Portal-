@@ -22,7 +22,6 @@ import {
   User as UserIcon,
   X,
   Send,
-  Building2,
   Sparkles,
   ExternalLink,
   ChevronRight,
@@ -70,7 +69,6 @@ interface JobSeekerWorkspaceProps {
   onMarkAlertRead?: (alertId: string) => void;
   onMarkAllAlertsRead?: () => void;
   onClearAlert?: (alertId: string) => void;
-  onSwitchRole: () => void;
   onLogout: () => void;
   onStartApplyJob?: (job: JobPosting) => void;
   initialTab?: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
@@ -95,7 +93,6 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   onMarkAlertRead,
   onMarkAllAlertsRead,
   onClearAlert,
-  onSwitchRole,
   onLogout,
   onStartApplyJob,
   initialTab,
@@ -537,14 +534,6 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
               )}
             </button>
 
-            <button
-              onClick={onSwitchRole}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ffd9e2] text-[#8e004b] text-xs font-semibold hover:bg-[#ffb0c8] transition-colors cursor-pointer"
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>Switch to Employer</span>
-            </button>
-
             <div className="flex items-center gap-2 pl-2 border-l border-[#e0bec6]/40">
               <button
                 onClick={() => setShowImageUploader(true)}
@@ -702,12 +691,6 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={onSwitchRole}
-            className="sm:hidden text-xs text-[#8e004b] font-semibold underline whitespace-nowrap"
-          >
-            Switch to Employer
-          </button>
         </div>
 
         {/* TAB 1: EXPLORE JOBS FEED */}

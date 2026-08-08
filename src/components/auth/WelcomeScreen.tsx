@@ -1,17 +1,14 @@
 import React from 'react';
-import { UserRole } from '../../types';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 interface WelcomeScreenProps {
   onGetStarted: () => void;
   onLogin: () => void;
-  onQuickDemo?: (role: UserRole) => void;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onGetStarted,
   onLogin,
-  onQuickDemo,
 }) => {
   return (
     <div className="relative min-h-screen w-full bg-[#fdf8f8] text-[#1c1b1b] flex flex-col justify-between overflow-hidden">
@@ -43,25 +40,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             <span className="text-[10px] font-semibold text-[#594047] tracking-wider uppercase">Beauty careers</span>
           </div>
         </div>
-        {onQuickDemo && (
-          <div className="hidden sm:flex items-center gap-2 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-[#e0bec6]/40 shadow-sm text-xs">
-            <Sparkles className="w-3.5 h-3.5 text-[#e2007c]" />
-            <span className="text-[#594047] font-medium">Quick Demo:</span>
-            <button 
-              onClick={() => onQuickDemo('seeker')}
-              className="text-[#8e004b] font-semibold hover:underline cursor-pointer"
-            >
-              Job Seeker
-            </button>
-            <span className="text-[#8c7077]">|</span>
-            <button 
-              onClick={() => onQuickDemo('employer')}
-              className="text-[#8e004b] font-semibold hover:underline cursor-pointer"
-            >
-              Employer
-            </button>
-          </div>
-        )}
+
       </header>
 
       {/* Content Area */}
@@ -96,24 +75,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             </button>
           </div>
 
-          {onQuickDemo && (
-            <div className="sm:hidden mt-2 pt-3 border-t border-[#e0bec6]/30 flex items-center justify-center gap-3 text-xs text-[#594047]">
-              <span>Demo Mode:</span>
-              <button 
-                onClick={() => onQuickDemo('seeker')}
-                className="text-[#8e004b] font-semibold underline"
-              >
-                Seeker View
-              </button>
-              <span>•</span>
-              <button 
-                onClick={() => onQuickDemo('employer')}
-                className="text-[#8e004b] font-semibold underline"
-              >
-                Employer View
-              </button>
-            </div>
-          )}
+
         </div>
       </main>
 

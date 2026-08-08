@@ -60,7 +60,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           <p className="text-sm text-[#594047]">Sign in to continue your journey.</p>
         </header>
 
-        {/* Demo Mode Role Selector Pills */}
+        {/* Portal selector — the backend validates this against the email's permanent account type. */}
         <div className="bg-[#f1edec] p-1 rounded-full flex gap-1 border border-[#e0bec6]/30">
           <button
             type="button"
@@ -87,6 +87,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <span>Employer</span>
           </button>
         </div>
+        <p className="-mt-4 text-center text-[11px] font-medium text-[#594047]">
+          Each email is permanently linked to one portal type.
+        </p>
 
         {/* Form Card */}
         <div className="bg-white rounded-2xl shadow-[0_4px_16px_rgba(90,63,71,0.06)] border border-[#e0bec6]/40 p-5 flex flex-col gap-4">

@@ -58,6 +58,13 @@ try {
     roles.some((row) => row.user_id === employerId && row.role === 'employer') &&
     roles.some((row) => row.user_id === seekerId && row.role === 'job_seeker'));
 
+  const portalLookup = createClient(url, publicKey, clientOptions);
+  const lookedUpRole = throwOnError(await portalLookup.rpc('job_email_portal_role', { p_email: employerEmail }));
+  assertCheck('signup email portal lookup', lookedUpRole === 'employer');
+  const forbiddenRoleSwitch = await employer.rpc('job_register_role', { requested_role: 'job_seeker' });
+  assertCheck('permanent portal role lock',
+    Boolean(forbiddenRoleSwitch.error?.message?.includes('PORTAL_ROLE_MISMATCH:employer')));
+
   salonId = throwOnError(await employer.rpc('complete_job_employer_onboarding', {
     p_business_name: 'Arena Test Salon', p_contact_name: 'Arena Employer',
     p_address: 'Test Road 1', p_city: 'Kota', p_state: 'Rajasthan', p_postal_code: '324001',

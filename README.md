@@ -16,7 +16,8 @@ It coexists with the existing Nexora marketplace database and reuses its `profil
 ## Implemented backend
 
 - Email/password signup, verification, login, logout, and password recovery
-- Isolated `job_seeker`, `employer`, and `admin` role model
+- Permanent one-email/one-portal role assignment for `job_seeker`, `employer`, and `admin`
+- Wrong-portal signup/login rejection with explicit role-specific errors
 - Candidate profile, skills, experience, education, certifications, resume metadata, preferences, and portfolio
 - Employer profile, salon membership/location, and protected verification workflow
 - Draft/create/publish/pause/resume/close job lifecycle
@@ -61,6 +62,7 @@ Migrations are under `supabase/migrations/`:
 20260808170500_jobs_safe_read_rpcs.sql
 20260808170600_jobs_platform_compat.sql
 20260808170700_jobs_public_views.sql
+20260808170800_jobs_permanent_portal_roles.sql
 ```
 
 They are recorded in `supabase_migrations.schema_migrations` on staging. For another linked project:
