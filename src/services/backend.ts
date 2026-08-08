@@ -26,14 +26,33 @@ function portalMismatchMessage(actualBackendRole: string, requestedRole: UserRol
   return `This email is registered as a ${portalLabel(actualRole)}. Please sign in with a registered ${portalLabel(requestedRole)} email or create a new account for ${portalLabel(requestedRole)} access.`;
 }
 
-function mapPortalRoleError(error: unknown, requestedRole: UserRole): Error {
-  const message = error instanceof Error
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error
     ? error.message
     : typeof error === 'object' && error && 'message' in error
       ? String((error as { message: unknown }).message)
-      : String(error || 'Unable to validate portal access.');
+      : String(error || fallback);
+}
+
+function mapPortalRoleError(error: unknown, requestedRole: UserRole): Error {
+  const message = errorMessage(error, 'Unable to validate portal access.');
   const match = message.match(/PORTAL_ROLE_MISMATCH:(job_seeker|employer)/);
   return match ? new Error(portalMismatchMessage(match[1], requestedRole)) : new Error(message);
+}
+
+function mapAuthError(error: unknown): Error {
+  const message = errorMessage(error, 'Authentication request failed.');
+  const normalized = message.toLowerCase();
+  if (normalized.includes('rate limit')) {
+    return new Error('Too many verification emails were requested. Please wait a few minutes, then resend once and use only the newest email.');
+  }
+  if (normalized.includes('invalid login credentials')) {
+    return new Error('Invalid email or password. Check your credentials and selected portal.');
+  }
+  if (normalized.includes('email not confirmed')) {
+    return new Error('Your email is not verified. Open the verification email or request a fresh link.');
+  }
+  return new Error(message);
 }
 
 const employmentToUi: Record<string, JobPosting['jobType']> = {
@@ -271,7 +290,18 @@ export const authBackend = {
       if (existingRole !== requestedBackendRole) {
         throw new Error(portalMismatchMessage(existingRole, input.role));
       }
-      throw new Error(`This email is already registered as a ${portalLabel(input.role)}. Please sign in through the ${portalLabel(input.role)} portal.`);
+
+      // An unverified signup may safely request a fresh link. Confirmed users
+      // receive Supabase's already-confirmed error and are directed to login.
+      const { error: resendError } = await client.auth.resend({ type: 'signup', email });
+      if (!resendError) {
+        window.localStorage.setItem('nexora_pending_email_verification', email);
+        return { user: null, session: null };
+      }
+      if (resendError.message.toLowerCase().includes('confirm')) {
+        throw new Error(`This email is already registered as a ${portalLabel(input.role)}. Please sign in through the ${portalLabel(input.role)} portal.`);
+      }
+      throw mapAuthError(resendError);
     }
     if (existingRole === 'unassigned') {
       throw new Error('This email already belongs to a Nexora account. Sign in through your chosen Jobs portal to permanently assign its account type.');
@@ -281,7 +311,7 @@ export const authBackend = {
       email,
       password: input.password,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: `${window.location.origin}/?verified=1`,
         data: {
           app_context: 'jobs',
           job_role: requestedBackendRole,
@@ -292,7 +322,7 @@ export const authBackend = {
         },
       },
     });
-    if (error) throw error;
+    if (error) throw mapAuthError(error);
 
     // Supabase intentionally returns an obfuscated user for some duplicate-email
     // signups. Convert that response into the portal-specific product error.
@@ -304,24 +334,29 @@ export const authBackend = {
       }
       throw new Error('An account already exists for this email. Please sign in instead.');
     }
+    if (data.session) {
+      window.localStorage.removeItem('nexora_pending_email_verification');
+    } else {
+      window.localStorage.setItem('nexora_pending_email_verification', email);
+    }
     return data;
   },
 
-  async verifySignupOtp(email: string, token: string) {
-    const { data, error } = await requireSupabase().auth.verifyOtp({ email: email.trim(), token, type: 'signup' });
-    if (error) throw error;
-    return data;
-  },
-
-  async resendSignupOtp(email: string) {
+  async resendSignupVerification(email: string) {
     const { error } = await requireSupabase().auth.resend({ type: 'signup', email: email.trim() });
-    if (error) throw error;
+    if (error) {
+      if (error.message.toLowerCase().includes('confirm')) {
+        throw new Error('This email is already verified. Go back and sign in to continue.');
+      }
+      throw mapAuthError(error);
+    }
+    window.localStorage.setItem('nexora_pending_email_verification', email.trim());
   },
 
   async signIn(email: string, password: string, requestedRole: UserRole) {
     const client = requireSupabase();
     const { data, error } = await client.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) throw error;
+    if (error) throw mapAuthError(error);
     try {
       await this.registerRole(requestedRole);
     } catch (roleError) {
@@ -344,7 +379,7 @@ export const authBackend = {
       provider,
       options: { redirectTo: window.location.origin },
     });
-    if (error) throw error;
+    if (error) throw mapAuthError(error);
     return data;
   },
 
@@ -352,12 +387,12 @@ export const authBackend = {
     const { error } = await requireSupabase().auth.resetPasswordForEmail(email.trim(), {
       redirectTo: `${window.location.origin}/?recovery=1`,
     });
-    if (error) throw error;
+    if (error) throw mapAuthError(error);
   },
 
   async updatePassword(password: string) {
     const { error } = await requireSupabase().auth.updateUser({ password });
-    if (error) throw error;
+    if (error) throw mapAuthError(error);
   },
 
   async signOut() {
@@ -384,6 +419,16 @@ export async function getUserRole(user: User): Promise<UserRole> {
   if (error) throw error;
   if (!data?.role) throw new Error('No Jobs portal role is assigned to this account. Please sign in through the correct portal.');
   return frontendRole(data.role);
+}
+
+export async function isPortalOnboardingComplete(userId: string): Promise<boolean> {
+  const { data, error } = await requireSupabase()
+    .from('job_user_roles')
+    .select('onboarding_completed')
+    .eq('user_id', userId)
+    .single();
+  if (error) throw error;
+  return Boolean(data.onboarding_completed);
 }
 
 export async function completeSeekerOnboarding(profile: UserProfile, selectedRoles: string[]) {

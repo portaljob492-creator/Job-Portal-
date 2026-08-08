@@ -146,8 +146,9 @@ VITE_SUPABASE_ANON_KEY=YOUR_STAGING_PUBLISHABLE_KEY
 
 ## Auth configuration
 
-1. Set the correct Site URL and redirect URLs in **Authentication → URL Configuration**.
-2. For the six-digit signup screen, include `{{ .Token }}` in the Confirm Signup email template.
-3. Enable Google or Apple buttons only after those providers and callback URLs are configured.
-4. Password recovery redirects to `/?recovery=1`.
-5. Mobile OTP remains disabled until a real SMS provider is configured.
+1. Site URL is `https://job-portal-nexora.vercel.app`; local and Vercel callback URLs are allow-listed.
+2. Email confirmation uses Supabase's secure one-time confirmation link. The UI can resend a fresh link and warns users to open only the newest email.
+3. Six-digit email codes require a custom SMTP provider and a `{{ .Token }}` confirmation template; the default free-tier mailer exposes only the confirmation link.
+4. Enable Google or Apple buttons only after those providers and callback URLs are configured.
+5. Password recovery redirects to `/?recovery=1`.
+6. Mobile OTP remains disabled until a real SMS provider is configured.

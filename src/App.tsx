@@ -13,6 +13,7 @@ import {
   createJob,
   deleteAlert,
   getUserRole,
+  isPortalOnboardingComplete,
   loadWorkspace,
   markAllAlertsRead,
   saveProfile,
@@ -95,6 +96,17 @@ export default function App() {
     return role;
   }, []);
 
+  const enterAuthenticatedPortal = useCallback(async (userId: string, expectedRole?: UserRole) => {
+    const role = await hydrateWorkspace(userId, expectedRole);
+    const onboardingComplete = await isPortalOnboardingComplete(userId);
+    if (onboardingComplete) {
+      setScreen('main_app');
+    } else {
+      setScreen(role === 'seeker' ? 'seeker_onboarding_step1' : 'employer_onboarding_step1');
+    }
+    return role;
+  }, [hydrateWorkspace]);
+
   useEffect(() => {
     if (!supabase) {
       setIsBackendLoading(false);
@@ -113,8 +125,11 @@ export default function App() {
           setScreen('reset_password');
         } else if (data.session?.user) {
           await applyPendingOAuthRole(data.session.user.id);
-          await hydrateWorkspace(data.session.user.id, data.session.user.user_metadata?.role as UserRole | undefined);
-          if (active) setScreen('main_app');
+          window.localStorage.removeItem('nexora_pending_email_verification');
+          await enterAuthenticatedPortal(data.session.user.id, data.session.user.user_metadata?.role as UserRole | undefined);
+          if (new URLSearchParams(window.location.search).has('verified')) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
         }
       } catch (error) {
         await supabase.auth.signOut();
@@ -129,8 +144,14 @@ export default function App() {
     };
 
     void bootstrap();
-    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') setScreen('reset_password');
+      if (event === 'SIGNED_IN' && session?.user && window.localStorage.getItem('nexora_pending_email_verification')) {
+        window.localStorage.removeItem('nexora_pending_email_verification');
+        void enterAuthenticatedPortal(session.user.id).catch((error) => {
+          setBackendError(error instanceof Error ? error.message : 'Unable to finish email verification.');
+        });
+      }
       if (event === 'SIGNED_OUT') {
         setCurrentUserId(null);
         setScreen('welcome');
@@ -141,7 +162,7 @@ export default function App() {
       active = false;
       listener.subscription.unsubscribe();
     };
-  }, [hydrateWorkspace]);
+  }, [enterAuthenticatedPortal]);
 
   useEffect(() => {
     if (!supabase || !currentUserId) return;
@@ -232,19 +253,22 @@ export default function App() {
   const handleLoginSuccess = async (selectedRole: UserRole, email: string, password: string) => {
     const { user } = await authBackend.signIn(email, password, selectedRole);
     if (!user) throw new Error('Login succeeded but no user session was returned.');
-    await hydrateWorkspace(user.id, selectedRole);
-    setScreen('main_app');
+    await enterAuthenticatedPortal(user.id, selectedRole);
   };
 
   const handleSocialLogin = async (provider: 'google' | 'apple', role: UserRole) => {
     await authBackend.signInWithProvider(provider, role);
   };
 
-  const handleOtpVerified = async (code: string) => {
-    const { user } = await authBackend.verifySignupOtp(userProfile.email, code);
-    if (!user) throw new Error('Verification succeeded but no user was returned.');
-    await hydrateWorkspace(user.id, userRole);
-    setScreen(userRole === 'seeker' ? 'seeker_onboarding_step1' : 'employer_onboarding_step1');
+  const handleEmailVerificationCheck = async () => {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    if (!data.session?.user) {
+      throw new Error('Email is not verified yet. Open the newest verification email and click “Confirm email address”, then try again.');
+    }
+    window.localStorage.removeItem('nexora_pending_email_verification');
+    await enterAuthenticatedPortal(data.session.user.id, userRole);
   };
 
   const handleToggleBookmark = (jobId: string) => {
@@ -578,13 +602,12 @@ export default function App() {
         />
       )}
 
-      {/* SCREEN 6 & 07: OTP VERIFICATION */}
+      {/* SCREEN 6 & 07: EMAIL VERIFICATION */}
       {screen === 'otp_verify' && (
         <OtpVerifyScreen
           email={userProfile.email}
-          phone={userProfile.phone}
-          onVerify={handleOtpVerified}
-          onResend={() => authBackend.resendSignupOtp(userProfile.email)}
+          onCheckVerified={handleEmailVerificationCheck}
+          onResend={() => authBackend.resendSignupVerification(userProfile.email)}
           onBack={() => setScreen('login')}
           onChangeContact={() => setScreen(userRole === 'seeker' ? 'seeker_signup' : 'employer_signup')}
         />
