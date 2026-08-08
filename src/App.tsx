@@ -43,6 +43,7 @@ import { SupportScreen } from './components/seeker/SupportScreen';
 import { SettingsScreen } from './components/seeker/SettingsScreen';
 import { EmployerOnboardingStep1Screen } from './components/employer/EmployerOnboardingStep1Screen';
 import { EmployerOnboardingStep2Screen } from './components/employer/EmployerOnboardingStep2Screen';
+import { PwaInstallButton } from './components/pwa/PwaInstallButton';
 
 export default function App() {
   const [screen, setScreen] = useState<ScreenState>('welcome');
@@ -144,11 +145,16 @@ export default function App() {
           }
         }
       } catch (error) {
-        await supabase.auth.signOut();
+        // A temporary offline launch must not destroy the persisted auth session.
+        if (navigator.onLine) await supabase.auth.signOut();
         if (active) {
-          setCurrentUserId(null);
+          if (navigator.onLine) setCurrentUserId(null);
           setScreen('welcome');
-          setBackendError(error instanceof Error ? error.message : 'Unable to validate your portal access.');
+          setBackendError(
+            navigator.onLine
+              ? (error instanceof Error ? error.message : 'Unable to validate your portal access.')
+              : 'You are offline. The app shell and previously cached public content remain available; reconnect before making changes.',
+          );
         }
       } finally {
         if (active) setIsBackendLoading(false);
@@ -590,6 +596,8 @@ export default function App() {
           </button>
         </div>
       )}
+
+      <PwaInstallButton />
 
       {/* SCREEN 1: WELCOME */}
       {screen === 'welcome' && (

@@ -141,6 +141,22 @@ SUPABASE_SERVICE_ROLE_KEY=... \
 npm run test:recovery
 ```
 
+## Progressive Web App (PWA)
+
+The production build includes a complete installable PWA:
+
+- Floating **Install App** button with native `beforeinstallprompt` support
+- iOS Safari, Android Chrome, and desktop manual-install instructions
+- Standalone manifest with standard and maskable icons
+- Auto-updating Workbox service worker
+- Precached application shell for offline startup
+- Network-first caching only for safe public job listings
+- Stale-while-revalidate caching for public images and fonts
+- Offline status banner; protected writes are never queued or faked offline
+- Vercel cache headers for `sw.js`, the manifest, and versioned icons
+
+Build output must include `manifest.webmanifest`, `registerSW.js`, `sw.js`, and the Workbox runtime. Test installation from the production HTTPS URL rather than the Vite development server.
+
 ## Vercel deployment
 
 1. In Vercel, choose **Add New → Project** and import `portaljob492-creator/Job-Portal-`.
