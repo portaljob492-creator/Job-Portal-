@@ -15,12 +15,14 @@ import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
 import { SeekerOnboardingStep1Screen } from './components/seeker/SeekerOnboardingStep1Screen';
 import { SeekerOnboardingStep2Screen } from './components/seeker/SeekerOnboardingStep2Screen';
 import { JobSeekerWorkspace } from './components/seeker/JobSeekerWorkspace';
+import { ApplyJobScreen } from './components/seeker/ApplyJobScreen';
 import { EmployerWorkspace } from './components/employer/EmployerWorkspace';
 import { NavigationToolbar } from './components/NavigationToolbar';
 
 export default function App() {
   const [screen, setScreen] = useState<ScreenState>('welcome');
   const [userRole, setUserRole] = useState<UserRole>('seeker');
+  const [selectedJobForApply, setSelectedJobForApply] = useState<JobPosting | null>(null);
 
   // Application Data States
   const [jobs, setJobs] = useState<JobPosting[]>(INITIAL_JOBS);
@@ -98,7 +100,7 @@ export default function App() {
     );
   };
 
-  const handleApplyJob = (job: JobPosting, coverNote: string) => {
+  const handleApplyJob = (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string) => {
     // Add to Seeker applications
     const newApp: Application = {
       id: `app-${Date.now()}`,
@@ -110,6 +112,8 @@ export default function App() {
       appliedDate: 'Just now',
       status: 'Submitted',
       notes: 'Application received and under review by salon team.',
+      expectedSalary,
+      availability,
     };
 
     setApplications((prev) => [newApp, ...prev]);
@@ -128,6 +132,8 @@ export default function App() {
       appliedDate: 'Just now',
       coverNote,
       portfolioUrl: 'instagram.com/janedoe_hair',
+      expectedSalary,
+      availability,
     };
 
     setApplicants((prev) => [newApplicant, ...prev]);
@@ -399,6 +405,10 @@ export default function App() {
                 setUserProfile((prev) => ({ ...prev, role: 'employer' }));
               }}
               onLogout={() => setScreen('welcome')}
+              onStartApplyJob={(job) => {
+                setSelectedJobForApply(job);
+                setScreen('apply_job');
+              }}
             />
           ) : (
             <EmployerWorkspace
@@ -420,6 +430,21 @@ export default function App() {
             />
           )}
         </>
+      )}
+
+      {/* SCREEN 21 — APPLY JOB */}
+      {screen === 'apply_job' && (
+        <ApplyJobScreen
+          jobs={jobs}
+          selectedJob={selectedJobForApply}
+          applications={applications}
+          userProfile={userProfile}
+          onApplyJob={handleApplyJob}
+          onBack={() => setScreen('main_app')}
+          onNavigateToApplications={() => {
+            setScreen('main_app');
+          }}
+        />
       )}
 
       {/* Floating Toolbar to preview any screen easily */}

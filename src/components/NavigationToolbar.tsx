@@ -25,6 +25,7 @@ export const NavigationToolbar: React.FC<NavigationToolbarProps> = ({
     { id: 'seeker_onboarding_step1', label: '9. Seeker Onboard (Step 1)' },
     { id: 'seeker_onboarding_step2', label: '10. Seeker Onboard (Step 2)' },
     { id: 'main_app', label: `11. App Workspace (${currentRole === 'seeker' ? 'Seeker' : 'Employer'})` },
+    { id: 'apply_job', label: '12. Screen 21 — Apply Job' },
   ];
 
   return (

@@ -3,6 +3,7 @@ import { JobPosting, Application, UserProfile, Conversation, ChatMessage, Portfo
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
 import { MessagingCenter } from '../messaging/MessagingCenter';
 import { PortfolioGallery } from '../profile/PortfolioGallery';
+import { ResumePreview } from './ResumePreview';
 import { INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from '../../data/mockData';
 import { processNewJobForAlerts } from '../../utils/jobAlertMatcher';
 import {
@@ -43,7 +44,12 @@ import {
   Smartphone,
   Mail,
   Radio,
-  Upload
+  Upload,
+  Eye,
+  Download,
+  Mic,
+  MicOff,
+  User
 } from 'lucide-react';
 
 interface JobSeekerWorkspaceProps {
@@ -63,6 +69,7 @@ interface JobSeekerWorkspaceProps {
   onClearAlert?: (alertId: string) => void;
   onSwitchRole: () => void;
   onLogout: () => void;
+  onStartApplyJob?: (job: JobPosting) => void;
 }
 
 export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
@@ -82,6 +89,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   onClearAlert,
   onSwitchRole,
   onLogout,
+  onStartApplyJob,
 }) => {
   const [activeTab, setActiveTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile'>('feed');
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
@@ -90,6 +98,10 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
     userProfile.portfolioItems || INITIAL_PORTFOLIO_ITEMS
   );
   const [workspaceResumeName, setWorkspaceResumeName] = useState<string>('Jane_Doe_Beauty_CV_2026.pdf');
+  const [resumeFileUrl, setResumeFileUrl] = useState<string | null>(null);
+  const [showResumePreviewModal, setShowResumePreviewModal] = useState<boolean>(false);
+  const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
+  const [isJustUploaded, setIsJustUploaded] = useState<boolean>(false);
   
   // Job Alerts Push Notification State
   const [alertsList, setAlertsList] = useState<JobAlertNotification[]>(jobAlerts);
@@ -113,6 +125,40 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const [showSaveFilterModal, setShowSaveFilterModal] = useState<boolean>(false);
   const [newFilterNameInput, setNewFilterNameInput] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState<boolean>(false);
+
+  const startVoiceSearch = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showToast('Speech recognition is not supported in this browser.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    setIsListening(true);
+    showToast('Listening for voice search... Speak now!');
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setSearchQuery(transcript);
+      setIsListening(false);
+      showToast(`Voice search: "${transcript}"`);
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+      showToast('Voice search error or permission denied.');
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -251,6 +297,8 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   // Apply Modal state
   const [showApplyModal, setShowApplyModal] = useState<boolean>(false);
   const [coverNote, setCoverNote] = useState<string>('I am very interested in this role and believe my skills and background align perfectly with your team!');
+  const [expectedSalary, setExpectedSalary] = useState<string>('$95,000 / year');
+  const [availability, setAvailability] = useState<string>('Immediate (2 weeks notice)');
   const [applySuccess, setApplySuccess] = useState<boolean>(false);
 
   // Category & Filter Options
@@ -376,6 +424,11 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const handleApplySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedJob) {
+      const alreadyApplied = applications.some(app => app.jobId === selectedJob.id);
+      if (alreadyApplied) {
+        showToast('You have already submitted an application for this position.');
+        return;
+      }
       onApplyJob(selectedJob, coverNote);
       setApplySuccess(true);
       setTimeout(() => {
@@ -410,11 +463,11 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
           </div>
 
           {/* Desktop Search Bar */}
-          <div className="hidden md:flex items-center flex-1 max-w-md mx-6 bg-[#fdf8f8] rounded-full px-4 py-2 ring-1 ring-[#e0bec6] focus-within:ring-2 focus-within:ring-[#8e004b] transition-all">
+          <div className={`hidden md:flex items-center flex-1 max-w-md mx-6 bg-[#fdf8f8] rounded-full px-4 py-2 ring-1 transition-all ${isListening ? 'ring-2 ring-[#8e004b] bg-[#ffd9e2]/20 animate-pulse' : 'ring-[#e0bec6] focus-within:ring-2 focus-within:ring-[#8e004b]'}`}>
             <Search className="w-4 h-4 text-[#8c7077] mr-2 flex-shrink-0" />
             <input
               type="text"
-              placeholder="Search roles, salons, balayage, facialist, chair rental..."
+              placeholder={isListening ? "Listening... Speak now..." : "Search roles, salons, balayage, facialist, chair rental..."}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-transparent border-none text-xs text-[#1c1b1b] focus:outline-none placeholder:text-[#594047]/60"
@@ -428,6 +481,15 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
+            <button
+              onClick={startVoiceSearch}
+              title="Search by voice"
+              className={`p-1.5 ml-1 rounded-full transition-colors cursor-pointer flex items-center justify-center ${
+                isListening ? 'bg-[#8e004b] text-white animate-bounce' : 'hover:bg-[#ffd9e2] text-[#8e004b]'
+              }`}
+            >
+              <Mic className="w-4 h-4" />
+            </button>
           </div>
 
           {/* User Profile & Push Notification Alerts */}
@@ -489,11 +551,11 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
         </div>
 
         {/* Mobile Search Bar */}
-        <div className="mt-2 md:hidden flex items-center bg-[#fdf8f8] rounded-full px-3 py-2 ring-1 ring-[#e0bec6]">
+        <div className={`mt-2 md:hidden flex items-center bg-[#fdf8f8] rounded-full px-3 py-2 ring-1 transition-all ${isListening ? 'ring-2 ring-[#8e004b] bg-[#ffd9e2]/20 animate-pulse' : 'ring-[#e0bec6]'}`}>
           <Search className="w-4 h-4 text-[#8c7077] mr-2 flex-shrink-0" />
           <input
             type="text"
-            placeholder="Search roles, salons, specialties..."
+            placeholder={isListening ? "Listening..." : "Search roles, salons, specialties..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-transparent text-xs text-[#1c1b1b] focus:outline-none placeholder:text-[#594047]/60"
@@ -503,6 +565,15 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
               <X className="w-3.5 h-3.5" />
             </button>
           )}
+          <button
+            onClick={startVoiceSearch}
+            title="Search by voice"
+            className={`p-1.5 ml-1 rounded-full transition-colors cursor-pointer flex items-center justify-center ${
+              isListening ? 'bg-[#8e004b] text-white animate-bounce' : 'hover:bg-[#ffd9e2] text-[#8e004b]'
+            }`}
+          >
+            <Mic className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
@@ -1122,7 +1193,11 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                           <button
                             onClick={() => {
                               setSelectedJob(job);
-                              setShowApplyModal(true);
+                              if (onStartApplyJob) {
+                                onStartApplyJob(job);
+                              } else {
+                                setShowApplyModal(true);
+                              }
                             }}
                             className="px-4 py-1.5 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] transition-colors active:scale-95 shadow-xs cursor-pointer"
                           >
@@ -1303,7 +1378,11 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                       <button
                         onClick={() => {
                           setSelectedJob(job);
-                          setShowApplyModal(true);
+                          if (onStartApplyJob) {
+                            onStartApplyJob(job);
+                          } else {
+                            setShowApplyModal(true);
+                          }
                         }}
                         className="flex-1 py-2 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] transition-colors cursor-pointer"
                       >
@@ -1425,21 +1504,61 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             </div>
 
             {/* RESUME / CV MANAGEMENT CARD */}
-            <div className="bg-white p-6 rounded-2xl border border-[#e0bec6]/40 shadow-xs space-y-4">
-              <div className="flex items-center justify-between border-b border-[#e0bec6]/30 pb-3">
+            <div
+              key={workspaceResumeName}
+              id="upload-zone"
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingOver(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) {
+                  setWorkspaceResumeName(file.name);
+                  setResumeFileUrl(URL.createObjectURL(file));
+                  setIsJustUploaded(true);
+                  setTimeout(() => setIsJustUploaded(false), 2500);
+                  showToast(`Resume updated successfully: ${file.name}`);
+                }
+              }}
+              className={`bg-white p-6 rounded-2xl border transition-all duration-700 ease-out shadow-xs space-y-4 relative animate-in fade-in zoom-in-95 ${
+                isDraggingOver 
+                  ? 'border-2 border-dashed border-[#8e004b] bg-[#ffd9e2]/25 scale-[1.01] shadow-lg' 
+                  : isJustUploaded 
+                    ? 'border-2 border-emerald-500 bg-emerald-50/40 scale-102 shadow-xl ring-4 ring-emerald-100' 
+                    : 'border-[#e0bec6]/40 hover:border-[#8e004b]/50'
+              }`}
+            >
+              {isDraggingOver && (
+                <div className="absolute inset-0 z-25 bg-[#8e004b]/10 backdrop-blur-3xs rounded-2xl flex flex-col items-center justify-center p-4 text-center pointer-events-none animate-in fade-in duration-200">
+                  <Upload className="w-10 h-10 text-[#8e004b] animate-bounce mb-2" />
+                  <p className="text-sm font-extrabold text-[#8e004b]">Drop file here to update resume</p>
+                  <p className="text-xs text-[#594047] mt-0.5">Supports PDF, DOC, DOCX</p>
+                </div>
+              )}
+              <div className="flex items-center justify-between border-b border-[#e0bec6]/30 pb-3 transition-all duration-300">
                 <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-[#8e004b]" />
+                  <FileText className="w-5 h-5 text-[#8e004b] transition-transform duration-300 hover:scale-110" />
                   <h3 className="text-base font-bold text-[#1c1b1b]">Professional Resume / CV</h3>
                 </div>
-                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 shadow-2xs transition-all duration-300">
                   Ready for Applications
                 </span>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-[#fdf8f8] rounded-xl border border-[#e0bec6]/60">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-[#fdf8f8] rounded-xl border border-[#e0bec6]/60 transition-all duration-500 hover:bg-[#fff5f8]">
                 <div className="flex items-center gap-3 w-full sm:w-auto">
-                  <div className="w-12 h-12 rounded-xl bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center flex-shrink-0">
-                    <FileText className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-xl bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center flex-shrink-0 transition-transform duration-300 hover:rotate-6">
+                    <FileText className="w-6 h-6 animate-pulse" />
                   </div>
                   <div className="truncate">
                     <h4 className="text-xs font-extrabold text-[#1c1b1b] truncate">{workspaceResumeName}</h4>
@@ -1447,27 +1566,40 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                   </div>
                 </div>
 
-                <div className="relative w-full sm:w-auto flex-shrink-0">
+                <div className="flex items-center gap-2 w-full sm:w-auto">
                   <button
                     type="button"
-                    className="w-full sm:w-auto px-4 py-2.5 bg-[#8e004b] hover:bg-[#b90064] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    onClick={() => setShowResumePreviewModal(true)}
+                    className="flex-1 sm:flex-initial px-4 py-2.5 bg-white border border-[#e0bec6] hover:bg-[#ffd9e2]/30 text-[#8e004b] text-xs font-bold rounded-xl shadow-2xs transition-all duration-300 flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                   >
-                    <Upload className="w-4 h-4" />
-                    <span>Update Resume / CV</span>
+                    <Eye className="w-4 h-4 text-[#8e004b]" />
+                    <span>Preview</span>
                   </button>
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx"
-                    aria-label="Update Professional Resume or CV"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setWorkspaceResumeName(file.name);
-                        showToast(`Resume updated: ${file.name}`);
-                      }
-                    }}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
+                  <div className="relative flex-1 sm:flex-initial">
+                    <button
+                      type="button"
+                      className="w-full px-4 py-2.5 bg-[#8e004b] hover:bg-[#b90064] text-white text-xs font-bold rounded-xl shadow-xs transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                    >
+                      <Upload className="w-4 h-4 animate-bounce" />
+                      <span>Update</span>
+                    </button>
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      aria-label="Update Professional Resume or CV"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setWorkspaceResumeName(file.name);
+                          setResumeFileUrl(URL.createObjectURL(file));
+                          setIsJustUploaded(true);
+                          setTimeout(() => setIsJustUploaded(false), 2500);
+                          showToast(`Resume updated successfully: ${file.name}`);
+                        }
+                      }}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1727,7 +1859,13 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                   Close
                 </button>
                 <button
-                  onClick={() => setShowApplyModal(true)}
+                  onClick={() => {
+                    if (onStartApplyJob && selectedJob) {
+                      onStartApplyJob(selectedJob);
+                    } else {
+                      setShowApplyModal(true);
+                    }
+                  }}
                   className="flex-1 py-3 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] shadow-md transition-colors cursor-pointer"
                 >
                   Apply Now
@@ -1738,71 +1876,148 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
         </div>
       )}
 
-      {/* APPLY FORM MODAL */}
+      {/* SCREEN 21 — APPLY JOB (Review your application) */}
       {showApplyModal && selectedJob && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 border border-[#e0bec6] shadow-2xl animate-scale-up">
-            <div className="flex justify-between items-center pb-4 border-b border-[#e0bec6]/30 mb-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 border border-[#e0bec6] shadow-2xl animate-scale-up my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start pb-4 border-b border-[#e0bec6]/30 mb-6">
               <div>
-                <h3 className="text-lg font-bold text-[#1c1b1b]">Apply to {selectedJob.salonName}</h3>
-                <p className="text-xs text-[#594047]">{selectedJob.title}</p>
+                <span className="text-[10px] font-mono tracking-wider text-[#8c7077] uppercase bg-[#f1edec] px-2 py-0.5 rounded-md">
+                  /app/jobs/job/{selectedJob.id}/apply
+                </span>
+                <h3 className="text-xl font-bold text-[#1c1b1b] mt-1">Review your application</h3>
+                <p className="text-xs text-[#594047]">Applying to <span className="font-semibold text-[#8e004b]">{selectedJob.salonName}</span> — {selectedJob.title}</p>
               </div>
               <button
                 onClick={() => setShowApplyModal(false)}
-                className="p-1 text-[#594047] hover:text-[#1c1b1b] rounded-full cursor-pointer"
+                className="p-1.5 text-[#594047] hover:text-[#1c1b1b] rounded-full hover:bg-[#f1edec] transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {applySuccess ? (
-              <div className="py-8 text-center space-y-3">
-                <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-8 h-8" />
+              <div className="py-12 text-center space-y-4">
+                <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
+                  <CheckCircle2 className="w-9 h-9" />
                 </div>
-                <h4 className="text-lg font-bold text-[#1c1b1b]">Application Submitted!</h4>
-                <p className="text-xs text-[#594047]">
-                  Your profile and cover note have been sent to the hiring manager at {selectedJob.salonName}.
+                <h4 className="text-xl font-bold text-[#1c1b1b]">Application Submitted Successfully!</h4>
+                <p className="text-xs text-[#594047] max-w-sm mx-auto">
+                  Your candidate profile, credentials, and cover note have been securely transmitted to the hiring team at {selectedJob.salonName}.
                 </p>
               </div>
             ) : (
-              <form onSubmit={handleApplySubmit} className="space-y-4">
-                <div className="bg-[#fdf8f8] p-3 rounded-xl border border-[#e0bec6]/30 text-xs space-y-1">
-                  <p><span className="font-semibold text-[#1c1b1b]">Applicant:</span> {userProfile.name}</p>
-                  <p><span className="font-semibold text-[#1c1b1b]">Email:</span> {userProfile.email}</p>
-                  <p><span className="font-semibold text-[#1c1b1b]">License:</span> CA-COS-889124 (Cosmetology)</p>
+              <form onSubmit={handleApplySubmit} className="space-y-6">
+                {applications.some(app => app.jobId === selectedJob.id) && (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-amber-800 text-xs">
+                    <span className="material-symbols-outlined text-amber-600 text-base mt-0.5">warning</span>
+                    <div>
+                      <p className="font-bold">Already Applied</p>
+                      <p className="mt-0.5">You have already submitted an active application to this salon for this position.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Candidate Preview Section */}
+                <div className="bg-[#fdf8f8] p-4 sm:p-5 rounded-2xl border border-[#e0bec6]/50 space-y-4">
+                  <h4 className="text-xs font-bold text-[#8e004b] uppercase tracking-wider flex items-center gap-1.5">
+                    <User className="w-4 h-4" /> Candidate Profile Preview
+                  </h4>
+                  <div className="flex items-center gap-4">
+                    {userProfile.avatarUrl ? (
+                      <img src={userProfile.avatarUrl} alt={userProfile.name} className="w-14 h-14 rounded-full object-cover border-2 border-[#8e004b]" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-[#8e004b] text-white font-bold flex items-center justify-center text-lg">
+                        {userProfile.name.charAt(0)}
+                      </div>
+                    )}
+                    <div>
+                      <h5 className="text-sm font-bold text-[#1c1b1b]">{userProfile.name}</h5>
+                      <p className="text-xs text-[#594047] font-medium">{userProfile.specialties?.[0] || 'Senior Beauty Professional'}</p>
+                      <p className="text-[11px] text-[#8c7077] mt-0.5">{userProfile.email} • {userProfile.phone}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#e0bec6]/30 text-xs">
+                    <div>
+                      <span className="text-[#8c7077] block text-[11px]">Experience</span>
+                      <span className="font-semibold text-[#1c1b1b]">5+ Years Professional</span>
+                    </div>
+                    <div>
+                      <span className="text-[#8c7077] block text-[11px]">License</span>
+                      <span className="font-semibold text-[#1c1b1b]">{userProfile.licenseNumber || 'CA-COS-889124'}</span>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <span className="text-[#8c7077] block text-[11px]">Key Skills & Specialties</span>
+                      <span className="font-semibold text-[#1c1b1b]">{userProfile.specialties?.join(', ') || 'Balayage, Color Correction, Precision Cutting, Bridal Styling'}</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-[#e0bec6]/30 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-[#8e004b]" />
+                      <span className="font-medium text-[#1c1b1b]">Resume & Portfolio Attached</span>
+                    </div>
+                    <span className="font-bold text-[#e2007c] text-[11px] bg-[#ffd9e2]/50 px-2 py-1 rounded-lg">{workspaceResumeName}</span>
+                  </div>
+                </div>
+
+                {/* Form Fields */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-semibold text-[#1c1b1b] block mb-1">Expected Salary / Compensation</label>
+                    <input
+                      type="text"
+                      value={expectedSalary}
+                      onChange={(e) => setExpectedSalary(e.target.value)}
+                      required
+                      placeholder="e.g. $95,000 / year or $45 / hr"
+                      className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] focus:ring-2 focus:ring-[#8e004b] outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-[#1c1b1b] block mb-1">Availability</label>
+                    <input
+                      type="text"
+                      value={availability}
+                      onChange={(e) => setAvailability(e.target.value)}
+                      required
+                      placeholder="e.g. Immediate (2 weeks notice)"
+                      className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] focus:ring-2 focus:ring-[#8e004b] outline-none"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-[#1c1b1b] block mb-1">Cover Note / Intro Message</label>
+                  <label className="text-xs font-semibold text-[#1c1b1b] block mb-1">Optional Cover Note / Intro Message</label>
                   <textarea
-                    rows={4}
+                    rows={3}
                     value={coverNote}
                     onChange={(e) => setCoverNote(e.target.value)}
-                    required
+                    placeholder="Introduce yourself and highlight why you're a great fit..."
                     className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-xl p-3 text-xs text-[#1c1b1b] focus:ring-2 focus:ring-[#8e004b] outline-none"
                   />
-                </div>
-
-                <div className="p-3 bg-[#ffd9e2]/30 rounded-xl border border-[#e0bec6]/40 flex items-center justify-between text-xs">
-                  <span className="font-medium text-[#8e004b]">Attached Resume & Portfolio:</span>
-                  <span className="font-bold text-[#e2007c]">Jane_Doe_Beauty_CV.pdf ✓</span>
                 </div>
 
                 <div className="pt-2 flex gap-3">
                   <button
                     type="button"
                     onClick={() => setShowApplyModal(false)}
-                    className="flex-1 py-3 rounded-full text-xs font-bold text-[#594047] bg-[#f1edec]"
+                    className="flex-1 py-3 rounded-full text-xs font-bold text-[#594047] bg-[#f1edec] hover:bg-[#e6e1e1] transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-3 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] shadow-md flex items-center justify-center gap-1.5"
+                    disabled={applications.some(app => app.jobId === selectedJob.id)}
+                    className={`flex-1 py-3 rounded-full text-xs font-bold text-white shadow-md flex items-center justify-center gap-1.5 transition-all ${
+                      applications.some(app => app.jobId === selectedJob.id)
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-[#e2007c] hover:bg-[#b90064] cursor-pointer'
+                    }`}
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Submit Application</span>
+                    <span>{applications.some(app => app.jobId === selectedJob.id) ? 'Already Applied' : 'Submit Application'}</span>
                   </button>
                 </div>
               </form>
@@ -2092,6 +2307,22 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
           </div>
         </div>
       )}
+
+      {/* RESUME PREVIEW MODAL */}
+      <ResumePreview
+        isOpen={showResumePreviewModal}
+        onClose={() => setShowResumePreviewModal(false)}
+        resumeFileName={workspaceResumeName}
+        resumeFileUrl={resumeFileUrl}
+        userName={userProfile.name}
+        userEmail={userProfile.email}
+        userPhone={userProfile.phone}
+        userRole={userProfile.primaryRole}
+        userBio={userProfile.bio}
+        userSkills={userProfile.skills}
+        userLocation={userProfile.location}
+        onDownload={() => showToast('Downloading resume PDF...')}
+      />
 
       {/* FLOATING TOAST NOTIFICATION */}
       {toastMessage && (

@@ -11,7 +11,8 @@ export type ScreenState =
   | 'reset_password' 
   | 'seeker_onboarding_step1'
   | 'seeker_onboarding_step2'
-  | 'main_app';
+  | 'main_app'
+  | 'apply_job';
 
 export interface JobPosting {
   id: string;
@@ -46,6 +47,8 @@ export interface Application {
   status: 'Submitted' | 'Under Review' | 'Interview Scheduled' | 'Offer Extended';
   notes?: string;
   interviewDate?: string;
+  expectedSalary?: string;
+  availability?: string;
 }
 
 export interface Applicant {
@@ -61,6 +64,8 @@ export interface Applicant {
   appliedDate: string;
   coverNote?: string;
   portfolioUrl?: string;
+  expectedSalary?: string;
+  availability?: string;
 }
 
 export interface ChatMessage {

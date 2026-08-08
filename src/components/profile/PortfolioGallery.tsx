@@ -115,24 +115,47 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
     setCameraError(null);
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'user',
-            width: { ideal: 1024 },
-            height: { ideal: 1024 }
-          },
-          audio: false
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: 'user',
+              width: { ideal: 1024 },
+              height: { ideal: 1024 }
+            },
+            audio: false
+          });
+        } catch (firstErr) {
+          console.warn('First getUserMedia attempt failed, trying fallback to general video constraints:', firstErr);
+          // Fallback to basic video constraint
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        }
+
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          try {
+            await videoRef.current.play();
+          } catch (playErr) {
+            console.warn('Video play was blocked or interrupted:', playErr);
+          }
         }
         setIsCameraActive(true);
       } else {
         setCameraError('Camera access is not supported by your browser.');
       }
     } catch (err: any) {
-      setCameraError('Unable to open camera. Please grant camera permissions or select a photo.');
+      console.warn('Camera could not be started in portfolio gallery:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setCameraError('Camera permission was denied. Please allow camera permissions in your browser settings.');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError' || err.message?.includes('device not found')) {
+        setCameraError('No camera hardware was detected on this device. Please upload a photo from your files or use one of our beautiful presets!');
+      } else {
+        setCameraError('Unable to open camera. Please grant camera permissions, upload a file, or select a preset.');
+      }
       setIsCameraActive(false);
     }
   };

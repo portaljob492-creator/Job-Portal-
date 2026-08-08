@@ -90,32 +90,47 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
     setCapturedPhoto(null);
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'user',
-            width: { ideal: 640 },
-            height: { ideal: 640 },
-          },
-          audio: false,
-        });
+        let stream: MediaStream;
+        try {
+          // Attempt high-quality user-facing camera stream first
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: 'user',
+              width: { ideal: 640 },
+              height: { ideal: 640 },
+            },
+            audio: false,
+          });
+        } catch (firstErr) {
+          console.warn('First getUserMedia attempt failed, trying fallback to general video constraints:', firstErr);
+          // Fallback to basic video constraint if specific user-facing or dimensions constraint is not supported
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
 
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+          try {
+            await videoRef.current.play();
+          } catch (playErr) {
+            console.warn('Video element play() was interrupted or blocked:', playErr);
+          }
         }
         setIsCameraActive(true);
       } else {
         setCameraError('Camera access is not supported on your browser or device.');
       }
     } catch (err: any) {
-      console.error('Error starting camera:', err);
+      console.warn('Camera could not be started:', err);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         setCameraError('Camera permission was denied. Please allow camera permissions in your browser settings.');
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setCameraError('No camera hardware was detected on this device.');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError' || err.message?.includes('device not found')) {
+        setCameraError('No camera hardware was detected on this device. You can easily upload a profile picture or choose from our professional presets below!');
       } else {
-        setCameraError('Unable to open camera. Please check your system device settings.');
+        setCameraError('No camera found or camera is blocked in this view. Please upload a file or select a preset instead.');
       }
       setIsCameraActive(false);
     }
