@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, CheckCircle2, AlertCircle, RefreshCw, Mail, Edit2, ExternalLink } from 'lucide-react';
 
 interface OtpVerifyScreenProps {
@@ -20,6 +20,16 @@ export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
   const [isResending, setIsResending] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(() => {
+    const sentAt = Number(window.localStorage.getItem('nexora_verification_email_sent_at') || 0);
+    return Math.max(0, Math.ceil((sentAt + 60000 - Date.now()) / 1000));
+  });
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = window.setInterval(() => setResendCooldown((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [resendCooldown]);
 
   const maskEmail = () => {
     if (!email.includes('@')) return email;
@@ -28,12 +38,13 @@ export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
   };
 
   const handleResend = async () => {
-    if (!onResend || isResending) return;
+    if (!onResend || isResending || resendCooldown > 0) return;
     setIsResending(true);
     setErrorMessage(null);
     setResendMessage(null);
     try {
       await onResend();
+      setResendCooldown(60);
       setResendMessage(`A fresh verification link was sent to ${maskEmail()}. Use only the newest email.`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to resend the verification email.');
@@ -147,11 +158,11 @@ export const OtpVerifyScreen: React.FC<OtpVerifyScreenProps> = ({
             <button
               type="button"
               onClick={handleResend}
-              disabled={isResending}
-              className="text-[#8e004b] hover:text-[#e2007c] hover:underline transition-colors cursor-pointer flex items-center gap-1 disabled:opacity-60"
+              disabled={isResending || resendCooldown > 0}
+              className="text-[#8e004b] hover:text-[#e2007c] hover:underline transition-colors cursor-pointer flex items-center gap-1 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isResending ? 'animate-spin' : ''}`} />
-              <span>{isResending ? 'Sending…' : 'Resend verification link'}</span>
+              <span>{isResending ? 'Sending…' : resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend verification link'}</span>
             </button>
 
             <button

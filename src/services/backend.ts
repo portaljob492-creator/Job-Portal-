@@ -46,7 +46,7 @@ function mapAuthError(error: unknown): Error {
   const message = errorMessage(error, 'Authentication request failed.');
   const normalized = message.toLowerCase();
   if (normalized.includes('rate limit')) {
-    return new Error('Too many verification emails were requested. Please wait a few minutes, then resend once and use only the newest email.');
+    return new Error('The email provider hourly limit has been reached. Use the newest email already received, or try again after the current hour resets.');
   }
   if (normalized.includes('invalid login credentials')) {
     return new Error('Invalid email or password. Check your credentials and selected portal.');
@@ -293,17 +293,10 @@ export const authBackend = {
         throw new Error(portalMismatchMessage(existingRole, input.role));
       }
 
-      // An unverified signup may safely request a fresh link. Confirmed users
-      // receive Supabase's already-confirmed error and are directed to login.
-      const { error: resendError } = await client.auth.resend({ type: 'signup', email });
-      if (!resendError) {
-        window.localStorage.setItem('nexora_pending_email_verification', email);
-        return { user: null, session: null };
-      }
-      if (resendError.message.toLowerCase().includes('confirm')) {
-        throw new Error(`This email is already registered as a ${portalLabel(input.role)}. Please sign in through the ${portalLabel(input.role)} portal.`);
-      }
-      throw mapAuthError(resendError);
+      // Do not auto-resend on a repeated signup attempt. The confirmation
+      // screen owns the explicit resend action and enforces a local cooldown.
+      window.localStorage.setItem('nexora_pending_email_verification', email);
+      return { user: null, session: null };
     }
     if (existingRole === 'unassigned') {
       throw new Error('This email already belongs to a Nexora account. Sign in through your chosen Jobs portal to permanently assign its account type.');
@@ -340,6 +333,7 @@ export const authBackend = {
       window.localStorage.removeItem('nexora_pending_email_verification');
     } else {
       window.localStorage.setItem('nexora_pending_email_verification', email);
+      window.localStorage.setItem('nexora_verification_email_sent_at', String(Date.now()));
     }
     return data;
   },
@@ -353,6 +347,7 @@ export const authBackend = {
       throw mapAuthError(error);
     }
     window.localStorage.setItem('nexora_pending_email_verification', email.trim());
+    window.localStorage.setItem('nexora_verification_email_sent_at', String(Date.now()));
   },
 
   async signIn(email: string, password: string, requestedRole: UserRole) {
