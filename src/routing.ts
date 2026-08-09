@@ -37,8 +37,8 @@ export function resolveJobPortalRoute(pathname = window.location.pathname): JobP
   if (relative.startsWith('/settings')) return { screen: 'settings', protected: true };
   if (relative.startsWith('/jobs/apply')) return { screen: 'apply_job', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
   if (relative.startsWith('/jobs')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
-  // Admin is reserved: the current frontend has no public admin implementation.
-  if (relative.startsWith('/admin')) return { screen: 'login', protected: true };
+  if (relative.startsWith('/admin/jobs')) return { screen: 'admin_jobs', protected: true, requiredRole: 'admin' };
+  if (relative.startsWith('/admin')) return { screen: 'admin_login', protected: false, requiredRole: 'admin' };
   return { screen: 'welcome', protected: false };
 }
 
@@ -55,6 +55,8 @@ export function pathForScreen(screen: ScreenState, role: UserRole, seekerTab?: S
   if (screen === 'job_offer') return jobPortalPath('offers');
   if (screen === 'support') return jobPortalPath('support');
   if (screen === 'settings') return jobPortalPath('settings');
+  if (screen === 'admin_login') return jobPortalPath('admin');
+  if (screen === 'admin_jobs') return jobPortalPath('admin/jobs');
   if (screen === 'main_app') {
     if (role === 'employer') return jobPortalPath('dashboard/employer');
     const tabPaths: Record<SeekerTab, string> = {

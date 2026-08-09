@@ -47,11 +47,13 @@ import { SettingsScreen } from './components/seeker/SettingsScreen';
 import { EmployerOnboardingStep1Screen } from './components/employer/EmployerOnboardingStep1Screen';
 import { EmployerOnboardingStep2Screen } from './components/employer/EmployerOnboardingStep2Screen';
 import { PwaInstallButton } from './components/pwa/PwaInstallButton';
+import { AdminLoginScreen } from './components/admin/AdminLoginScreen';
+import { AdminJobsScreen } from './components/admin/AdminJobsScreen';
 
 export default function App() {
   const initialRoute = useRef<JobPortalRoute>(resolveJobPortalRoute()).current;
   const pendingProtectedRoute = useRef<JobPortalRoute | null>(initialRoute.protected ? initialRoute : null);
-  const [screen, setScreen] = useState<ScreenState>(initialRoute.protected ? 'login' : initialRoute.screen);
+  const [screen, setScreen] = useState<ScreenState>(initialRoute.protected ? (initialRoute.requiredRole === 'admin' ? 'admin_login' : 'login') : initialRoute.screen);
   const [userRole, setUserRole] = useState<UserRole>('seeker');
   const [selectedJobForApply, setSelectedJobForApply] = useState<JobPosting | null>(null);
   const [selectedApplicationForInvitation, setSelectedApplicationForInvitation] = useState<Application | null>(null);
@@ -204,7 +206,7 @@ export default function App() {
       const route = resolveJobPortalRoute();
       if (route.protected && !currentUserId) {
         pendingProtectedRoute.current = route;
-        setScreen('login');
+        setScreen(route.requiredRole === 'admin' ? 'admin_login' : 'login');
         return;
       }
       if (route.seekerTab) setSeekerInitialTab(route.seekerTab);
@@ -306,6 +308,12 @@ export default function App() {
     await enterAuthenticatedPortal(user.id, selectedRole);
   };
 
+  const handleAdminLogin = async (email: string, password: string) => {
+    const { user } = await authBackend.signInAdmin(email, password);
+    pendingProtectedRoute.current = { screen: 'admin_jobs', protected: true, requiredRole: 'admin' };
+    await enterAuthenticatedPortal(user.id, 'admin');
+  };
+
   const handleSocialLogin = async (provider: 'google' | 'apple', role: UserRole) => {
     await authBackend.signInWithProvider(provider, role);
   };
@@ -382,12 +390,16 @@ export default function App() {
     }
   };
 
-  const handleAddJob = (newJob: JobPosting) => {
+  const handleAddJob = async (newJob: JobPosting) => {
     if (currentUserId) {
-      void createJob(currentUserId, newJob)
-        .then((savedJob) => setJobs((prev) => [savedJob, ...prev]))
-        .catch((error) => setBackendError(error instanceof Error ? error.message : 'Unable to publish job.'));
-      return;
+      try {
+        const savedJob = await createJob(currentUserId, newJob);
+        setJobs((prev) => [savedJob, ...prev]);
+        return;
+      } catch (error) {
+        setBackendError(error instanceof Error ? error.message : 'Unable to submit job for approval.');
+        throw error;
+      }
     }
 
     setJobs((prev) => [newJob, ...prev]);
@@ -615,6 +627,9 @@ export default function App() {
       )}
 
       <PwaInstallButton />
+
+      {screen === 'admin_login' && <AdminLoginScreen onLogin={handleAdminLogin} onBack={() => setScreen('welcome')} />}
+      {screen === 'admin_jobs' && <AdminJobsScreen onLogout={() => void authBackend.signOut()} />}
 
       {/* SCREEN 1: WELCOME */}
       {screen === 'welcome' && (

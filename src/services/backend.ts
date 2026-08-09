@@ -19,9 +19,9 @@ const one = <T>(value: T | T[] | null | undefined): T | null =>
 
 const appBaseUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin).toString();
 const appCallbackUrl = (query = '') => `${appBaseUrl()}${query}`;
-const backendRole = (role: UserRole) => (role === 'seeker' ? 'job_seeker' : 'employer');
-const frontendRole = (role?: string | null): UserRole => (role === 'employer' ? 'employer' : 'seeker');
-const portalLabel = (role: UserRole) => (role === 'seeker' ? 'Job Seeker' : 'Employer');
+const backendRole = (role: UserRole) => role === 'seeker' ? 'job_seeker' : role;
+const frontendRole = (role?: string | null): UserRole => role === 'admin' ? 'admin' : role === 'employer' ? 'employer' : 'seeker';
+const portalLabel = (role: UserRole) => role === 'seeker' ? 'Job Seeker' : role === 'admin' ? 'Admin' : 'Employer';
 
 function portalMismatchMessage(actualBackendRole: string, requestedRole: UserRole) {
   const actualRole = frontendRole(actualBackendRole);
@@ -133,6 +133,8 @@ function mapJob(row: any, isBookmarked = false): JobPosting {
     isBookmarked,
     isFeatured: Boolean(row.salon_verified || salon?.verified),
     activeApplicantsCount: Number(row.active_applicants_count || 0),
+    approvalStatus: row.status || (row.published_at ? 'approved' : undefined),
+    rejectionReason: row.admin_review_reason || undefined,
   };
 }
 
@@ -341,6 +343,18 @@ export const authBackend = {
     return data;
   },
 
+  async signInAdmin(email: string, password: string) {
+    const client = requireSupabase();
+    const { data, error } = await client.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) throw mapAuthError(error);
+    const { data: roleRow, error: roleError } = await client.from('job_user_roles').select('role').eq('user_id', data.user.id).single();
+    if (roleError || roleRow?.role !== 'admin') {
+      await client.auth.signOut();
+      throw new Error('Admin access is restricted to approved administrator accounts.');
+    }
+    return data;
+  },
+
   async registerRole(role: UserRole) {
     const { data, error } = await requireSupabase().rpc('job_register_role', { requested_role: backendRole(role) });
     if (error) throw mapPortalRoleError(error, role);
@@ -471,7 +485,9 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).single(),
     client.from('job_seeker_profiles').select('*').eq('user_id', user.id).maybeSingle(),
     client.from('job_salon_members').select('salon_id,member_role,salon:salons!job_salon_members_salon_id_fkey(*)').eq('user_id', user.id).eq('status', 'active').limit(1).maybeSingle(),
-    client.from('public_job_listings').select('*').order('published_at', { ascending: false }),
+    role === 'seeker'
+      ? client.from('public_job_listings').select('*').order('published_at', { ascending: false })
+      : client.from('job_posts').select('*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)').order('created_at', { ascending: false }),
     client.from('job_saved_jobs').select('job_id').eq('user_id', user.id),
     client.rpc('get_job_conversation_summaries'),
     client.from('job_messages').select('*').order('created_at', { ascending: true }),
@@ -665,9 +681,11 @@ export async function createJob(_userId: string, job: JobPosting): Promise<JobPo
     p_image_path: job.image || null,
   });
   if (error) throw error;
-  const { error: publishError } = await client.rpc('publish_job', { target_job_id: id });
-  if (publishError) throw publishError;
-  const { data: saved, error: readError } = await client.from('public_job_listings').select('*').eq('id', id).single();
+  const { data: saved, error: readError } = await client
+    .from('job_posts')
+    .select('*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)')
+    .eq('id', id)
+    .single();
   if (readError) throw readError;
   return mapJob(saved);
 }

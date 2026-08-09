@@ -1,4 +1,4 @@
-export type UserRole = 'seeker' | 'employer';
+export type UserRole = 'seeker' | 'employer' | 'admin';
 
 export type ScreenState = 
   | 'welcome' 
@@ -18,7 +18,9 @@ export type ScreenState =
   | 'settings'
   | 'employer_onboarding_step1'
   | 'employer_onboarding_step2'
-  | 'employer_onboarding_step3';
+  | 'employer_onboarding_step3'
+  | 'admin_login'
+  | 'admin_jobs';
 
 export interface JobPosting {
   id: string;
@@ -40,6 +42,8 @@ export interface JobPosting {
   isBookmarked?: boolean;
   isFeatured?: boolean;
   activeApplicantsCount?: number;
+  approvalStatus?: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'paused' | 'closed' | 'expired' | 'archived';
+  rejectionReason?: string;
 }
 
 export interface Application {

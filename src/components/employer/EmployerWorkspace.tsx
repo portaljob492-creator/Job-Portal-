@@ -48,7 +48,7 @@ interface EmployerWorkspaceProps {
   conversations?: Conversation[];
   messages?: ChatMessage[];
   userProfile: UserProfile;
-  onAddJob: (newJob: JobPosting) => void;
+  onAddJob: (newJob: JobPosting) => Promise<void> | void;
   onUpdateApplicantStatus: (applicantId: string, status: Applicant['status']) => void;
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
@@ -72,6 +72,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'candidates' | 'interviews' | 'messages' | 'analytics' | 'profile'>('dashboard');
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
+  const [showApprovalConfirmation, setShowApprovalConfirmation] = useState(false);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
   const [viewingPortfolioApplicant, setViewingPortfolioApplicant] = useState<Applicant | null>(null);
   const [offeringApplicant, setOfferingApplicant] = useState<Applicant | null>(null);
@@ -100,7 +101,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     return a.status === candidateFilter;
   });
 
-  const handlePostJob = (e: React.FormEvent) => {
+  const handlePostJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title) return;
 
@@ -126,8 +127,9 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       activeApplicantsCount: 0,
     };
 
-    onAddJob(newJob);
+    await onAddJob(newJob);
     setShowPostModal(false);
+    setShowApprovalConfirmation(true);
     setTitle('');
   };
 
@@ -430,6 +432,10 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                   const jobApplicants = applicants.filter((a) => a.appliedJobId === job.id);
                   const shortlisted = jobApplicants.filter(a => a.status === 'Shortlisted').length;
                   const interviewing = jobApplicants.filter(a => a.status === 'Interview Scheduled').length;
+                  const statusLabel = job.approvalStatus === 'pending_approval' ? 'Pending Admin Approval · Max 24 Hours'
+                    : job.approvalStatus === 'rejected' ? 'Rejected · Changes Required'
+                    : job.approvalStatus === 'approved' ? 'Approved · Live' : (job.approvalStatus || 'Draft');
+                  const pending = job.approvalStatus === 'pending_approval';
                   
                   return (
                     <div
@@ -439,15 +445,15 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                       <div className="flex justify-between items-start mb-2">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active
+                            <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${pending ? 'text-amber-900 bg-amber-100' : job.approvalStatus === 'rejected' ? 'text-rose-700 bg-rose-50' : 'text-emerald-700 bg-emerald-50'}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${pending ? 'bg-amber-500' : job.approvalStatus === 'rejected' ? 'bg-rose-500' : 'bg-emerald-500'}`}></span> {statusLabel}
                             </span>
                             <span className="text-xs text-[#594047]">{job.postedDate}</span>
                           </div>
                           <h2 className="text-[18px] font-semibold text-[#1c1b1b] leading-tight">{job.title}</h2>
                           <p className="text-sm text-[#594047] mt-1 truncate max-w-full">{job.location} • {job.jobType} • {job.salary}</p>
                         </div>
-                        <button className="text-[#594047] p-1 hover:bg-[#f1edec] rounded-full transition-colors cursor-pointer shrink-0">
+                        <button disabled={pending} title={pending ? 'Editing is locked during admin review' : 'Job actions'} className="text-[#594047] p-1 hover:bg-[#f1edec] rounded-full transition-colors cursor-pointer shrink-0 disabled:cursor-not-allowed disabled:opacity-40">
                           <MoreVertical className="w-5 h-5" />
                         </button>
                       </div>
@@ -689,12 +695,22 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       </nav>
 
       {/* MODALS */}
+      {showApprovalConfirmation && (
+        <div className="fixed inset-0 z-[120] bg-black/45 backdrop-blur-sm grid place-items-center p-4">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-[#e0bec6] p-7 text-center shadow-2xl">
+            <CheckCircle2 className="w-14 h-14 mx-auto text-emerald-600" />
+            <h2 className="text-2xl font-extrabold mt-4">Job Submitted</h2>
+            <p className="text-sm text-[#594047] mt-2 leading-relaxed">Your job post has been submitted successfully and is currently under Admin Approval. It will be reviewed and published within 24 hours.</p>
+            <button onClick={() => { setShowApprovalConfirmation(false); setActiveTab('jobs'); }} className="mt-6 w-full bg-[#e2007c] text-white rounded-full py-3 font-bold">View My Jobs</button>
+          </div>
+        </div>
+      )}
       
       {/* POST NEW JOB WIZARD */}
       {showPostModal && (
         <PostJobWizard
           onClose={() => setShowPostModal(false)}
-          onComplete={(newJobPartial) => {
+          onComplete={async (newJobPartial) => {
             const newJob: JobPosting = {
               id: `job-${Date.now()}`,
               title: newJobPartial.title || 'New Position',
@@ -716,8 +732,9 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
               isFeatured: true,
               activeApplicantsCount: 0,
             };
-            onAddJob(newJob);
+            await onAddJob(newJob);
             setShowPostModal(false);
+            setShowApprovalConfirmation(true);
           }}
         />
       )}
