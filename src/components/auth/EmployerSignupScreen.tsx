@@ -140,7 +140,9 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="Nexora@123"
+                  aria-describedby="employer-password-hint"
+                  autoComplete="new-password"
                   required
                   className="w-full bg-[#f0edec] border-transparent focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] rounded-lg px-4 py-3 text-sm text-[#1c1b1b] transition-colors outline-none placeholder:text-[#594047]/60 pr-10"
                 />
@@ -153,6 +155,9 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              <p id="employer-password-hint" className="text-[11px] leading-relaxed text-[#594047]">
+                Example: <strong className="text-[#8e004b]">Nexora@123</strong> — use 8+ characters with uppercase, lowercase and a number. Create your own unique password.
+              </p>
             </div>
 
             {/* Terms Checkbox */}

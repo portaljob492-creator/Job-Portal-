@@ -191,6 +191,9 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
+            <p id="seeker-password-hint" className="text-[11px] leading-relaxed text-[#594047]">
+              Example: <strong className="text-[#8e004b]">Nexora@123</strong> — use 8+ characters with uppercase, lowercase and a number. Create your own unique password.
+            </p>
           </div>
 
           {/* Confirm Password */}
@@ -207,7 +210,8 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
                 type={showConfirmPassword ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Repeat your password"
+                autoComplete="new-password"
                 required
                 className="w-full pl-10 pr-10 py-3 bg-[#fdf8f8] border-0 ring-1 ring-inset ring-[#e0bec6] rounded-xl text-base text-[#1c1b1b] focus:ring-2 focus:ring-inset focus:ring-[#8e004b] focus:bg-white transition-all outline-none"
               />
