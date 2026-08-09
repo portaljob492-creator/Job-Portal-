@@ -23,18 +23,20 @@ export function resolveJobPortalRoute(pathname = window.location.pathname): JobP
   if (relative.startsWith('/signup/employer')) return { screen: 'employer_signup', protected: false };
   if (relative === '/forgot-password') return { screen: 'forgot_password', protected: false };
   if (relative === '/reset-password') return { screen: 'reset_password', protected: false };
+  if (relative.startsWith('/dashboard/seeker')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
+  if (relative.startsWith('/dashboard/employer')) return { screen: 'main_app', protected: true, requiredRole: 'employer' };
   if (relative.startsWith('/employer')) return { screen: 'main_app', protected: true, requiredRole: 'employer' };
-  if (relative.startsWith('/profile')) return { screen: 'main_app', protected: true, seekerTab: 'profile' };
-  if (relative.startsWith('/applications')) return { screen: 'main_app', protected: true, seekerTab: 'applications' };
+  if (relative.startsWith('/profile')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'profile' };
+  if (relative.startsWith('/applications')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'applications' };
   if (relative.startsWith('/messages')) return { screen: 'main_app', protected: true, seekerTab: 'messages' };
-  if (relative.startsWith('/saved')) return { screen: 'main_app', protected: true, seekerTab: 'saved' };
-  if (relative.startsWith('/portfolio')) return { screen: 'main_app', protected: true, seekerTab: 'portfolio' };
+  if (relative.startsWith('/saved')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'saved' };
+  if (relative.startsWith('/portfolio')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'portfolio' };
   if (relative.startsWith('/interviews')) return { screen: 'interview_invitation', protected: true };
   if (relative.startsWith('/offers')) return { screen: 'job_offer', protected: true };
   if (relative.startsWith('/support')) return { screen: 'support', protected: true };
   if (relative.startsWith('/settings')) return { screen: 'settings', protected: true };
-  if (relative.startsWith('/jobs/apply')) return { screen: 'apply_job', protected: true, seekerTab: 'feed' };
-  if (relative.startsWith('/jobs')) return { screen: 'main_app', protected: true, seekerTab: 'feed' };
+  if (relative.startsWith('/jobs/apply')) return { screen: 'apply_job', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
+  if (relative.startsWith('/jobs')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
   // Admin is reserved: the current frontend has no public admin implementation.
   if (relative.startsWith('/admin')) return { screen: 'login', protected: true };
   return { screen: 'welcome', protected: false };
@@ -54,9 +56,9 @@ export function pathForScreen(screen: ScreenState, role: UserRole, seekerTab?: S
   if (screen === 'support') return jobPortalPath('support');
   if (screen === 'settings') return jobPortalPath('settings');
   if (screen === 'main_app') {
-    if (role === 'employer') return jobPortalPath('employer');
+    if (role === 'employer') return jobPortalPath('dashboard/employer');
     const tabPaths: Record<SeekerTab, string> = {
-      feed: 'jobs', applications: 'applications', saved: 'saved', messages: 'messages', portfolio: 'portfolio', profile: 'profile',
+      feed: 'dashboard/seeker', applications: 'applications', saved: 'saved', messages: 'messages', portfolio: 'portfolio', profile: 'profile',
     };
     return jobPortalPath(tabPaths[seekerTab || 'feed']);
   }

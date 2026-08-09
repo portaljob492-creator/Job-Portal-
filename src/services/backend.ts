@@ -25,7 +25,7 @@ const portalLabel = (role: UserRole) => (role === 'seeker' ? 'Job Seeker' : 'Emp
 
 function portalMismatchMessage(actualBackendRole: string, requestedRole: UserRole) {
   const actualRole = frontendRole(actualBackendRole);
-  return `This email is registered as a ${portalLabel(actualRole)}. Please sign in with a registered ${portalLabel(requestedRole)} email or create a new account for ${portalLabel(requestedRole)} access.`;
+  return `An account with this email already exists as a ${portalLabel(actualRole)}. Please use a different email or log in.`;
 }
 
 function errorMessage(error: unknown, fallback: string) {
