@@ -15,7 +15,7 @@ It coexists with the existing Nexora marketplace database and reuses its `profil
 
 ## Implemented backend
 
-- Email/password signup, verification, login, logout, and password recovery
+- Email/password signup with immediate activation, login, logout, and password recovery
 - Permanent one-email/one-portal role assignment for `job_seeker`, `employer`, and `admin`
 - Wrong-portal signup/login rejection with explicit role-specific errors
 - Candidate profile, skills, experience, education, certifications, resume metadata, preferences, and portfolio
@@ -172,9 +172,9 @@ VITE_SUPABASE_ANON_KEY=YOUR_STAGING_PUBLISHABLE_KEY
 
 ## Auth configuration
 
-1. Site URL is `https://job-portal-nexora.vercel.app`; local and Vercel callback URLs are allow-listed.
-2. Email confirmation uses Supabase's secure one-time confirmation link. The UI can resend a fresh link and warns users to open only the newest email.
-3. Six-digit email codes require a custom SMTP provider and a `{{ .Token }}` confirmation template; the default free-tier mailer exposes only the confirmation link.
+1. Main Site URL and both Vercel origins are allow-listed in Supabase Auth.
+2. Signup email verification is intentionally disabled (`mailer_autoconfirm=true`); new accounts activate immediately and no verification/resend UI is shipped.
+3. Forgot/Reset Password email remains enabled and uses a one-time recovery link.
 4. Enable Google or Apple buttons only after those providers and callback URLs are configured.
 5. Password recovery redirects to `/?recovery=1`, validates the recovery session before showing the form, and rejects expired/reused links.
 6. Reset links expire after 60 minutes; Supabase and the UI require at least 8 characters with lowercase and uppercase letters plus a number.

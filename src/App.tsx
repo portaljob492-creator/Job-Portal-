@@ -33,7 +33,6 @@ import { RoleSelectionScreen } from './components/auth/RoleSelectionScreen';
 import { JobSeekerSignupScreen } from './components/auth/JobSeekerSignupScreen';
 import { EmployerSignupScreen } from './components/auth/EmployerSignupScreen';
 import { LoginScreen } from './components/auth/LoginScreen';
-import { OtpVerifyScreen } from './components/auth/OtpVerifyScreen';
 import { ForgotPasswordScreen } from './components/auth/ForgotPasswordScreen';
 import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
 import { SeekerOnboardingStep1Screen } from './components/seeker/SeekerOnboardingStep1Screen';
@@ -151,7 +150,6 @@ export default function App() {
           }
         } else if (data.session?.user) {
           await applyPendingOAuthRole(data.session.user.id);
-          window.localStorage.removeItem('nexora_pending_email_verification');
           await enterAuthenticatedPortal(data.session.user.id, data.session.user.user_metadata?.role as UserRole | undefined);
           if (new URLSearchParams(window.location.search).has('verified')) {
             window.history.replaceState({}, document.title, window.location.pathname);
@@ -175,16 +173,10 @@ export default function App() {
     };
 
     void bootstrap();
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecoveryState('valid');
         setScreen('reset_password');
-      }
-      if (event === 'SIGNED_IN' && session?.user && window.localStorage.getItem('nexora_pending_email_verification')) {
-        window.localStorage.removeItem('nexora_pending_email_verification');
-        void enterAuthenticatedPortal(session.user.id).catch((error) => {
-          setBackendError(error instanceof Error ? error.message : 'Unable to finish email verification.');
-        });
       }
       if (event === 'SIGNED_OUT') {
         setCurrentUserId(null);
@@ -278,7 +270,7 @@ export default function App() {
       await hydrateWorkspace(user.id, 'seeker');
       setScreen('seeker_onboarding_step1');
     } else {
-      setScreen('otp_verify');
+      throw new Error('Account activation did not complete. Please try signing in or contact support.');
     }
   };
 
@@ -304,7 +296,7 @@ export default function App() {
       await hydrateWorkspace(user.id, 'employer');
       setScreen('employer_onboarding_step1');
     } else {
-      setScreen('otp_verify');
+      throw new Error('Account activation did not complete. Please try signing in or contact support.');
     }
   };
 
@@ -316,17 +308,6 @@ export default function App() {
 
   const handleSocialLogin = async (provider: 'google' | 'apple', role: UserRole) => {
     await authBackend.signInWithProvider(provider, role);
-  };
-
-  const handleEmailVerificationCheck = async () => {
-    if (!supabase) throw new Error('Supabase is not configured.');
-    const { data, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    if (!data.session?.user) {
-      throw new Error('Email is not verified yet. Open the newest verification email and click “Confirm email address”, then try again.');
-    }
-    window.localStorage.removeItem('nexora_pending_email_verification');
-    await enterAuthenticatedPortal(data.session.user.id, userRole);
   };
 
   const handleToggleBookmark = (jobId: string) => {
@@ -683,17 +664,6 @@ export default function App() {
         />
       )}
 
-      {/* SCREEN 6 & 07: EMAIL VERIFICATION */}
-      {screen === 'otp_verify' && (
-        <OtpVerifyScreen
-          email={userProfile.email}
-          onCheckVerified={handleEmailVerificationCheck}
-          onResend={() => authBackend.resendSignupVerification(userProfile.email)}
-          onBack={() => setScreen('login')}
-          onChangeContact={() => setScreen(userRole === 'seeker' ? 'seeker_signup' : 'employer_signup')}
-        />
-      )}
-
       {/* SCREEN 08: FORGOT PASSWORD */}
       {screen === 'forgot_password' && (
         <ForgotPasswordScreen
@@ -722,7 +692,7 @@ export default function App() {
             mobile: userProfile.phone,
             avatarUrl: userProfile.avatarUrl,
           }}
-          onBack={() => setScreen('otp_verify')}
+          onBack={() => setScreen('seeker_signup')}
           onNext={(stepData) => {
             handleProfileUpdate({
               ...userProfile,
@@ -764,7 +734,7 @@ export default function App() {
       {screen === 'employer_onboarding_step1' && (
         <EmployerOnboardingStep1Screen
           contactName={userProfile.contactPerson || userProfile.name}
-          onBack={() => setScreen('otp_verify')}
+          onBack={() => setScreen('employer_signup')}
           onContinue={async (businessData) => {
             try {
               if (currentUserId) await completeEmployerOnboarding(businessData);

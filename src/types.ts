@@ -6,7 +6,6 @@ export type ScreenState =
   | 'seeker_signup' 
   | 'employer_signup' 
   | 'login' 
-  | 'otp_verify' 
   | 'forgot_password' 
   | 'reset_password' 
   | 'seeker_onboarding_step1'

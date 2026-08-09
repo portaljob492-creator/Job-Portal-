@@ -293,10 +293,7 @@ export const authBackend = {
         throw new Error(portalMismatchMessage(existingRole, input.role));
       }
 
-      // Do not auto-resend on a repeated signup attempt. The confirmation
-      // screen owns the explicit resend action and enforces a local cooldown.
-      window.localStorage.setItem('nexora_pending_email_verification', email);
-      return { user: null, session: null };
+      throw new Error(`This email is already registered as a ${portalLabel(input.role)}. Please sign in through the ${portalLabel(input.role)} portal.`);
     }
     if (existingRole === 'unassigned') {
       throw new Error('This email already belongs to a Nexora account. Sign in through your chosen Jobs portal to permanently assign its account type.');
@@ -306,7 +303,6 @@ export const authBackend = {
       email,
       password: input.password,
       options: {
-        emailRedirectTo: appCallbackUrl('?verified=1'),
         data: {
           app_context: 'jobs',
           job_role: requestedBackendRole,
@@ -329,25 +325,7 @@ export const authBackend = {
       }
       throw new Error('An account already exists for this email. Please sign in instead.');
     }
-    if (data.session) {
-      window.localStorage.removeItem('nexora_pending_email_verification');
-    } else {
-      window.localStorage.setItem('nexora_pending_email_verification', email);
-      window.localStorage.setItem('nexora_verification_email_sent_at', String(Date.now()));
-    }
     return data;
-  },
-
-  async resendSignupVerification(email: string) {
-    const { error } = await requireSupabase().auth.resend({ type: 'signup', email: email.trim() });
-    if (error) {
-      if (error.message.toLowerCase().includes('confirm')) {
-        throw new Error('This email is already verified. Go back and sign in to continue.');
-      }
-      throw mapAuthError(error);
-    }
-    window.localStorage.setItem('nexora_pending_email_verification', email.trim());
-    window.localStorage.setItem('nexora_verification_email_sent_at', String(Date.now()));
   },
 
   async signIn(email: string, password: string, requestedRole: UserRole) {
