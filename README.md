@@ -30,6 +30,7 @@ It coexists with the existing Nexora marketplace database and reuses its `profil
 - Notifications, support tickets, reporting, employer blocking, and audit log
 - 7 Storage buckets with private document policies
 - RLS on every one of the 35 Jobs tables
+- Authenticated device location sync (`job_user_locations`) behind an owner-only RPC
 - Realtime on applications, interviews, offers, notifications, conversations, and messages
 
 ## Local setup
@@ -45,7 +46,10 @@ Use only the project URL and publishable/anon key in the browser:
 ```env
 VITE_SUPABASE_URL=https://qwaehqsmodekbgvnaavz.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_KEY
+VITE_SUPABASE_STORAGE_KEY=nexora.auth.qwaehqsmodekbgvnaavz
 ```
+
+`VITE_SUPABASE_STORAGE_KEY` is optional: it defaults to `nexora.auth.<project-ref>`.
 
 Never expose a Supabase secret or `service_role` key in a `VITE_*` variable, browser code, logs, or the repository.
 
@@ -63,6 +67,8 @@ Migrations are under `supabase/migrations/`:
 20260808170600_jobs_platform_compat.sql
 20260808170700_jobs_public_views.sql
 20260808170800_jobs_permanent_portal_roles.sql
+20260808170900_jobs_admin_approval.sql
+20260810090000_jobs_location_sync.sql
 ```
 
 They are recorded in `supabase_migrations.schema_migrations` on staging. For another linked project:
@@ -86,6 +92,7 @@ supabase db push
 | `job_notifications`, `job_saved_searches` | Alerts and workflow notifications |
 | `job_conversations`, `job_messages` | Realtime participant-scoped messaging |
 | `job_support_*`, `job_reports`, `job_audit_log` | Support, safety, moderation, and auditability |
+| `job_user_locations` | Last synced device position for nearby-job ranking (owner-only) |
 
 Safe projections:
 
@@ -115,9 +122,17 @@ Private documents use stable storage paths; clients should request short-lived s
 ## Validation
 
 ```bash
-npm run lint
-npm run build
+npm run lint          # tsc --noEmit
+npm run build         # vite build
+npm run test:location # auth + location sync checks (offline, no credentials)
+npm run test:pwa      # build + PWA artifact checks
 ```
+
+`npm run test:location` executes the real modules (`src/lib/supabase.ts`,
+`src/routing.ts`, `src/lib/authErrors.ts`, `src/services/locationSync.ts`) with
+injected fakes and asserts the repository invariants: one Supabase client, one
+auth listener owner, the PKCE storage key, the login route alias, watcher
+throttling/cleanup, and the location migration's RLS posture.
 
 An isolated end-to-end database acceptance test is included:
 
@@ -166,11 +181,66 @@ Build output must include `manifest.webmanifest`, `sw.js`, and the Workbox runti
 ```env
 VITE_SUPABASE_URL=https://qwaehqsmodekbgvnaavz.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_STAGING_PUBLISHABLE_KEY
+VITE_SUPABASE_STORAGE_KEY=nexora.auth.qwaehqsmodekbgvnaavz
 ```
 
 4. Deploy, then copy the final `https://*.vercel.app` domain into Supabase Auth URL Configuration before testing OAuth or recovery links.
 
 ## Auth configuration
+
+The portal uses the universal Nexora Supabase auth setup: one shared client
+(`src/lib/supabase.ts`), PKCE, and a namespaced storage key.
+
+```ts
+createClient(url, anonKey, {
+  auth: {
+    storageKey: 'nexora.auth.qwaehqsmodekbgvnaavz',
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+  },
+});
+```
+
+- The storage key names this app's tokens, so another Nexora app on the same
+  origin can never read or overwrite them. Sessions previously stored under
+  `sb-<project-ref>-auth-token` are migrated once on boot so nobody is signed out.
+- Auth state is owned by `src/lib/authSession.ts`, which registers the single
+  `onAuthStateChange` listener for the whole app. `AuthSessionProvider` (mounted in
+  `main.tsx`) exposes the snapshot; `App` and `useLocationSync` subscribe to the
+  store instead of adding their own listeners.
+- Handled events: `INITIAL_SESSION`, `SIGNED_IN`, `TOKEN_REFRESHED`, `SIGNED_OUT`
+  (plus `PASSWORD_RECOVERY` and `USER_UPDATED`).
+- Invalid or expired sessions are classified by `src/lib/authErrors.ts`. They clear
+  the unusable tokens once and route to the login screen. Network failures,
+  offline launches and RLS denials deliberately keep the session intact.
+- Login route: the portal's canonical path is `/login` (`loginPath()` in
+  `src/routing.ts`); the universal Nexora path `/auth/login` is accepted as an alias
+  that resolves to the same screen. `redirectToLogin()` compares the current
+  pathname first, so repeated invalid-session signals cannot loop.
+- A deliberate logout is flagged (`markUserInitiatedSignOut`) and still returns to
+  the welcome screen, exactly as before.
+
+## Authenticated location synchronization
+
+`src/hooks/useLocationSync.ts` keeps a signed-in user's approximate position in
+sync so nearby jobs can be ranked. It is mounted once from
+`AuthSessionProvider`, the authenticated root.
+
+| Concern | Implementation |
+| --- | --- |
+| Authenticated only | Starts only when the shared store reports an authenticated user id |
+| One watcher | Module-singleton engine (`src/services/locationSync.ts`) keyed by user id |
+| One auth listener | Subscribes to `src/lib/authSession.ts`, never to Supabase directly |
+| Logout cleanup | `SIGNED_OUT` / invalidated session releases the watch and drops the cached fix |
+| Write volume | Client throttle (30s / 75m, 5-minute heartbeat) plus a server-side throttle |
+| RLS | Writes only through `sync_user_location()`, which asserts `auth.uid()`, validates ranges and rate-limits; the table has no insert/update policy |
+| Consent | Settings → Privacy → **Location Sharing**; turning it off stops the watcher and calls `clear_user_location()` |
+| Missing migration | An unmigrated project returns `unsupported` and stops quietly instead of erroring |
+
+The watcher never runs without HTTPS, never stores coordinates locally, and stops
+on `PERMISSION_DENIED`.
 
 1. Main Site URL and both Vercel origins are allow-listed in Supabase Auth.
 2. Signup email verification is intentionally disabled (`mailer_autoconfirm=true`); new accounts activate immediately and no verification/resend UI is shipped.

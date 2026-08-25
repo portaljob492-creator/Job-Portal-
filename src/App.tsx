@@ -3,6 +3,8 @@ import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile,
 import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERSATIONS, INITIAL_MESSAGES, INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from './data/mockData';
 import { processNewJobForAlerts } from './utils/jobAlertMatcher';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
+import { isSessionInvalidError } from './lib/authErrors';
+import { markUserInitiatedSignOut, reportSessionError, subscribeToAuthChanges } from './lib/authSession';
 import { pathForScreen, resolveJobPortalRoute, type JobPortalRoute } from './routing';
 import {
   applyPendingOAuthRole,
@@ -158,15 +160,24 @@ export default function App() {
           }
         }
       } catch (error) {
-        // A temporary offline launch must not destroy the persisted auth session.
-        if (navigator.onLine) await supabase.auth.signOut();
+        const sessionInvalid = isSessionInvalidError(error);
+        if (sessionInvalid) {
+          // Invalid/expired session: clear the unusable tokens once and route to login.
+          reportSessionError(error);
+        } else if (navigator.onLine) {
+          // A temporary offline launch must not destroy the persisted auth session.
+          markUserInitiatedSignOut();
+          await supabase.auth.signOut();
+        }
         if (active) {
           if (navigator.onLine) setCurrentUserId(null);
-          setScreen('welcome');
+          setScreen(sessionInvalid ? 'login' : 'welcome');
           setBackendError(
-            navigator.onLine
-              ? (error instanceof Error ? error.message : 'Unable to validate your portal access.')
-              : 'You are offline. The app shell and previously cached public content remain available; reconnect before making changes.',
+            !navigator.onLine
+              ? 'You are offline. The app shell and previously cached public content remain available; reconnect before making changes.'
+              : sessionInvalid
+                ? 'Your session expired. Please sign in again.'
+                : (error instanceof Error ? error.message : 'Unable to validate your portal access.'),
           );
         }
       } finally {
@@ -175,7 +186,9 @@ export default function App() {
     };
 
     void bootstrap();
-    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+    // Shared auth store: the app registers no direct Supabase auth listener, so
+    // auth events stay single-sourced alongside the location sync lifecycle.
+    const unsubscribeAuth = subscribeToAuthChanges((event, _session, authSnapshot) => {
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecoveryState('valid');
         setScreen('reset_password');
@@ -183,13 +196,15 @@ export default function App() {
       if (event === 'SIGNED_OUT') {
         setCurrentUserId(null);
         setPasswordRecoveryState('idle');
-        setScreen('welcome');
+        // An expired/revoked session returns to the login route; a deliberate
+        // logout keeps the existing welcome behaviour.
+        setScreen(authSnapshot.invalidated ? 'login' : 'welcome');
       }
     });
 
     return () => {
       active = false;
-      listener.subscription.unsubscribe();
+      unsubscribeAuth();
     };
   }, [enterAuthenticatedPortal]);
 

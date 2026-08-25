@@ -8,8 +8,12 @@ export interface JobPortalRoute {
   requiredRole?: UserRole;
 }
 
-export const JOB_PORTAL_BASE = import.meta.env.BASE_URL.replace(/\/$/, '') || '';
+// `?? '/'` keeps this module importable outside Vite (tests, scripts).
+export const JOB_PORTAL_BASE = (import.meta.env?.BASE_URL ?? '/').replace(/\/$/, '') || '';
 export const jobPortalPath = (suffix = '') => `${JOB_PORTAL_BASE}/${suffix.replace(/^\/+/, '')}`.replace(/\/$/, '') || '/';
+
+/** Canonical login route. The universal Nexora path `/auth/login` is accepted as an alias below. */
+export const loginPath = () => jobPortalPath('login');
 
 export function resolveJobPortalRoute(pathname = window.location.pathname): JobPortalRoute {
   const base = JOB_PORTAL_BASE;
@@ -18,6 +22,9 @@ export function resolveJobPortalRoute(pathname = window.location.pathname): JobP
   relative = `/${relative.replace(/^\/+|\/+$/g, '')}`;
   if (relative === '/') return { screen: 'welcome', protected: false };
   if (relative === '/login') return { screen: 'login', protected: false };
+  // Universal Nexora auth path. Kept as an alias so shared auth redirects and
+  // deep links land on the portal login screen instead of falling back to welcome.
+  if (relative === '/auth/login' || relative === '/auth') return { screen: 'login', protected: false };
   if (relative === '/signup') return { screen: 'role_select', protected: false };
   if (relative.startsWith('/signup/seeker')) return { screen: 'seeker_signup', protected: false };
   if (relative.startsWith('/signup/employer')) return { screen: 'employer_signup', protected: false };
