@@ -1,16 +1,25 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, UserCheck } from 'lucide-react';
+import type { UserRole } from '../../types';
+import {
+  isPortalRoleMismatchError,
+  portalRoleLabel,
+  type PortalRoleMismatchError,
+} from '../../lib/authErrors';
 
 interface EmployerSignupScreenProps {
   onSubmit: (formData: { businessName: string; contactPerson: string; email: string; password: string }) => Promise<void> | void;
   onBack: () => void;
   onLogin: () => void;
+  /** Called when the email belongs to the other portal; forwards to login prefilled. */
+  onSwitchPortal?: (role: UserRole, email: string) => void;
 }
 
 export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
   onSubmit,
   onBack,
   onLogin,
+  onSwitchPortal,
 }) => {
   const [businessName, setBusinessName] = useState('Nexora Beauty Group');
   const [contactPerson, setContactPerson] = useState('Sarah Jenkins');
@@ -20,10 +29,12 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
   const [agreeTerms, setAgreeTerms] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setRoleMismatch(null);
     if (!agreeTerms) {
       setError('Please accept the Terms & Conditions and Privacy Policy.');
       return;
@@ -40,7 +51,15 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
     try {
       await onSubmit({ businessName, contactPerson, email: businessEmail, password });
     } catch (signupError) {
-      setError(signupError instanceof Error ? signupError.message : 'Unable to create employer account.');
+      if (isPortalRoleMismatchError(signupError)) {
+        // The email is permanently registered to the other portal: show the
+        // explainer + switch action instead of a generic sign-up error.
+        setError(null);
+        setRoleMismatch(signupError);
+      } else {
+        setRoleMismatch(null);
+        setError(signupError instanceof Error ? signupError.message : 'Unable to create employer account.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -178,6 +197,20 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
               <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 border border-rose-200">
                 {error}
               </p>
+            )}
+
+            {roleMismatch && (
+              <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 flex flex-col gap-2.5">
+                <p className="text-xs font-medium text-rose-700 leading-relaxed">{roleMismatch.message}</p>
+                <button
+                  type="button"
+                  onClick={() => onSwitchPortal?.(roleMismatch.existingRole, roleMismatch.email || businessEmail)}
+                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  Switch to {portalRoleLabel(roleMismatch.existingRole)} Portal
+                </button>
+              </div>
             )}
 
             {/* CTA */}

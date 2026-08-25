@@ -13,6 +13,10 @@ import type {
 } from '../types';
 import { requireSupabase } from '../lib/supabase';
 import { markUserInitiatedSignOut } from '../lib/authSession';
+import {
+  parsePortalRoleMismatch,
+  PortalRoleMismatchError,
+} from '../lib/authErrors';
 
 /**
  * Every sign-out that the app performs on purpose is flagged so the shared auth
@@ -49,10 +53,20 @@ function errorMessage(error: unknown, fallback: string) {
       : String(error || fallback);
 }
 
-function mapPortalRoleError(error: unknown, requestedRole: UserRole): Error {
+/**
+ * Converts a role-rejection signal from `job_register_role` into a structured
+ * `PortalRoleMismatchError` (so the UI can offer a portal switch + prefill),
+ * or falls back to the raw error. `PORTAL_ROLE_MISMATCH:unassigned` means the
+ * account exists in Nexora but has no Jobs portal role yet.
+ */
+function mapPortalRoleError(error: unknown, requestedRole: UserRole, email = ''): Error {
+  const parsed = parsePortalRoleMismatch(error, requestedRole, email);
+  if (parsed) return parsed;
   const message = errorMessage(error, 'Unable to validate portal access.');
-  const match = message.match(/PORTAL_ROLE_MISMATCH:(job_seeker|employer)/);
-  return match ? new Error(portalMismatchMessage(match[1], requestedRole)) : new Error(message);
+  if (/PORTAL_ROLE_MISMATCH:unassigned/i.test(message)) {
+    return new Error('This email already belongs to a Nexora account without a Jobs portal role. Sign in through the Jobs portal to link it.');
+  }
+  return error instanceof Error ? error : new Error(message);
 }
 
 function mapAuthError(error: unknown): Error {
@@ -305,7 +319,13 @@ export const authBackend = {
     if (lookupError) throw lookupError;
     if (existingRole === 'job_seeker' || existingRole === 'employer') {
       if (existingRole !== requestedBackendRole) {
-        throw new Error(portalMismatchMessage(existingRole, input.role));
+        // The email is permanently assigned to the other portal: raise a
+        // structured mismatch so the UI can offer "Switch to … Portal".
+        throw new PortalRoleMismatchError({
+          email,
+          requestedRole: input.role,
+          existingRole: frontendRole(existingRole),
+        });
       }
 
       throw new Error(`This email is already registered as a ${portalLabel(input.role)}. Please sign in through the ${portalLabel(input.role)} portal.`);
@@ -335,7 +355,13 @@ export const authBackend = {
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
       const { data: racedRole } = await client.rpc('job_email_portal_role', { p_email: email });
       if (racedRole === 'job_seeker' || racedRole === 'employer') {
-        if (racedRole !== requestedBackendRole) throw new Error(portalMismatchMessage(racedRole, input.role));
+        if (racedRole !== requestedBackendRole) {
+          throw new PortalRoleMismatchError({
+            email,
+            requestedRole: input.role,
+            existingRole: frontendRole(racedRole),
+          });
+        }
         throw new Error(`This email is already registered as a ${portalLabel(input.role)}. Please sign in through the ${portalLabel(input.role)} portal.`);
       }
       throw new Error('An account already exists for this email. Please sign in instead.');
@@ -345,13 +371,32 @@ export const authBackend = {
 
   async signIn(email: string, password: string, requestedRole: UserRole) {
     const client = requireSupabase();
-    const { data, error } = await client.auth.signInWithPassword({ email: email.trim(), password });
+    const normalizedEmail = email.trim();
+
+    // Fail fast when the email is already permanently assigned to the other
+    // portal: no session is created at all, so no tokens need clearing and the
+    // user gets the structured mismatch error directly. Fails open on lookup
+    // errors; the authoritative post-sign-in check below still applies.
+    const { data: existingRole, error: lookupError } = await client.rpc('job_email_portal_role', {
+      p_email: normalizedEmail,
+    });
+    if (!lookupError && (existingRole === 'job_seeker' || existingRole === 'employer') && existingRole !== backendRole(requestedRole)) {
+      throw new PortalRoleMismatchError({
+        email: normalizedEmail,
+        requestedRole,
+        existingRole: frontendRole(existingRole),
+      });
+    }
+
+    const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
     if (error) throw mapAuthError(error);
     try {
-      await this.registerRole(requestedRole);
+      await this.registerRole(requestedRole, normalizedEmail);
     } catch (roleError) {
+      // The session was created but the portal rejected its role: clear the
+      // tokens so no invalid/partial session survives, then surface the error.
       await signOutDeliberately();
-      throw mapPortalRoleError(roleError, requestedRole);
+      throw mapPortalRoleError(roleError, requestedRole, normalizedEmail);
     }
     return data;
   },
@@ -368,10 +413,16 @@ export const authBackend = {
     return data;
   },
 
-  async registerRole(role: UserRole) {
+  async registerRole(role: UserRole, email = '') {
     const { data, error } = await requireSupabase().rpc('job_register_role', { requested_role: backendRole(role) });
-    if (error) throw mapPortalRoleError(error, role);
-    if (data !== backendRole(role)) throw new Error(portalMismatchMessage(String(data), role));
+    if (error) throw mapPortalRoleError(error, role, email);
+    if (data !== backendRole(role)) {
+      const actualRole = frontendRole(String(data));
+      if (actualRole === 'seeker' || actualRole === 'employer') {
+        throw new PortalRoleMismatchError({ email, requestedRole: role, existingRole: actualRole });
+      }
+      throw new Error(portalMismatchMessage(String(data), role));
+    }
     return data;
   },
 
@@ -405,11 +456,20 @@ export const authBackend = {
 export async function applyPendingOAuthRole(_userId: string) {
   const pendingRole = window.localStorage.getItem('nexora_pending_role') as UserRole | null;
   if (!pendingRole) return;
+  let email = '';
   try {
-    await authBackend.registerRole(pendingRole);
+    const { data } = await requireSupabase().auth.getUser();
+    email = data.user?.email ?? '';
+  } catch {
+    // Email is best-effort; a mismatch error without it still redirects to login.
+  }
+  try {
+    await authBackend.registerRole(pendingRole, email);
   } catch (error) {
+    // The OAuth session is unusable for this portal (wrong or unassigned role):
+    // clear it before redirecting so no invalid state persists.
     await signOutDeliberately();
-    throw mapPortalRoleError(error, pendingRole);
+    throw mapPortalRoleError(error, pendingRole, email);
   } finally {
     window.localStorage.removeItem('nexora_pending_role');
   }

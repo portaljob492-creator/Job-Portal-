@@ -15,6 +15,28 @@ export const jobPortalPath = (suffix = '') => `${JOB_PORTAL_BASE}/${suffix.repla
 /** Canonical login route. The universal Nexora path `/auth/login` is accepted as an alias below. */
 export const loginPath = () => jobPortalPath('login');
 
+/**
+ * Login URL carrying portal + email prefill params. Used by role-mismatch
+ * redirects so the user lands on the correct portal screen with their email
+ * already filled in (`/login?role=employer&email=…`).
+ */
+export function loginPathWithPrefill(role?: UserRole, email?: string): string {
+  const params = new URLSearchParams();
+  if (role) params.set('role', role);
+  if (email) params.set('email', email);
+  const query = params.toString();
+  return query ? `${loginPath()}?${query}` : loginPath();
+}
+
+/** Removes the login-prefill params from a URL so post-auth paths stay clean. */
+export function stripLoginPrefill(pathname: string, search: string): string {
+  const params = new URLSearchParams(search);
+  params.delete('role');
+  params.delete('email');
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
 export function resolveJobPortalRoute(pathname = window.location.pathname): JobPortalRoute {
   const base = JOB_PORTAL_BASE;
   let relative = pathname;
