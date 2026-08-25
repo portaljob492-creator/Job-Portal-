@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { UserRole } from '../../types';
 import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple } from 'lucide-react';
+import {
+  isPortalRoleMismatchError,
+  portalRoleLabel,
+  type PortalRoleMismatchError,
+} from '../../lib/authErrors';
+import { loginPathWithPrefill } from '../../routing';
 
 interface LoginScreenProps {
   onLoginSuccess: (role: UserRole, email: string, password: string) => Promise<void> | void;
@@ -9,27 +15,52 @@ interface LoginScreenProps {
   onForgotPassword: () => void;
 }
 
+/**
+ * Reads `/login?role=…&email=…` prefill params. Role-mismatch redirects use this
+ * so the correct portal tab is active and the email is already filled in.
+ */
+function readLoginPrefill(): { role: UserRole | null; email: string } {
+  if (typeof window === 'undefined') return { role: null, email: '' };
+  const params = new URLSearchParams(window.location.search);
+  const roleParam = params.get('role');
+  return {
+    role: roleParam === 'seeker' || roleParam === 'employer' ? roleParam : null,
+    email: params.get('email') ?? '',
+  };
+}
+
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onLoginSuccess,
   onSocialLogin,
   onSignUp,
   onForgotPassword,
 }) => {
-  const [email, setEmail] = useState('');
+  const prefill = readLoginPrefill();
+  const [email, setEmail] = useState(prefill.email);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [activeRole, setActiveRole] = useState<UserRole>('seeker');
+  const [activeRole, setActiveRole] = useState<UserRole>(prefill.role ?? 'seeker');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setRoleMismatch(null);
     setIsLoading(true);
     try {
       await onLoginSuccess(activeRole, email, password);
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : 'Unable to sign in. Please try again.');
+      if (isPortalRoleMismatchError(loginError)) {
+        // Role conflict: surface the explainer + portal switch instead of a
+        // generic error toast.
+        setRoleMismatch(loginError);
+        setError(null);
+      } else {
+        setRoleMismatch(null);
+        setError(loginError instanceof Error ? loginError.message : 'Unable to sign in. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -38,12 +69,31 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const handleSocialLogin = async (provider: 'google' | 'apple') => {
     if (!onSocialLogin) return;
     setError(null);
+    setRoleMismatch(null);
     setIsLoading(true);
     try {
       await onSocialLogin(provider, activeRole);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Unable to start social sign-in.');
       setIsLoading(false);
+    }
+  };
+
+  /**
+   * Switches the login screen to the email's permanent portal: flips the role
+   * tab, pre-fills the email and mirrors the state into the URL so the screen
+   * is deep-linkable and survives reloads.
+   */
+  const handleSwitchPortal = () => {
+    if (!roleMismatch) return;
+    const target = roleMismatch.existingRole;
+    const prefilledEmail = roleMismatch.email || email;
+    setRoleMismatch(null);
+    setError(null);
+    setActiveRole(target);
+    setEmail(prefilledEmail);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, document.title, loginPathWithPrefill(target, prefilledEmail));
     }
   };
 
@@ -149,6 +199,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 border border-rose-200">
                 {error}
               </p>
+            )}
+
+            {roleMismatch && (
+              <div role="alert" className="rounded-xl border border-[#e0bec6]/70 bg-[#fdf2f5] px-3.5 py-3 flex flex-col gap-2.5">
+                <p className="text-xs font-medium text-[#8e004b] leading-relaxed">{roleMismatch.message}</p>
+                <button
+                  type="button"
+                  onClick={handleSwitchPortal}
+                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+                >
+                  {roleMismatch.existingRole === 'employer' ? <Building2 className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                  Switch to {portalRoleLabel(roleMismatch.existingRole)} Portal
+                </button>
+              </div>
             )}
 
             {/* Primary CTA */}

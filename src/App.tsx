@@ -3,9 +3,19 @@ import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile,
 import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERSATIONS, INITIAL_MESSAGES, INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from './data/mockData';
 import { processNewJobForAlerts } from './utils/jobAlertMatcher';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
-import { isSessionInvalidError } from './lib/authErrors';
+import {
+  isPortalRoleMismatchError,
+  isSessionInvalidError,
+  isUnassignedPortalRoleError,
+} from './lib/authErrors';
 import { markUserInitiatedSignOut, reportSessionError, subscribeToAuthChanges } from './lib/authSession';
-import { pathForScreen, resolveJobPortalRoute, type JobPortalRoute } from './routing';
+import {
+  loginPathWithPrefill,
+  pathForScreen,
+  resolveJobPortalRoute,
+  stripLoginPrefill,
+  type JobPortalRoute,
+} from './routing';
 import {
   applyPendingOAuthRole,
   authBackend,
@@ -108,6 +118,11 @@ export default function App() {
   }, []);
 
   const enterAuthenticatedPortal = useCallback(async (userId: string, expectedRole?: UserRole) => {
+    // Auth succeeded: drop the /login?role=…&email=… prefill params so the
+    // dashboard URL stays clean and the prefill can't leak into later states.
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, document.title, stripLoginPrefill(window.location.pathname, window.location.search));
+    }
     const role = await hydrateWorkspace(userId, expectedRole);
     const onboardingComplete = await isPortalOnboardingComplete(userId);
     if (onboardingComplete) {
@@ -132,11 +147,13 @@ export default function App() {
     }
 
     let active = true;
+    let sessionEmail = '';
     const bootstrap = async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
         if (!active) return;
+        sessionEmail = data.session?.user?.email ?? '';
 
         const queryParams = new URLSearchParams(window.location.search);
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -161,6 +178,10 @@ export default function App() {
         }
       } catch (error) {
         const sessionInvalid = isSessionInvalidError(error);
+        const roleMismatch = isPortalRoleMismatchError(error) ? error : null;
+        // An account with a valid session but no portal role row (e.g. created
+        // by another Nexora app) must re-authenticate here to get one assigned.
+        const unassignedRole = !roleMismatch && isUnassignedPortalRoleError(error);
         if (sessionInvalid) {
           // Invalid/expired session: clear the unusable tokens once and route to login.
           reportSessionError(error);
@@ -171,14 +192,28 @@ export default function App() {
         }
         if (active) {
           if (navigator.onLine) setCurrentUserId(null);
-          setScreen(sessionInvalid ? 'login' : 'welcome');
-          setBackendError(
-            !navigator.onLine
-              ? 'You are offline. The app shell and previously cached public content remain available; reconnect before making changes.'
-              : sessionInvalid
-                ? 'Your session expired. Please sign in again.'
-                : (error instanceof Error ? error.message : 'Unable to validate your portal access.'),
-          );
+          if (roleMismatch || unassignedRole) {
+            // The stored/OAuth session belongs to the other portal (or has no
+            // portal role): it was cleared above. Land on the login screen with
+            // the correct portal and email pre-selected instead of bouncing to
+            // the welcome screen, so the user can sign in without a re-type.
+            window.history.replaceState(
+              {},
+              document.title,
+              loginPathWithPrefill(roleMismatch?.existingRole, roleMismatch?.email || sessionEmail),
+            );
+            setScreen('login');
+            setBackendError(error instanceof Error ? error.message : 'Unable to validate your portal access.');
+          } else {
+            setScreen(sessionInvalid ? 'login' : 'welcome');
+            setBackendError(
+              !navigator.onLine
+                ? 'You are offline. The app shell and previously cached public content remain available; reconnect before making changes.'
+                : sessionInvalid
+                  ? 'Your session expired. Please sign in again.'
+                  : (error instanceof Error ? error.message : 'Unable to validate your portal access.'),
+            );
+          }
         }
       } finally {
         if (active) setIsBackendLoading(false);
@@ -197,8 +232,22 @@ export default function App() {
         setCurrentUserId(null);
         setPasswordRecoveryState('idle');
         // An expired/revoked session returns to the login route; a deliberate
-        // logout keeps the existing welcome behaviour.
-        setScreen(authSnapshot.invalidated ? 'login' : 'welcome');
+        // logout keeps the existing welcome behaviour — except when the sign-out
+        // was triggered by a failed auth attempt (e.g. portal role rejection
+        // clears the just-created session). In that case the user stays on the
+        // auth screen they are on so the explainer + portal switch can render,
+        // instead of bouncing to welcome and starting a confusing login loop.
+        setScreen((current) => {
+          if (authSnapshot.invalidated) return 'login';
+          if (
+            current === 'login' || current === 'admin_login' || current === 'role_select' ||
+            current === 'seeker_signup' || current === 'employer_signup' ||
+            current === 'forgot_password' || current === 'reset_password'
+          ) {
+            return current;
+          }
+          return 'welcome';
+        });
       }
     });
 
@@ -320,7 +369,23 @@ export default function App() {
   const handleLoginSuccess = async (selectedRole: UserRole, email: string, password: string) => {
     const { user } = await authBackend.signIn(email, password, selectedRole);
     if (!user) throw new Error('Login succeeded but no user session was returned.');
-    await enterAuthenticatedPortal(user.id, selectedRole);
+    try {
+      await enterAuthenticatedPortal(user.id, selectedRole);
+    } catch (portalError) {
+      // Sign-in produced a session the portal cannot use (role mismatch or no
+      // role row). Clear it so no incomplete/invalid state persists before the
+      // error reaches the login screen.
+      if (isPortalRoleMismatchError(portalError) || isUnassignedPortalRoleError(portalError)) {
+        await authBackend.signOut().catch(() => undefined);
+      }
+      throw portalError;
+    }
+  };
+
+  /** Forwards a role-mismatch from a signup screen to the prefilled portal login. */
+  const handleSwitchPortalToLogin = (role: UserRole, email: string) => {
+    window.history.replaceState({}, document.title, loginPathWithPrefill(role, email));
+    setScreen('login');
   };
 
   const handleAdminLogin = async (email: string, password: string) => {
@@ -669,6 +734,7 @@ export default function App() {
           onSocialSignup={(provider) => handleSocialLogin(provider, 'seeker')}
           onBack={() => setScreen('role_select')}
           onLogin={() => setScreen('login')}
+          onSwitchPortal={handleSwitchPortalToLogin}
         />
       )}
 
@@ -678,6 +744,7 @@ export default function App() {
           onSubmit={handleEmployerSignup}
           onBack={() => setScreen('role_select')}
           onLogin={() => setScreen('login')}
+          onSwitchPortal={handleSwitchPortalToLogin}
         />
       )}
 

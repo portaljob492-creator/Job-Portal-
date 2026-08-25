@@ -6,6 +6,8 @@
  * so it can be exercised directly by `npm run test:location`.
  */
 
+import type { UserRole } from '../types';
+
 export const SESSION_INVALID_PATTERNS: readonly RegExp[] = [
   /auth session missing/i,
   /session not found/i,
@@ -59,4 +61,88 @@ export function isSessionInvalidError(error: unknown): boolean {
   // A bare 401 only counts when it is clearly about auth, not about RLS.
   if (status === 401 && /auth|token|session|credential|jwt|expired/i.test(text)) return true;
   return false;
+}
+
+/** Human-readable portal name used in mismatch messages and switch buttons. */
+export function portalRoleLabel(role: UserRole): string {
+  return role === 'employer' ? 'Employer' : 'Job Seeker';
+}
+
+/**
+ * Friendly message for a portal role conflict. Mirrors the copy used by the
+ * backend (`job_register_role` raising `PORTAL_ROLE_MISMATCH:<role>`).
+ */
+export function roleMismatchMessage(existingRole: UserRole): string {
+  const label = portalRoleLabel(existingRole);
+  const article = existingRole === 'employer' ? 'an' : 'a';
+  return `This email is already registered as ${article} ${label}. Please sign in through the ${label} portal.`;
+}
+
+export interface PortalRoleMismatchDetails {
+  /** Email the user attempted to sign in / sign up with. */
+  email: string;
+  /** Portal role the user attempted to use. */
+  requestedRole: UserRole;
+  /** Permanent portal role the backend reports for this email. */
+  existingRole: UserRole;
+}
+
+/**
+ * Structured error thrown whenever an email is permanently registered to the
+ * other portal. Carries the roles and the email so the UI can prefill the
+ * correct portal login (`/login?role=…&email=…`) and render a switch button.
+ */
+export class PortalRoleMismatchError extends Error {
+  readonly email: string;
+  readonly requestedRole: UserRole;
+  readonly existingRole: UserRole;
+
+  constructor(details: PortalRoleMismatchDetails) {
+    super(roleMismatchMessage(details.existingRole));
+    this.name = 'PortalRoleMismatchError';
+    this.email = details.email;
+    this.requestedRole = details.requestedRole;
+    this.existingRole = details.existingRole;
+  }
+}
+
+export function isPortalRoleMismatchError(error: unknown): error is PortalRoleMismatchError {
+  return error instanceof PortalRoleMismatchError;
+}
+
+/** Extracts a searchable text fingerprint from any error shape. */
+export function errorSignalText(error: unknown): string {
+  return collectSignals(error).text;
+}
+
+const PORTAL_ROLE_MISMATCH_PATTERN = /PORTAL_ROLE_MISMATCH:(job_seeker|employer)/i;
+
+/**
+ * Parses a backend role-rejection signal (`PORTAL_ROLE_MISMATCH:<role>` raised
+ * by `job_register_role`) into a structured `PortalRoleMismatchError`, or null
+ * when the error is unrelated so callers keep their normal error handling.
+ */
+export function parsePortalRoleMismatch(
+  error: unknown,
+  requestedRole: UserRole,
+  email: string,
+): PortalRoleMismatchError | null {
+  const match = errorSignalText(error).match(PORTAL_ROLE_MISMATCH_PATTERN);
+  if (!match) return null;
+  return new PortalRoleMismatchError({
+    email,
+    requestedRole,
+    existingRole: match[1] === 'employer' ? 'employer' : 'seeker',
+  });
+}
+
+const UNASSIGNED_PORTAL_ROLE_PATTERN = /no jobs portal role is assigned/i;
+
+/**
+ * True when the account has a valid session but no portal role row yet (e.g. it
+ * was created by another Nexora app). Such a session must be cleared before the
+ * user is invited to sign in through a Jobs portal, which assigns the role.
+ */
+export function isUnassignedPortalRoleError(error: unknown): boolean {
+  return UNASSIGNED_PORTAL_ROLE_PATTERN.test(errorSignalText(error));
 }

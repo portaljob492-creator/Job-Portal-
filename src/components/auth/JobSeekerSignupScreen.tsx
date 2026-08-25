@@ -1,11 +1,19 @@
 import React, { useState } from 'react';
-import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, Bell, Apple } from 'lucide-react';
+import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, Bell, Apple, Building2 } from 'lucide-react';
+import type { UserRole } from '../../types';
+import {
+  isPortalRoleMismatchError,
+  portalRoleLabel,
+  type PortalRoleMismatchError,
+} from '../../lib/authErrors';
 
 interface JobSeekerSignupScreenProps {
   onSubmit: (formData: { name: string; email: string; phone: string; password: string }) => Promise<void> | void;
   onSocialSignup?: (provider: 'google' | 'apple') => Promise<void> | void;
   onBack: () => void;
   onLogin: () => void;
+  /** Called when the email belongs to the other portal; forwards to login prefilled. */
+  onSwitchPortal?: (role: UserRole, email: string) => void;
 }
 
 export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
@@ -13,6 +21,7 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
   onSocialSignup,
   onBack,
   onLogin,
+  onSwitchPortal,
 }) => {
   const [fullName, setFullName] = useState('Jane Doe');
   const [email, setEmail] = useState('jane@example.com');
@@ -24,10 +33,12 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
   const [agreedToTerms, setAgreedToTerms] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setRoleMismatch(null);
     if (!agreedToTerms) {
       setError('Please accept the Terms of Service and Privacy Policy.');
       return;
@@ -49,7 +60,15 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
     try {
       await onSubmit({ name: fullName, email, phone, password });
     } catch (signupError) {
-      setError(signupError instanceof Error ? signupError.message : 'Unable to create account.');
+      if (isPortalRoleMismatchError(signupError)) {
+        // The email is permanently registered to the other portal: show the
+        // explainer + switch action instead of a generic sign-up error.
+        setError(null);
+        setRoleMismatch(signupError);
+      } else {
+        setRoleMismatch(null);
+        setError(signupError instanceof Error ? signupError.message : 'Unable to create account.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -58,6 +77,7 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
   const handleSocialSignup = async (provider: 'google' | 'apple') => {
     if (!onSocialSignup) return;
     setError(null);
+    setRoleMismatch(null);
     setIsSubmitting(true);
     try {
       await onSocialSignup(provider);
@@ -251,6 +271,20 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
             <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 border border-rose-200">
               {error}
             </p>
+          )}
+
+          {roleMismatch && (
+            <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 flex flex-col gap-2.5">
+              <p className="text-xs font-medium text-rose-700 leading-relaxed">{roleMismatch.message}</p>
+              <button
+                type="button"
+                onClick={() => onSwitchPortal?.(roleMismatch.existingRole, roleMismatch.email || email)}
+                className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                Switch to {portalRoleLabel(roleMismatch.existingRole)} Portal
+              </button>
+            </div>
           )}
 
           {/* Submit CTA */}
