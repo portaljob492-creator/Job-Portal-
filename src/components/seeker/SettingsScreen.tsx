@@ -1,24 +1,25 @@
 import React, { useState } from 'react';
-import { 
-  ArrowLeft, 
-  User, 
-  Bell, 
-  Shield, 
-  Globe, 
-  Key, 
-  Ban, 
-  FileText, 
-  Lock, 
-  UserX, 
-  LogOut, 
-  Check, 
-  AlertTriangle, 
-  Eye, 
-  EyeOff, 
+import {
+  ArrowLeft,
+  User,
+  Bell,
+  Shield,
+  Globe,
+  Key,
+  Ban,
+  FileText,
+  Lock,
+  UserX,
+  LogOut,
+  Check,
+  AlertTriangle,
+  Eye,
+  EyeOff,
   Info,
   ChevronRight,
   ShieldAlert
 } from 'lucide-react';
+import { useLocationSync } from '../../hooks/useLocationSync';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -87,6 +88,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   
   // Feedback System
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Nexora authenticated location sync (real state, not mock)
+  const locationSync = useLocationSync();
+  const locationStatusCopy = (() => {
+    const { state, enabled, unavailable } = locationSync;
+    if (!enabled) return 'Off. Turning this off also deletes the coordinates stored against your account.';
+    if (state.status === 'denied') return 'Browser location permission is blocked. Allow location for this site to rank nearby jobs.';
+    if (unavailable) return state.error ?? 'Location services are unavailable on this device or connection.';
+    if (state.lastSyncedAt) {
+      return `Synced at ${new Date(state.lastSyncedAt).toLocaleTimeString()}. Coordinates are stored privately against your account only.`;
+    }
+    return 'While you are signed in, your approximate location ranks nearby salon jobs. Nothing is shown publicly.';
+  })();
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -820,6 +834,47 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   />
                   <div className="w-10 h-5 bg-[#e0bec6] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#b90064]"></div>
                 </label>
+              </div>
+
+              {/* Real Nexora authenticated location synchronization */}
+              <div className="p-4 bg-[#fdf8f8] rounded-xl border border-[#e0bec6]/20">
+                <div className="flex items-center justify-between">
+                  <div className="pr-4">
+                    <span className="block text-xs font-bold text-[#1c1b1b]">Location Sharing</span>
+                    <span className="block text-[11px] text-[#594047] mt-0.5 font-medium leading-relaxed">{locationStatusCopy}</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+                    <input
+                      type="checkbox"
+                      aria-label="Share my location for nearby job ranking"
+                      checked={locationSync.enabled}
+                      disabled={locationSync.unavailable}
+                      onChange={(event) => {
+                        if (event.target.checked) {
+                          locationSync.enable();
+                          triggerToast('📍 Location sharing enabled for nearby jobs.');
+                        } else {
+                          void locationSync.disable();
+                          triggerToast('Location sharing turned off and stored coordinates deleted.');
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 bg-[#e0bec6] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#b90064] peer-disabled:opacity-40"></div>
+                  </label>
+                </div>
+                {locationSync.enabled && !locationSync.unavailable && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      locationSync.syncNow();
+                      triggerToast('Refreshing your location…');
+                    }}
+                    className="mt-3 text-[11px] font-bold text-[#b90064] hover:underline cursor-pointer"
+                  >
+                    Update my location now
+                  </button>
+                )}
               </div>
             </div>
 

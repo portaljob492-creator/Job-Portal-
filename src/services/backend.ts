@@ -12,6 +12,19 @@ import type {
   UserRole,
 } from '../types';
 import { requireSupabase } from '../lib/supabase';
+import { markUserInitiatedSignOut } from '../lib/authSession';
+
+/**
+ * Every sign-out that the app performs on purpose is flagged so the shared auth
+ * store can tell a deliberate logout apart from an expired/revoked session
+ * (which must route to the login screen instead of the welcome screen).
+ */
+async function signOutDeliberately() {
+  const client = requireSupabase();
+  markUserInitiatedSignOut();
+  const { error } = await client.auth.signOut();
+  if (error) throw error;
+}
 
 const arrays = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
 const one = <T>(value: T | T[] | null | undefined): T | null =>
@@ -337,7 +350,7 @@ export const authBackend = {
     try {
       await this.registerRole(requestedRole);
     } catch (roleError) {
-      await client.auth.signOut();
+      await signOutDeliberately();
       throw mapPortalRoleError(roleError, requestedRole);
     }
     return data;
@@ -349,7 +362,7 @@ export const authBackend = {
     if (error) throw mapAuthError(error);
     const { data: roleRow, error: roleError } = await client.from('job_user_roles').select('role').eq('user_id', data.user.id).single();
     if (roleError || roleRow?.role !== 'admin') {
-      await client.auth.signOut();
+      await signOutDeliberately();
       throw new Error('Admin access is restricted to approved administrator accounts.');
     }
     return data;
@@ -385,8 +398,7 @@ export const authBackend = {
   },
 
   async signOut() {
-    const { error } = await requireSupabase().auth.signOut();
-    if (error) throw error;
+    await signOutDeliberately();
   },
 };
 
@@ -396,7 +408,7 @@ export async function applyPendingOAuthRole(_userId: string) {
   try {
     await authBackend.registerRole(pendingRole);
   } catch (error) {
-    await requireSupabase().auth.signOut();
+    await signOutDeliberately();
     throw mapPortalRoleError(error, pendingRole);
   } finally {
     window.localStorage.removeItem('nexora_pending_role');
