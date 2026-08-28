@@ -13,7 +13,9 @@
     "test:backend": "node scripts/test-supabase-backend.mjs",
     "test:location": "tsx scripts/test-location-sync.mjs",
     "test:recovery": "node scripts/test-password-recovery.mjs",
-    "test:pwa": "npm run build && node scripts/test-pwa.mjs"
+    "test:pwa": "npm run build && node scripts/test-pwa.mjs",
+    "test:reset": "tsx scripts/test-password-reset.mjs",
+    "admin:reset-password": "tsx scripts/reset-user-password.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

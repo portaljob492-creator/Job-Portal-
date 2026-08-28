@@ -146,3 +146,119 @@ const UNASSIGNED_PORTAL_ROLE_PATTERN = /no jobs portal role is assigned/i;
 export function isUnassignedPortalRoleError(error: unknown): boolean {
   return UNASSIGNED_PORTAL_ROLE_PATTERN.test(errorSignalText(error));
 }
+
+/**
+ * GoTrue / Supabase error codes that mean "too many requests". The email ones
+ * matter most: the built-in mailer only sends a couple of auth emails per hour,
+ * so a user who keeps pressing "Send reset link" locks themselves out of
+ * recovery by email and needs the token path instead.
+ */
+export const RATE_LIMIT_CODES: readonly string[] = [
+  'over_email_send_rate_limit',
+  'over_sms_send_rate_limit',
+  'over_request_rate_limit',
+  'rate_limit_exceeded',
+];
+
+const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
+  /rate limit/i,
+  /too many requests/i,
+  /only request this after \d+ seconds?/i,
+];
+
+/** GoTrue's resend interval message, e.g. "…you can only request this after 30 seconds." */
+const RESEND_INTERVAL_PATTERN = /only request this after (\d+) seconds?/i;
+
+/** Fallback wait for the hourly email cap (built-in provider: 2 emails/hour). */
+export const EMAIL_HOURLY_COOLDOWN_SECONDS = 3600;
+/** Fallback wait for generic IP/request throttling. */
+export const REQUEST_COOLDOWN_SECONDS = 60;
+
+export type RateLimitScope = 'email' | 'request';
+
+/**
+ * A throttled auth request. `retryAfterSeconds` drives the on-screen countdown
+ * so the UI can stop the user from burning more attempts, and `scope`
+ * distinguishes "wait for the hourly email quota" from "wait a few seconds".
+ */
+export class AuthRateLimitError extends Error {
+  readonly retryAfterSeconds: number;
+  readonly scope: RateLimitScope;
+
+  constructor(scope: RateLimitScope, retryAfterSeconds: number, message?: string) {
+    super(
+      message ??
+        (scope === 'email'
+          ? `Too many reset emails requested. Try again in ${formatRetryCountdown(retryAfterSeconds)}.`
+          : `Too many requests. Try again in ${formatRetryCountdown(retryAfterSeconds)}.`),
+    );
+    this.name = 'AuthRateLimitError';
+    this.scope = scope;
+    this.retryAfterSeconds = Math.max(1, Math.round(retryAfterSeconds));
+  }
+}
+
+export function isAuthRateLimitError(error: unknown): error is AuthRateLimitError {
+  return error instanceof AuthRateLimitError;
+}
+
+/** Renders a wait as `m:ss` (or plain seconds below a minute) for countdowns. */
+export function formatRetryCountdown(seconds: number): string {
+  const total = Math.max(0, Math.ceil(seconds));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${minutes}:${String(rest).padStart(2, '0')}`;
+}
+
+function retryAfterSecondsFor(scope: RateLimitScope, text: string): number {
+  const interval = text.match(RESEND_INTERVAL_PATTERN);
+  if (interval) return Number(interval[1]);
+  return scope === 'email' ? EMAIL_HOURLY_COOLDOWN_SECONDS : REQUEST_COOLDOWN_SECONDS;
+}
+
+/**
+ * Classifies a throttled auth request, or returns `null` when the failure is
+ * something else. Detects the 429 status, GoTrue's rate-limit error codes and
+ * the resend-interval message (which does not contain the words "rate limit").
+ */
+export function parseRateLimitError(error: unknown): AuthRateLimitError | null {
+  if (isAuthRateLimitError(error)) return error;
+  const { text, code, status } = collectSignals(error);
+  const isRateLimited =
+    status === 429 ||
+    (code ? RATE_LIMIT_CODES.includes(code) : false) ||
+    RATE_LIMIT_PATTERNS.some((pattern) => pattern.test(text));
+  if (!isRateLimited) return null;
+
+  const scope: RateLimitScope = /email|sms|resend|only request this after/i.test(text) ? 'email' : 'request';
+  return new AuthRateLimitError(scope, retryAfterSecondsFor(scope, text), text.trim() || undefined);
+}
+
+const RECOVERY_LINK_REJECTED_PATTERNS: readonly RegExp[] = [
+  /otp_expired/i,
+  /otp has expired/i,
+  /token (has )?expired/i,
+  /token is not valid/i,
+  /invalid token/i,
+  /otp is invalid/i,
+  /flow_state_expired/i,
+  /bad_code_verifier/i,
+  /auth session missing/i,
+  /session not found/i,
+  /session_expired/i,
+  /link has (already )?been used/i,
+];
+
+/**
+ * True when a recovery token/session can no longer be used, so the UI should
+ * stop offering the password form and ask for a fresh reset email instead of
+ * leaving the user on a form that can never succeed.
+ */
+export function isRecoveryLinkRejectedError(error: unknown): boolean {
+  const { text, code } = collectSignals(error);
+  if (code && ['otp_expired', 'flow_state_expired', 'bad_code_verifier', 'session_expired', 'session_not_found'].includes(code)) {
+    return true;
+  }
+  return RECOVERY_LINK_REJECTED_PATTERNS.some((pattern) => pattern.test(text));
+}

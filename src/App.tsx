@@ -9,6 +9,7 @@ import {
   isUnassignedPortalRoleError,
 } from './lib/authErrors';
 import { markUserInitiatedSignOut, reportSessionError, subscribeToAuthChanges } from './lib/authSession';
+import type { RecoveryTokenInput } from './lib/recoveryLink';
 import {
   loginPathWithPrefill,
   pathForScreen,
@@ -29,6 +30,7 @@ import {
   isPortalOnboardingComplete,
   loadWorkspace,
   markAllAlertsRead,
+  RecoverySessionLostError,
   saveProfile,
   sendMessageRecord,
   setBookmark,
@@ -660,8 +662,31 @@ export default function App() {
     if (passwordRecoveryState !== 'valid') {
       throw new Error('This password reset link is invalid or expired. Request a new reset email.');
     }
-    await authBackend.updatePassword(password);
+    try {
+      await authBackend.updatePassword(password);
+    } catch (updateError) {
+      // The recovery session died while the form was open (60-minute expiry,
+      // or the token was reused). Show the "request a new email" panel instead
+      // of leaving the user on a form that can never submit.
+      if (updateError instanceof RecoverySessionLostError) setPasswordRecoveryState('invalid');
+      throw updateError;
+    }
     window.history.replaceState({}, document.title, window.location.pathname);
+  };
+
+  /**
+   * Recovery from a token the user already holds (the newest reset email in
+   * their inbox). Sends no email, so it works while the provider's hourly
+   * quota is exhausted and when the link was opened on another device.
+   */
+  const handleRecoverWithToken = async (token: RecoveryTokenInput, email: string) => {
+    const { user } = await authBackend.recoverWithToken(token, email);
+    if (!user) throw new Error('That code was accepted but no account was returned.');
+    setPasswordRecoveryState('valid');
+    setScreen('reset_password');
+    // Keep the recovery marker so a reload returns to the reset form, and drop
+    // any stale PKCE params that would fail a second exchange.
+    window.history.replaceState({}, document.title, `${window.location.pathname}?recovery=1`);
   };
 
   const exitPasswordRecovery = async (target: 'login' | 'forgot_password') => {
@@ -765,7 +790,10 @@ export default function App() {
       {screen === 'forgot_password' && (
         <ForgotPasswordScreen
           onBackToLogin={() => setScreen('login')}
-          onSendResetLink={(email) => authBackend.sendPasswordReset(email)}
+          onSendResetLink={async (email) => {
+            await authBackend.sendPasswordReset(email);
+          }}
+          onVerifyRecoveryToken={handleRecoverWithToken}
         />
       )}
 
