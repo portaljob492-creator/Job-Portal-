@@ -1,4 +1,4 @@
-import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
+import type { AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { isSessionInvalidError } from './authErrors';
 import { loginPath } from '../routing';
@@ -95,6 +95,45 @@ function wasDeliberateSignOut(): boolean {
 /** Called by explicit sign-out paths so a logout is not treated as a session failure. */
 export function markUserInitiatedSignOut(): void {
   deliberateSignOutAt = Date.now();
+}
+
+/**
+ * A sign-up request must start anonymously. In particular, a browser can still
+ * contain a structurally valid JWT after its auth user was deleted; attaching
+ * that token to the public email-role lookup makes GoTrue reject the lookup with
+ * "User from sub claim in JWT does not exist" before sign-up is even attempted.
+ *
+ * Clear only this browser's session before sign-up. Supabase removes the local
+ * tokens even when its logout endpoint reports that a deleted/revoked JWT user
+ * is missing, and local scope avoids revoking unrelated sessions on devices.
+ */
+export async function clearSessionBeforeSignUp(client: SupabaseClient): Promise<boolean> {
+  let hasStoredSession = false;
+  let sessionReadFailed = false;
+
+  try {
+    const { data, error } = await client.auth.getSession();
+    hasStoredSession = Boolean(data.session);
+    sessionReadFailed = Boolean(error);
+  } catch {
+    // A corrupt/unreadable stored session should be removed just like a stale one.
+    sessionReadFailed = true;
+  }
+
+  if (!hasStoredSession && !sessionReadFailed) return false;
+
+  markUserInitiatedSignOut();
+  try {
+    const { error } = await client.auth.signOut({ scope: 'local' });
+    // Some client versions can still report the stale-session error after the
+    // local state was cleared. That error is safe to ignore; anything else is a
+    // real storage/client failure and must stop sign-up.
+    if (error && !isSessionInvalidError(error)) throw error;
+  } catch (error) {
+    if (!isSessionInvalidError(error)) throw error;
+  }
+
+  return true;
 }
 
 function handleAuthEvent(event: AuthChangeEvent, session: Session | null) {
@@ -217,10 +256,11 @@ function handleInvalidSession(reason: string): void {
     'SIGNED_OUT',
   );
 
-  // Clear the unusable tokens locally. signOut() emits SIGNED_OUT, which the
-  // handler above treats as expected because invalidation is already recorded.
+  // Remove the unusable token from this browser without revoking sessions on
+  // other devices. Supabase tolerates a 401/403/404 from its logout endpoint and
+  // still removes local state, so this also works after the auth user is deleted.
   markUserInitiatedSignOut();
-  if (supabase) void supabase.auth.signOut().catch(() => undefined);
+  if (supabase) void supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
   void redirectToLogin();
 }
 

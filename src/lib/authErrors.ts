@@ -23,6 +23,9 @@ export const SESSION_INVALID_PATTERNS: readonly RegExp[] = [
   /token has expired/i,
   /token is expired/i,
   /jwt expired/i,
+  // GoTrue returns this when a still-cached token belongs to an auth user that
+  // has since been deleted. It is an invalid session, not a sign-up failure.
+  /user from sub claim in jwt does not exist/i,
   /auth[_ ]?required/i,
 ];
 
@@ -34,6 +37,7 @@ export const SESSION_INVALID_CODES: readonly string[] = [
   'session_expired',
   'invalid_credentials',
   'refresh_token_not_found',
+  'user_not_found',
 ];
 
 function collectSignals(error: unknown): { text: string; code: string | undefined; status: number | undefined } {

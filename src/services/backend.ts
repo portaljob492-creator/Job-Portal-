@@ -12,7 +12,7 @@ import type {
   UserRole,
 } from '../types';
 import { requireSupabase } from '../lib/supabase';
-import { markUserInitiatedSignOut } from '../lib/authSession';
+import { clearSessionBeforeSignUp, markUserInitiatedSignOut } from '../lib/authSession';
 import { normalizeEmail } from '../lib/email';
 import { validateNewPassword } from '../lib/passwordPolicy';
 import type { RecoveryTokenInput } from '../lib/recoveryLink';
@@ -359,6 +359,14 @@ export const authBackend = {
     const client = requireSupabase();
     const email = normalizeEmail(input.email);
     const requestedBackendRole = backendRole(input.role);
+
+    // Sign-up is an account-switch boundary and must be anonymous. Without this,
+    // a JWT cached for a user that was deleted in Supabase is attached to the
+    // public role lookup below; GoTrue rejects that lookup before it can create
+    // the new account. Local cleanup is deterministic and needs no valid server
+    // session, so users recover automatically without clearing browser data.
+    await clearSessionBeforeSignUp(client);
+
     const { data: existingRole, error: lookupError } = await client.rpc('job_email_portal_role', {
       p_email: email,
     });

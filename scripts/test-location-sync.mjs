@@ -19,6 +19,7 @@ import {
 } from '../src/lib/supabase.ts';
 import { resolveJobPortalRoute, loginPath } from '../src/routing.ts';
 import { isSessionInvalidError } from '../src/lib/authErrors.ts';
+import { clearSessionBeforeSignUp } from '../src/lib/authSession.ts';
 import { createLocationSyncEngine, distanceMeters } from '../src/services/locationSync.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -110,6 +111,8 @@ const invalidSamples = [
   new Error('Token has expired'),
   { code: '28000', message: 'AUTH_REQUIRED' },
   { code: 'PGRST301', message: 'JWT expired' },
+  { code: 'user_not_found', message: 'User not found' },
+  { status: 403, message: 'User from sub claim in JWT does not exist' },
   { status: 401, message: 'invalid token' },
 ];
 const validSamples = [
@@ -121,6 +124,43 @@ const validSamples = [
 ];
 assertCheck('invalid sessions detected', invalidSamples.every((error) => isSessionInvalidError(error)));
 assertCheck('recoverable failures kept', validSamples.every((error) => !isSessionInvalidError(error)));
+
+// A stale JWT must be removed locally before the anonymous role lookup used by
+// sign-up. This reproduces the deleted-user case without a network or real token.
+{
+  const signOutCalls = [];
+  const staleClient = {
+    auth: {
+      async getSession() {
+        return { data: { session: { access_token: 'stale-jwt' } }, error: null };
+      },
+      async signOut(options) {
+        signOutCalls.push(options);
+        return { error: null };
+      },
+    },
+  };
+  assertCheck('stored session cleared before signup', await clearSessionBeforeSignUp(staleClient) === true);
+  assertCheck(
+    'signup cleanup is local only',
+    signOutCalls.length === 1 && signOutCalls[0]?.scope === 'local',
+  );
+
+  const anonymousCalls = [];
+  const anonymousClient = {
+    auth: {
+      async getSession() {
+        return { data: { session: null }, error: null };
+      },
+      async signOut(options) {
+        anonymousCalls.push(options);
+        return { error: null };
+      },
+    },
+  };
+  assertCheck('anonymous signup needs no cleanup', await clearSessionBeforeSignUp(anonymousClient) === false);
+  assertCheck('anonymous signup does not emit signout', anonymousCalls.length === 0);
+}
 
 // ---------------------------------------------------------------------------
 // 4. Location sync engine
