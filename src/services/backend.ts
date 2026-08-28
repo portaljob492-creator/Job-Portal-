@@ -13,8 +13,15 @@ import type {
 } from '../types';
 import { requireSupabase } from '../lib/supabase';
 import { markUserInitiatedSignOut } from '../lib/authSession';
+import { normalizeEmail } from '../lib/email';
+import { validateNewPassword } from '../lib/passwordPolicy';
+import type { RecoveryTokenInput } from '../lib/recoveryLink';
 import {
+  AuthRateLimitError,
+  formatRetryCountdown,
+  isRecoveryLinkRejectedError,
   parsePortalRoleMismatch,
+  parseRateLimitError,
   PortalRoleMismatchError,
 } from '../lib/authErrors';
 
@@ -69,17 +76,52 @@ function mapPortalRoleError(error: unknown, requestedRole: UserRole, email = '')
   return error instanceof Error ? error : new Error(message);
 }
 
-function mapAuthError(error: unknown): Error {
+/**
+ * Thrown when the recovery session behind a reset link has died mid-flow, so the
+ * UI can drop the password form and offer a fresh email instead of a dead form.
+ */
+export class RecoverySessionLostError extends Error {
+  constructor(message = 'This password reset link has expired. Request a new reset email to continue.') {
+    super(message);
+    this.name = 'RecoverySessionLostError';
+  }
+}
+
+/**
+ * Maps a raw Supabase auth failure onto the product copy the screens show.
+ * Exported for `npm run test:reset`, which asserts the exact strings users see.
+ */
+export function mapAuthError(error: unknown): Error {
+  // Throttling first: it carries the wait time the UI counts down from, and it
+  // must never be reported as a credential problem.
+  const rateLimit = parseRateLimitError(error);
+  if (rateLimit) {
+    if (rateLimit.scope !== 'email') return rateLimit;
+    // Product copy for the email quota, but still an AuthRateLimitError so the
+    // screen can read `retryAfterSeconds` and run its countdown.
+    return new AuthRateLimitError(
+      'email',
+      rateLimit.retryAfterSeconds,
+      `The email provider limit has been reached. Use the newest reset email you already received, or try again in ${formatRetryCountdown(rateLimit.retryAfterSeconds)}.`,
+    );
+  }
+
   const message = errorMessage(error, 'Authentication request failed.');
   const normalized = message.toLowerCase();
-  if (normalized.includes('rate limit')) {
-    return new Error('The email provider hourly limit has been reached. Use the newest email already received, or try again after the current hour resets.');
-  }
   if (normalized.includes('invalid login credentials')) {
     return new Error('Invalid email or password. Check your credentials and selected portal.');
   }
   if (normalized.includes('email not confirmed')) {
     return new Error('Your email is not verified. Open the verification email or request a fresh link.');
+  }
+  if (normalized.includes('same_password') || normalized.includes('new password should be different')) {
+    return new Error('Choose a password you have not used on this account before.');
+  }
+  if (normalized.includes('weak_password') || normalized.includes('password should be at least')) {
+    return new Error('That password is too weak. Use at least 8 characters with an uppercase letter, a lowercase letter and a number.');
+  }
+  if (isRecoveryLinkRejectedError(error)) {
+    return new RecoverySessionLostError();
   }
   return new Error(message);
 }
@@ -311,7 +353,7 @@ export interface SignUpInput {
 export const authBackend = {
   async signUp(input: SignUpInput) {
     const client = requireSupabase();
-    const email = input.email.trim();
+    const email = normalizeEmail(input.email);
     const requestedBackendRole = backendRole(input.role);
     const { data: existingRole, error: lookupError } = await client.rpc('job_email_portal_role', {
       p_email: email,
@@ -371,7 +413,7 @@ export const authBackend = {
 
   async signIn(email: string, password: string, requestedRole: UserRole) {
     const client = requireSupabase();
-    const normalizedEmail = email.trim();
+    const normalizedEmail = normalizeEmail(email);
 
     // Fail fast when the email is already permanently assigned to the other
     // portal: no session is created at all, so no tokens need clearing and the
@@ -403,7 +445,7 @@ export const authBackend = {
 
   async signInAdmin(email: string, password: string) {
     const client = requireSupabase();
-    const { data, error } = await client.auth.signInWithPassword({ email: email.trim(), password });
+    const { data, error } = await client.auth.signInWithPassword({ email: normalizeEmail(email), password });
     if (error) throw mapAuthError(error);
     const { data: roleRow, error: roleError } = await client.from('job_user_roles').select('role').eq('user_id', data.user.id).single();
     if (roleError || roleRow?.role !== 'admin') {
@@ -437,13 +479,43 @@ export const authBackend = {
   },
 
   async sendPasswordReset(email: string) {
-    const { error } = await requireSupabase().auth.resetPasswordForEmail(email.trim(), {
+    const normalized = normalizeEmail(email);
+    const { error } = await requireSupabase().auth.resetPasswordForEmail(normalized, {
       redirectTo: appCallbackUrl('?recovery=1'),
     });
     if (error) throw mapAuthError(error);
+    return { email: normalized };
+  },
+
+  /**
+   * Completes recovery from a token the user already has (the newest reset email
+   * they received) instead of asking Supabase to send another one. That is the
+   * only way back in while the email provider's hourly quota is exhausted, and
+   * it also works when the link was opened on another device.
+   *
+   * `token_hash` verifies on its own; a 6-digit OTP is verified against the
+   * account's email.
+   */
+  async recoverWithToken(input: RecoveryTokenInput, email = '') {
+    const client = requireSupabase();
+    const { data, error } = await client.auth.verifyOtp(
+      input.kind === 'token_hash'
+        ? { token_hash: input.value, type: 'recovery' }
+        : { email: normalizeEmail(email), token: input.value, type: 'recovery' },
+    );
+    if (error) throw mapAuthError(error);
+    if (!data.session) {
+      throw new RecoverySessionLostError('That code was accepted but no recovery session was returned. Request a new reset email.');
+    }
+    return data;
   },
 
   async updatePassword(password: string) {
+    // Validate locally first so a rejected password is explained with the same
+    // rule wording the form shows, without spending the recovery session on a
+    // request the server would refuse.
+    const policyError = validateNewPassword(password);
+    if (policyError) throw new Error(policyError);
     const { error } = await requireSupabase().auth.updateUser({ password });
     if (error) throw mapAuthError(error);
   },

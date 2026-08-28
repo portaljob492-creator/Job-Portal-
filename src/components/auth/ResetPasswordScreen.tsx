@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { ArrowLeft, CheckCircle2, Lock, Eye, EyeOff, RefreshCw, ShieldCheck, AlertCircle } from 'lucide-react';
 
+import { passwordStrength, PASSWORD_RULES, validateNewPassword } from '../../lib/passwordPolicy';
+
 interface ResetPasswordScreenProps {
   recoveryState: 'checking' | 'valid' | 'invalid';
   onBackToLogin: () => void;
@@ -25,42 +27,16 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Password strength calculation
-  const getPasswordStrength = (pwd: string) => {
-    if (!pwd) return { score: 0, label: '', color: '' };
-    let score = 0;
-    if (pwd.length >= 8) score++;
-    if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
-    if (/[0-9]/.test(pwd)) score++;
-
-    if (score === 1) return { score: 1, label: 'Weak', color: 'bg-rose-500 text-rose-700' };
-    if (score === 2) return { score: 2, label: 'Medium', color: 'bg-amber-500 text-amber-700' };
-    return { score: 3, label: 'Strong', color: 'bg-emerald-500 text-emerald-700' };
-  };
-
-  const strength = getPasswordStrength(newPassword);
+  // Shared policy (src/lib/passwordPolicy.ts) — identical rules to the admin CLI.
+  const strength = passwordStrength(newPassword);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (newPassword.length < 8) {
-      setErrorMsg('New password must be at least 8 characters long.');
-      return;
-    }
-
-    if (!/[a-z]/.test(newPassword)) {
-      setErrorMsg('New password must contain at least one lowercase letter.');
-      return;
-    }
-
-    if (!/[A-Z]/.test(newPassword)) {
-      setErrorMsg('New password must contain at least one uppercase letter.');
-      return;
-    }
-
-    if (!/[0-9]/.test(newPassword)) {
-      setErrorMsg('New password must contain at least one number.');
+    const policyError = validateNewPassword(newPassword);
+    if (policyError) {
+      setErrorMsg(policyError);
       return;
     }
 
@@ -290,18 +266,11 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
               <div className="p-3 bg-[#f8f4f4] rounded-xl border border-[#e0bec6]/60 text-[11px] text-[#594047] space-y-1">
                 <span className="font-bold text-[#1c1b1b] block">Password requirements:</span>
                 <ul className="list-disc list-inside space-y-0.5 text-[#594047]">
-                  <li className={newPassword.length >= 8 ? 'text-emerald-700 font-bold' : ''}>
-                    At least 8 characters long
-                  </li>
-                  <li className={/[a-z]/.test(newPassword) ? 'text-emerald-700 font-bold' : ''}>
-                    Contains at least 1 lowercase letter
-                  </li>
-                  <li className={/[A-Z]/.test(newPassword) ? 'text-emerald-700 font-bold' : ''}>
-                    Contains at least 1 uppercase letter
-                  </li>
-                  <li className={/[0-9]/.test(newPassword) ? 'text-emerald-700 font-bold' : ''}>
-                    Contains at least 1 number
-                  </li>
+                  {PASSWORD_RULES.map((rule) => (
+                    <li key={rule.code} className={rule.test(newPassword) ? 'text-emerald-700 font-bold' : ''}>
+                      {rule.label}
+                    </li>
+                  ))}
                 </ul>
               </div>
 

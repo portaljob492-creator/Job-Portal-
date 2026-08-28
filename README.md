@@ -125,6 +125,7 @@ Private documents use stable storage paths; clients should request short-lived s
 npm run lint          # tsc --noEmit
 npm run build         # vite build
 npm run test:location # auth + location sync checks (offline, no credentials)
+npm run test:reset    # password policy, recovery-token parsing, reset CLI (offline)
 npm run test:pwa      # build + PWA artifact checks
 ```
 
@@ -155,6 +156,11 @@ SUPABASE_PUBLISHABLE_KEY=... \
 SUPABASE_SERVICE_ROLE_KEY=... \
 npm run test:recovery
 ```
+
+`npm run test:reset` is the offline counterpart: it runs the shared password
+policy, the recovery-token parser, the rate-limit/recovery-error mapping (the
+exact strings the screens show) and drives `scripts/reset-user-password.mjs`
+against a mock GoTrue admin API, asserting the request it sends.
 
 ## Progressive Web App (PWA)
 
@@ -222,6 +228,46 @@ createClient(url, anonKey, {
 - A deliberate logout is flagged (`markUserInitiatedSignOut`) and still returns to
   the welcome screen, exactly as before.
 
+## Password recovery
+
+Three independent ways back into an account, in order of preference:
+
+| Path | Sends an email? | When it works |
+| --- | --- | --- |
+| Reset link in the email | Yes | Normal case; redirects to `/?recovery=1` |
+| **Paste the link / 6-digit code** on the Forgot Password screen | **No** | Email quota exhausted, or the link was opened on another device |
+| `npm run admin:reset-password` (service_role) | No | Owner-side rescue when self-service is blocked |
+
+**Why the second path exists.** Supabase's built-in mailer sends only a couple of
+auth emails per hour per project, so two reset requests can lock a user out of
+recovery by email until the hour resets. The link they already received is still
+valid for 60 minutes, so the Forgot Password screen accepts that link (or the
+6-digit code inside it) and verifies it with
+`supabase.auth.verifyOtp({ type: 'recovery', … })` — no new email, no quota.
+`src/lib/recoveryLink.ts` parses a full `/auth/v1/verify?token=…` URL, a bare
+token hash, or a bare OTP; `mapAuthError` in `src/services/backend.ts` turns
+`over_email_send_rate_limit` / 429 into an `AuthRateLimitError` carrying
+`retryAfterSeconds`, which the screen shows as a live countdown with the send
+button disabled, so repeated clicks cannot extend the wait.
+
+**Owner-side reset (no email at all).** `scripts/reset-user-password.mjs` sets a
+new password straight through the GoTrue admin API and validates it against the
+same `src/lib/passwordPolicy.ts` rules the reset form uses:
+
+```bash
+SUPABASE_URL=https://qwaehqsmodekbgvnaavz.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=<service_role key> \
+  npm run admin:reset-password -- --list
+
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+  npm run admin:reset-password -- --email user@example.com --password 'New-Pass1'
+# also: --user-id, --password-stdin, --confirm-email, --dry-run
+```
+
+Exit codes: `0` updated · `1` usage/policy · `2` account not found · `3` API
+error. The password is never echoed back. The service_role key bypasses RLS —
+keep it out of the repository and out of any `VITE_*` variable.
+
 ## Authenticated location synchronization
 
 `src/hooks/useLocationSync.ts` keeps a signed-in user's approximate position in
@@ -244,8 +290,9 @@ on `PERMISSION_DENIED`.
 
 1. Main Site URL and both Vercel origins are allow-listed in Supabase Auth.
 2. Signup email verification is intentionally disabled (`mailer_autoconfirm=true`); new accounts activate immediately and no verification/resend UI is shipped.
-3. Forgot/Reset Password email remains enabled and uses a one-time recovery link.
+3. Forgot/Reset Password email remains enabled and uses a one-time recovery link; the same screen also accepts the link or code from an email the user already has, so the email quota cannot block recovery.
 4. Enable Google or Apple buttons only after those providers and callback URLs are configured.
-5. Password recovery redirects to `/?recovery=1`, validates the recovery session before showing the form, and rejects expired/reused links.
-6. Reset links expire after 60 minutes; Supabase and the UI require at least 8 characters with lowercase and uppercase letters plus a number.
-7. Mobile OTP remains disabled until a real SMS provider is configured.
+5. Password recovery redirects to `/?recovery=1`, validates the recovery session before showing the form, and rejects expired/reused links. A dead recovery session swaps the form for the "request a new email" panel instead of failing silently.
+6. Reset links expire after 60 minutes; Supabase and the UI require at least 8 characters with lowercase and uppercase letters plus a number (`src/lib/passwordPolicy.ts`, shared with the admin reset CLI).
+7. The built-in mailer allows only a few auth emails per hour. Raise the limit under Authentication → Rate Limits or configure a custom SMTP provider before launch; the UI counts the wait down rather than letting users retry.
+8. Mobile OTP remains disabled until a real SMS provider is configured.
