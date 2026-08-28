@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { UserRole } from '../../types';
-import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple } from 'lucide-react';
+import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound } from 'lucide-react';
 import {
+  isPasswordSignInBlockedError,
   isPortalRoleMismatchError,
   portalRoleLabel,
+  type PasswordSignInBlockedError,
   type PortalRoleMismatchError,
 } from '../../lib/authErrors';
 import { loginPathWithPrefill } from '../../routing';
@@ -12,7 +14,10 @@ interface LoginScreenProps {
   onLoginSuccess: (role: UserRole, email: string, password: string) => Promise<void> | void;
   onSocialLogin?: (provider: 'google' | 'apple', role: UserRole) => Promise<void> | void;
   onSignUp: () => void;
-  onForgotPassword: () => void;
+  /** Receives the email already typed so the reset screen starts pre-filled. */
+  onForgotPassword: (email: string) => void;
+  /** Email carried over from a previous screen (reset flow, portal switch). */
+  initialEmail?: string;
 }
 
 /**
@@ -34,20 +39,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   onSocialLogin,
   onSignUp,
   onForgotPassword,
+  initialEmail = '',
 }) => {
   const prefill = readLoginPrefill();
-  const [email, setEmail] = useState(prefill.email);
+  const [email, setEmail] = useState(initialEmail || prefill.email);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [activeRole, setActiveRole] = useState<UserRole>(prefill.role ?? 'seeker');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
+  const [signInBlocked, setSignInBlocked] = useState<PasswordSignInBlockedError | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setRoleMismatch(null);
+    setSignInBlocked(null);
     setIsLoading(true);
     try {
       await onLoginSuccess(activeRole, email, password);
@@ -56,6 +64,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         // Role conflict: surface the explainer + portal switch instead of a
         // generic error toast.
         setRoleMismatch(loginError);
+        setError(null);
+      } else if (isPasswordSignInBlockedError(loginError)) {
+        // The account is real, only the credential failed. Offer the way back in
+        // right here instead of leaving the user on a sentence with no action.
+        setSignInBlocked(loginError);
         setError(null);
       } else {
         setRoleMismatch(null);
@@ -70,6 +83,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     if (!onSocialLogin) return;
     setError(null);
     setRoleMismatch(null);
+    setSignInBlocked(null);
     setIsLoading(true);
     try {
       await onSocialLogin(provider, activeRole);
@@ -77,6 +91,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       setError(loginError instanceof Error ? loginError.message : 'Unable to start social sign-in.');
       setIsLoading(false);
     }
+  };
+
+  /**
+   * Sends the user to the reset screen with the email they already typed, so a
+   * failed sign-in turns into a recovery in one tap.
+   */
+  const handleResetPassword = () => {
+    const target = (signInBlocked?.email || email).trim();
+    setSignInBlocked(null);
+    setError(null);
+    onForgotPassword(target);
   };
 
   /**
@@ -89,6 +114,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     const target = roleMismatch.existingRole;
     const prefilledEmail = roleMismatch.email || email;
     setRoleMismatch(null);
+    setSignInBlocked(null);
     setError(null);
     setActiveRole(target);
     setEmail(prefilledEmail);
@@ -168,7 +194,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 </label>
                 <button
                   type="button"
-                  onClick={onForgotPassword}
+                  onClick={() => onForgotPassword(email)}
                   className="text-xs text-[#594047] hover:text-[#e2007c] transition-colors cursor-pointer"
                 >
                   Forgot Password?
@@ -212,6 +238,44 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   {roleMismatch.existingRole === 'employer' ? <Building2 className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
                   Switch to {portalRoleLabel(roleMismatch.existingRole)} Portal
                 </button>
+              </div>
+            )}
+
+            {signInBlocked && (
+              <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 flex flex-col gap-2.5">
+                <p className="text-xs font-medium text-amber-900 leading-relaxed">{signInBlocked.message}</p>
+                <button
+                  type="button"
+                  onClick={handleResetPassword}
+                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  Email a reset link to {signInBlocked.email || 'my address'}
+                </button>
+                {onSocialLogin && (
+                  <>
+                    <p className="text-[11px] font-semibold text-amber-800">
+                      Created the account with Google or Apple? Use the same button — those accounts have no password.
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleSocialLogin('google')}
+                        className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+                      >
+                        Continue with Google
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSocialLogin('apple')}
+                        className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+                      >
+                        <Apple className="w-3.5 h-3.5" />
+                        Continue with Apple
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

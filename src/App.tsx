@@ -77,6 +77,9 @@ export default function App() {
   const [isBackendLoading, setIsBackendLoading] = useState(isSupabaseConfigured);
   const [backendError, setBackendError] = useState<string | null>(null);
   const [passwordRecoveryState, setPasswordRecoveryState] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
+  /** Email shared between login → reset → login so it is never retyped. */
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
 
   // Application Data States
   const [jobs, setJobs] = useState<JobPosting[]>(INITIAL_JOBS);
@@ -683,6 +686,12 @@ export default function App() {
     const { user } = await authBackend.recoverWithToken(token, email);
     if (!user) throw new Error('That code was accepted but no account was returned.');
     setPasswordRecoveryState('valid');
+    // The recovery session knows the real account email; carry it back to the
+    // login screen so the user can sign in with the new password immediately.
+    if (user.email) {
+      setRecoveryEmail(user.email);
+      setLoginEmail(user.email);
+    }
     setScreen('reset_password');
     // Keep the recovery marker so a reload returns to the reset form, and drop
     // any stale PKCE params that would fail a second exchange.
@@ -695,6 +704,7 @@ export default function App() {
     } finally {
       setPasswordRecoveryState('idle');
       window.history.replaceState({}, document.title, window.location.pathname);
+      if (target === 'login' && recoveryEmail) setLoginEmail(recoveryEmail);
       setScreen(target);
     }
   };
@@ -779,7 +789,10 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
           onSocialLogin={handleSocialLogin}
           onSignUp={() => setScreen('role_select')}
-          onForgotPassword={() => {
+          initialEmail={loginEmail}
+          onForgotPassword={(email) => {
+            const trimmed = (email || '').trim().toLowerCase();
+            setRecoveryEmail(trimmed);
             setPasswordRecoveryState('idle');
             setScreen('forgot_password');
           }}
@@ -789,8 +802,13 @@ export default function App() {
       {/* SCREEN 08: FORGOT PASSWORD */}
       {screen === 'forgot_password' && (
         <ForgotPasswordScreen
-          onBackToLogin={() => setScreen('login')}
+          initialEmail={recoveryEmail}
+          onBackToLogin={() => {
+            if (recoveryEmail) setLoginEmail(recoveryEmail);
+            setScreen('login');
+          }}
           onSendResetLink={async (email) => {
+            setRecoveryEmail((email || '').trim().toLowerCase());
             await authBackend.sendPasswordReset(email);
           }}
           onVerifyRecoveryToken={handleRecoverWithToken}

@@ -22,6 +22,7 @@ import {
   isRecoveryLinkRejectedError,
   parsePortalRoleMismatch,
   parseRateLimitError,
+  PasswordSignInBlockedError,
   PortalRoleMismatchError,
 } from '../lib/authErrors';
 
@@ -446,11 +447,24 @@ export const authBackend = {
     const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
     if (error) {
       if (isInvalidLoginCredentialsError(error)) {
+        // The account exists, so the failure is the credential itself: a typo, a
+        // forgotten password, or an account created through Google/Apple that has
+        // no password at all. Throwing the structured error lets the login screen
+        // offer recovery actions (reset link / social continue) instead of a
+        // sentence the user has to act on by themselves.
         if (existingRole === requestedBackendRole) {
-          throw new Error(`We found your ${portalLabel(requestedRole)} account, but the password does not match. Use Forgot Password to reset it, or sign in with Google/Apple if that is how you created the account.`);
+          throw new PasswordSignInBlockedError({
+            email: normalizedEmail,
+            role: requestedRole,
+            reason: 'wrong_password',
+          });
         }
         if (existingRole === 'unassigned') {
-          throw new Error('This email exists in Nexora, but it has not been linked to a Jobs portal yet. Use the same password or social sign-in method you used when creating it, then select the correct Jobs portal.');
+          throw new PasswordSignInBlockedError({
+            email: normalizedEmail,
+            role: requestedRole,
+            reason: 'unassigned',
+          });
         }
       }
       throw mapAuthError(error);

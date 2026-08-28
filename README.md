@@ -238,6 +238,15 @@ Three independent ways back into an account, in order of preference:
 | **Paste the link / 6-digit code** on the Forgot Password screen | **No** | Email quota exhausted, or the link was opened on another device |
 | `npm run admin:reset-password` (service_role) | No | Owner-side rescue when self-service is blocked |
 
+**A failed password sign-in is never a dead end.** When Supabase rejects a
+password for an email that is already registered to that portal, `signIn` throws
+a structured `PasswordSignInBlockedError` (`src/lib/authErrors.ts`) instead of a
+plain message. The login screen renders it as an actionable panel: **Email a
+reset link to <address>** (the email is carried into the reset screen, so it is
+never retyped) plus **Continue with Google / Apple** for accounts that were
+created socially and have no password at all. The same email is carried back to
+the login form after a successful reset.
+
 **Why the second path exists.** Supabase's built-in mailer sends only a couple of
 auth emails per hour per project, so two reset requests can lock a user out of
 recovery by email until the hour resets. The link they already received is still
