@@ -17,6 +17,8 @@ interface ForgotPasswordScreenProps {
    * is exhausted — the main escape hatch out of a rate-limit lockout.
    */
   onVerifyRecoveryToken: (token: RecoveryTokenInput, email: string) => Promise<void> | void;
+  /** Email carried over from the login screen so it never has to be retyped. */
+  initialEmail?: string;
 }
 
 const messageOf = (error: unknown, fallback: string) =>
@@ -26,8 +28,9 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
   onBackToLogin,
   onSendResetLink,
   onVerifyRecoveryToken,
+  initialEmail = '',
 }) => {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
   const [isSending, setIsSending] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);

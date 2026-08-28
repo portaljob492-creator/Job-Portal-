@@ -35,12 +35,15 @@ import {
   AuthRateLimitError,
   EMAIL_HOURLY_COOLDOWN_SECONDS,
   formatRetryCountdown,
+  isPasswordSignInBlockedError,
   isRecoveryLinkRejectedError,
   parseRateLimitError,
+  PasswordSignInBlockedError,
 } from '../src/lib/authErrors.ts';
 import { normalizeEmail, isLikelyEmail } from '../src/lib/email.ts';
 import { mapAuthError, RecoverySessionLostError } from '../src/services/backend.ts';
 import { ForgotPasswordScreen } from '../src/components/auth/ForgotPasswordScreen.tsx';
+import { LoginScreen } from '../src/components/auth/LoginScreen.tsx';
 import { ResetPasswordScreen } from '../src/components/auth/ResetPasswordScreen.tsx';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -209,6 +212,28 @@ await check('maps rejected new passwords onto the portal policy wording', () => 
     mapAuthError({ message: 'Password should be at least 6 characters.', code: 'weak_password' }).message,
     /at least 8 characters/i,
   );
+});
+
+// ---------------------------------------------------------------------------
+// 4b. A wrong password on an account that exists must be actionable
+// ---------------------------------------------------------------------------
+
+await check('marks a failed password sign-in on a known account as recoverable', () => {
+  const wrongPassword = new PasswordSignInBlockedError({ email: 'Jane@Example.com ', role: 'seeker', reason: 'wrong_password' });
+  assert.ok(isPasswordSignInBlockedError(wrongPassword));
+  assert.equal(wrongPassword.reason, 'wrong_password');
+  assert.equal(wrongPassword.role, 'seeker');
+  assert.match(wrongPassword.message, /Job Seeker account/);
+  assert.match(wrongPassword.message, /Reset the password/i);
+  // Only used for display and for the reset screen's prefill, never for lookup.
+  assert.equal(wrongPassword.email, 'Jane@Example.com ');
+
+  const unassigned = new PasswordSignInBlockedError({ email: 'jane@example.com', role: 'employer', reason: 'unassigned' });
+  assert.equal(unassigned.reason, 'unassigned');
+  assert.match(unassigned.message, /not been linked to a Jobs portal/i);
+
+  assert.equal(isPasswordSignInBlockedError(new Error('Invalid login credentials')), false);
+  assert.equal(isPasswordSignInBlockedError(null), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -386,6 +411,20 @@ await check('reset screen lists the shared policy and swaps to a new email when 
   );
   assert.ok(invalid.includes('Request New Reset Link'), 'expired link offers a new email');
   assert.ok(!invalid.includes('Update Password'), 'no dead form on an invalid link');
+});
+
+await check('login screen pre-fills the email it is handed', () => {
+  const html = render(
+    React.createElement(LoginScreen, {
+      initialEmail: 'jane@example.com',
+      onLoginSuccess: noop,
+      onSignUp: noop,
+      onForgotPassword: noop,
+    }),
+  );
+  assert.ok(html.includes('Welcome Back'));
+  assert.ok(html.includes('value="jane@example.com"'), 'email carried over from the reset flow');
+  assert.ok(html.includes('Forgot Password?'), 'the escape hatch is always visible, not only after an error');
 });
 
 console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));

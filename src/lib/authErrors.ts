@@ -114,6 +114,46 @@ export function isPortalRoleMismatchError(error: unknown): error is PortalRoleMi
   return error instanceof PortalRoleMismatchError;
 }
 
+/**
+ * Why an email/password sign-in was refused even though the account exists.
+ *
+ * - `wrong_password`: the email is registered to this exact portal, so the
+ *   account is real and only the credential is wrong (or was never set because
+ *   the account was created through Google/Apple).
+ * - `unassigned`: the email exists in Nexora but has no permanent Jobs portal
+ *   role yet, so the user has to come back through a portal that assigns one.
+ */
+export type PasswordSignInBlockedReason = 'wrong_password' | 'unassigned';
+
+/**
+ * Thrown when a password sign-in fails for an account that definitely exists.
+ *
+ * Carrying the email and role lets the login screen turn a dead-end sentence
+ * into actions: send a reset link without retyping the email, or continue with
+ * the social provider the account may have been created with.
+ */
+export class PasswordSignInBlockedError extends Error {
+  readonly email: string;
+  readonly role: UserRole;
+  readonly reason: PasswordSignInBlockedReason;
+
+  constructor(details: { email: string; role: UserRole; reason: PasswordSignInBlockedReason }) {
+    super(
+      details.reason === 'unassigned'
+        ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Use the same password or social sign-in method you used when creating it, then select the correct Jobs portal.'
+        : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Reset the password, or continue with Google/Apple if that is how the account was created.`,
+    );
+    this.name = 'PasswordSignInBlockedError';
+    this.email = details.email;
+    this.role = details.role;
+    this.reason = details.reason;
+  }
+}
+
+export function isPasswordSignInBlockedError(error: unknown): error is PasswordSignInBlockedError {
+  return error instanceof PasswordSignInBlockedError;
+}
+
 /** Extracts a searchable text fingerprint from any error shape. */
 export function errorSignalText(error: unknown): string {
   return collectSignals(error).text;
