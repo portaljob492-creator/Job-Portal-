@@ -91,6 +91,10 @@ export class RecoverySessionLostError extends Error {
  * Maps a raw Supabase auth failure onto the product copy the screens show.
  * Exported for `npm run test:reset`, which asserts the exact strings users see.
  */
+function isInvalidLoginCredentialsError(error: unknown): boolean {
+  return errorMessage(error, 'Authentication request failed.').toLowerCase().includes('invalid login credentials');
+}
+
 export function mapAuthError(error: unknown): Error {
   // Throttling first: it carries the wait time the UI counts down from, and it
   // must never be reported as a credential problem.
@@ -414,6 +418,7 @@ export const authBackend = {
   async signIn(email: string, password: string, requestedRole: UserRole) {
     const client = requireSupabase();
     const normalizedEmail = normalizeEmail(email);
+    const requestedBackendRole = backendRole(requestedRole);
 
     // Fail fast when the email is already permanently assigned to the other
     // portal: no session is created at all, so no tokens need clearing and the
@@ -422,7 +427,7 @@ export const authBackend = {
     const { data: existingRole, error: lookupError } = await client.rpc('job_email_portal_role', {
       p_email: normalizedEmail,
     });
-    if (!lookupError && (existingRole === 'job_seeker' || existingRole === 'employer') && existingRole !== backendRole(requestedRole)) {
+    if (!lookupError && (existingRole === 'job_seeker' || existingRole === 'employer') && existingRole !== requestedBackendRole) {
       throw new PortalRoleMismatchError({
         email: normalizedEmail,
         requestedRole,
@@ -431,7 +436,17 @@ export const authBackend = {
     }
 
     const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
-    if (error) throw mapAuthError(error);
+    if (error) {
+      if (isInvalidLoginCredentialsError(error)) {
+        if (existingRole === requestedBackendRole) {
+          throw new Error(`We found your ${portalLabel(requestedRole)} account, but the password does not match. Use Forgot Password to reset it, or sign in with Google/Apple if that is how you created the account.`);
+        }
+        if (existingRole === 'unassigned') {
+          throw new Error('This email exists in Nexora, but it has not been linked to a Jobs portal yet. Use the same password or social sign-in method you used when creating it, then select the correct Jobs portal.');
+        }
+      }
+      throw mapAuthError(error);
+    }
     try {
       await this.registerRole(requestedRole, normalizedEmail);
     } catch (roleError) {
