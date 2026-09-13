@@ -18,6 +18,8 @@ interface PostJobWizardProps {
   onComplete: (job: Partial<JobPosting>) => Promise<JobPosting>;
   onViewJobPosts: () => void;
   onViewApplications: () => void;
+  onPostAnother: () => void;
+  initialJob?: JobPosting | null;
   initialBusinessName?: string;
   initialContactPerson?: string;
   initialContactMobile?: string;
@@ -49,6 +51,8 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
   onComplete,
   onViewJobPosts,
   onViewApplications,
+  onPostAnother,
+  initialJob,
   initialBusinessName = '',
   initialContactPerson = '',
   initialContactMobile = '',
@@ -62,33 +66,33 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [savedJob, setSavedJob] = useState<JobPosting | null>(null);
 
-  const [title, setTitle] = useState('');
-  const [businessName, setBusinessName] = useState(initialBusinessName);
-  const [category, setCategory] = useState<JobPosting['category']>('Hair');
-  const [jobRole, setJobRole] = useState('');
-  const [description, setDescription] = useState('');
+  const [title, setTitle] = useState(initialJob?.title || '');
+  const [businessName, setBusinessName] = useState(initialJob?.businessName || initialJob?.salonName || initialBusinessName);
+  const [category, setCategory] = useState<JobPosting['category']>(initialJob?.category || 'Hair');
+  const [jobRole, setJobRole] = useState(initialJob?.jobRole || initialJob?.title || '');
+  const [description, setDescription] = useState(initialJob?.description || '');
 
-  const [skills, setSkills] = useState<string[]>([]);
+  const [skills, setSkills] = useState<string[]>(initialJob?.requirements || []);
   const [skillInput, setSkillInput] = useState('');
-  const [minExp, setMinExp] = useState('0');
-  const [maxExp, setMaxExp] = useState('2');
-  const [freshersAllowed, setFreshersAllowed] = useState(false);
-  const [minSalary, setMinSalary] = useState('');
-  const [maxSalary, setMaxSalary] = useState('');
-  const [payType, setPayType] = useState<NonNullable<JobPosting['payType']>>('monthly');
-  const [jobType, setJobType] = useState<JobPosting['jobType']>('Full-time');
+  const [minExp, setMinExp] = useState(String((initialJob?.experienceMinMonths || 0) / 12));
+  const [maxExp, setMaxExp] = useState(String((initialJob?.experienceMaxMonths ?? 24) / 12));
+  const [freshersAllowed, setFreshersAllowed] = useState(initialJob?.freshersAllowed || false);
+  const [minSalary, setMinSalary] = useState(initialJob?.salaryMin == null ? '' : String(initialJob.salaryMin));
+  const [maxSalary, setMaxSalary] = useState(initialJob?.salaryMax == null ? '' : String(initialJob.salaryMax));
+  const [payType, setPayType] = useState<NonNullable<JobPosting['payType']>>(initialJob?.payType || 'monthly');
+  const [jobType, setJobType] = useState<JobPosting['jobType']>(initialJob?.jobType || 'Full-time');
 
-  const [workplaceType, setWorkplaceType] = useState<NonNullable<JobPosting['workplaceType']>>('on_site');
-  const [workLocation, setWorkLocation] = useState('');
-  const [city, setCity] = useState(initialCity);
-  const [area, setArea] = useState(initialArea);
-  const [openings, setOpenings] = useState('1');
+  const [workplaceType, setWorkplaceType] = useState<NonNullable<JobPosting['workplaceType']>>(initialJob?.workplaceType || 'on_site');
+  const [workLocation, setWorkLocation] = useState(initialJob?.workLocation || '');
+  const [city, setCity] = useState(initialJob?.city || initialCity);
+  const [area, setArea] = useState(initialJob?.area || initialArea);
+  const [openings, setOpenings] = useState(String(initialJob?.openings || 1));
 
-  const [contactPerson, setContactPerson] = useState(initialContactPerson);
-  const [contactMobile, setContactMobile] = useState(initialContactMobile);
-  const [whatsappNumber, setWhatsappNumber] = useState(initialContactMobile);
-  const [interviewMode, setInterviewMode] = useState<InterviewMode>('in_person');
-  const [postingStatus, setPostingStatus] = useState<PostingStatus>('published');
+  const [contactPerson, setContactPerson] = useState(initialJob?.contactPerson || initialContactPerson);
+  const [contactMobile, setContactMobile] = useState(initialJob?.contactMobile || initialContactMobile);
+  const [whatsappNumber, setWhatsappNumber] = useState(initialJob?.whatsappNumber || initialContactMobile);
+  const [interviewMode, setInterviewMode] = useState<InterviewMode>(initialJob?.interviewMode || 'in_person');
+  const [postingStatus, setPostingStatus] = useState<PostingStatus>(initialJob ? (initialJob.postingStatus || (initialJob.approvalStatus === 'approved' ? 'published' : 'draft')) : 'published');
 
   const salarySuffix: Record<NonNullable<JobPosting['payType']>, string> = {
     monthly: '/month',
@@ -167,6 +171,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
     try {
       const now = new Date().toISOString();
       const result = await onComplete({
+        ...(initialJob ? { id: initialJob.id } : {}),
         title: title.trim(),
         salonName: businessName.trim(),
         businessName: businessName.trim(),
@@ -209,6 +214,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
   };
 
   const resetForAnotherJob = () => {
+    onPostAnother();
     setTitle('');
     setJobRole('');
     setDescription('');
@@ -436,7 +442,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
       <div className="flex min-h-full flex-1 flex-col items-center justify-center py-10 animate-in zoom-in-95 duration-300">
         <div className="flex h-24 w-24 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-14 w-14" /></div>
         <div className="mt-6 text-center">
-          <h1 className="text-2xl font-bold text-[#8e004b]">{published ? 'Your job post has been published successfully.' : 'Your job post has been saved as a draft.'}</h1>
+          <h1 className="text-2xl font-bold text-[#8e004b]">{initialJob ? 'Your job post has been updated successfully.' : published ? 'Your job post has been published successfully.' : 'Your job post has been saved as a draft.'}</h1>
           <p className="mt-2 text-sm text-[#594047]">{published ? 'Candidates can now find and apply to this role.' : 'You can publish this job later from My Posted Jobs.'}</p>
         </div>
         <dl className="mt-7 w-full rounded-xl border border-[#e0bec6] bg-white p-5 shadow-sm">
@@ -468,7 +474,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
         <header className="sticky top-0 z-50 bg-[#fdf8f8] shadow-sm">
           <div className="relative mx-auto flex h-16 w-full max-w-2xl items-center justify-between px-5">
             <button type="button" onClick={step > 1 ? () => { setValidationError(null); setStep((current) => current - 1); } : onClose} className="-ml-2 rounded-full p-2 text-[#594047] hover:bg-[#ece7e7]" aria-label={step > 1 ? 'Previous step' : 'Close post job form'}><ArrowLeft className="h-6 w-6" /></button>
-            <h1 className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold text-[#8e004b]">Post a Job</h1>
+            <h1 className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold text-[#8e004b]">{initialJob ? 'Edit Job' : 'Post a Job'}</h1>
             <span className="text-[13px] font-medium text-[#594047]">Step {step}/{totalSteps}</span>
           </div>
           <div className="h-1 w-full bg-[#e6e1e1]"><div className="h-full bg-[#e2007c] transition-all" style={{ width: `${(step / totalSteps) * 100}%` }} /></div>
@@ -493,7 +499,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
               aria-busy={isSubmitting}
               className="flex w-full items-center justify-center gap-2 rounded-full bg-[#e2007c] py-4 text-lg font-semibold text-white shadow-sm transition-all hover:bg-[#b50062] disabled:cursor-wait disabled:opacity-70"
             >
-              {step < totalSteps ? <>Continue <ArrowRight className="h-5 w-5" /></> : isSubmitting ? <><Loader2 className="h-5 w-5 animate-spin" /> Posting job…</> : <><BriefcaseBusiness className="h-5 w-5" /> Post Job</>}
+              {step < totalSteps ? <>Continue <ArrowRight className="h-5 w-5" /></> : isSubmitting ? <><Loader2 className="h-5 w-5 animate-spin" /> {initialJob ? 'Saving changes…' : 'Posting job…'}</> : <><BriefcaseBusiness className="h-5 w-5" /> {initialJob ? 'Save Changes' : 'Post Job'}</>}
             </button>
           </div>
         )}

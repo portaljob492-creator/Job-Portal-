@@ -366,6 +366,32 @@ check('published employer jobs appear in candidate search with the entered salon
   publicPublishedPost?.salon_name === 'Probe Salon' && publicPublishedPost?.city === 'Jaipur'
     && publicPublishedPost?.area === 'C-Scheme', JSON.stringify(publicPublishedPost));
 
+const editPayload = JSON.stringify({
+  title: 'Lead Colour Specialist', businessName: 'Probe Salon', category: 'Hair', jobRole: 'Colour Team Lead',
+  description: 'Lead our Jaipur colour team and deliver premium client transformations.',
+  skills: ['Hair colouring', 'Team leadership'], experienceMinMonths: 24, experienceMaxMonths: 72,
+  freshersAllowed: false, salaryMin: 30000, salaryMax: 50000, payType: 'monthly',
+  employmentType: 'full_time', workplaceType: 'on_site', workLocation: '2 Main Street',
+  city: 'Jaipur', area: 'C-Scheme', contactPerson: 'Owner', contactMobile: '9876543210',
+  whatsappNumber: '9876543210', openings: 1, interviewMode: 'hybrid', postingStatus: 'published',
+  tags: ['Updated'], benefits: 'Performance incentives',
+});
+await rpc(employer, `select public.update_employer_job('${publishedPostId}','${editPayload}'::jsonb)`);
+const editedPost = (await db.query(`select title,job_role,salary_min,interview_mode,status from public.job_posts where id='${publishedPostId}'`)).rows[0];
+check('an employer can edit their own job without creating a duplicate',
+  editedPost.title === 'Lead Colour Specialist' && editedPost.job_role === 'Colour Team Lead'
+    && Number(editedPost.salary_min) === 30000 && editedPost.interview_mode === 'hybrid'
+    && editedPost.status === 'approved'
+    && (await db.query(`select count(*)::int as n from public.job_posts where id='${publishedPostId}'`)).rows[0].n === 1,
+  JSON.stringify(editedPost));
+let foreignEditError = '';
+try {
+  await rpc(seeker, `select public.update_employer_job('${publishedPostId}','${editPayload}'::jsonb)`);
+} catch (error) {
+  foreignEditError = error.message;
+}
+check('non-owners cannot edit an employer job', /SALON_ACCESS_DENIED/.test(foreignEditError), foreignEditError || 'allowed');
+
 const draftPostId = (await rpc(employer, `
   select (public.post_employer_job(
     '${salonId}','Nail Artist','Probe Salon','Nails','Nail Technician',

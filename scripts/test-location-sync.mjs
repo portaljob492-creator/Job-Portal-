@@ -112,6 +112,8 @@ assertCheck('/jobs/my-applications opens submitted applications', resolveJobPort
 assertCheck('My Applications uses its canonical URL', pathForScreen('main_app', 'seeker', 'applications') === '/jobs/my-applications');
 assertCheck('/jobs/post-a-job opens the employer wizard', resolveJobPortalRoute('/jobs/post-a-job').requiredRole === 'employer' && resolveJobPortalRoute('/jobs/post-a-job').openPostJob === true);
 assertCheck('/jobs/posted-jobs opens employer jobs', resolveJobPortalRoute('/jobs/posted-jobs').employerTab === 'jobs');
+assertCheck('/jobs/my-posts opens employer jobs', resolveJobPortalRoute('/jobs/my-posts').employerTab === 'jobs');
+assertCheck('My Job Posts uses its canonical URL', pathForScreen('main_app', 'employer', undefined, 'jobs') === '/jobs/my-posts');
 assertCheck('/jobs/employer-applications opens employer candidates', resolveJobPortalRoute('/jobs/employer-applications').requiredRole === 'employer' && resolveJobPortalRoute('/jobs/employer-applications').employerTab === 'candidates');
 
 // ---------------------------------------------------------------------------

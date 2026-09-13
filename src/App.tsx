@@ -47,6 +47,7 @@ import {
   setBookmark,
   updateAlertRead,
   updateEmployerSalonDetails,
+  updateJob,
   updateApplicationStatus,
   withdrawApplication,
   mapBackendError,
@@ -638,6 +639,18 @@ export default function App() {
       setJobAlerts((prev) => [...matchedAlerts, ...prev]);
     }
     return newJob;
+  };
+
+  const handleUpdateJob = async (job: JobPosting): Promise<JobPosting> => {
+    try {
+      const savedJob = currentUserId ? await updateJob(job) : job;
+      setJobs((current) => current.map((item) => item.id === savedJob.id ? savedJob : item));
+      return savedJob;
+    } catch (error) {
+      const message = mapBackendError(error, 'Unable to update this job. Your changes are still here — please retry.');
+      setBackendError(message);
+      throw new Error(message);
+    }
   };
 
   const handleMarkAlertRead = (alertId: string) => {
@@ -1328,6 +1341,7 @@ export default function App() {
               messages={messages}
               userProfile={userProfile}
               onAddJob={handleAddJob}
+              onUpdateJob={handleUpdateJob}
               onUpdateApplicantStatus={handleUpdateApplicantStatus}
               onScheduleInterview={handleScheduleInterview}
               onRescheduleInterview={handleRescheduleInterview}

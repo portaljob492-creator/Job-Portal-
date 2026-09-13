@@ -236,6 +236,20 @@ check('Post a Job uses the authenticated ownership and shop-linked RPC',
   && /created_by[\s\S]*actor/.test(finalFunctionBody.post_employer_job || '')
   && /shop_id[\s\S]*p_salon_id/.test(finalFunctionBody.post_employer_job || '')
   && /job_is_active_salon_member/.test(finalFunctionBody.post_employer_job || ''));
+const employerWorkspace = read('src/components/employer/EmployerWorkspace.tsx');
+check('My Job Posts cards expose the requested status, details, counts and actions',
+  ['My Job Posts', 'Status:', 'Published', 'Draft', 'Closed', 'Location', 'Salary', 'Posted Date',
+    'Total Applications', 'New Applications', 'Edit Job', 'Close Job', 'View Applications']
+    .every((label) => employerWorkspace.includes(label)));
+check('My Job Posts has the exact empty state and Post a Job action',
+  employerWorkspace.includes('You have not posted any job yet.')
+  && employerWorkspace.includes('Post a Job'));
+check('My Job Posts reads only jobs created by the authenticated employer',
+  /\.eq\('created_by', user\.id\)/.test(read('src/services/backend.ts')));
+check('Edit Job is persisted through an actor-owned server RPC',
+  read('src/services/backend.ts').includes("rpc('update_employer_job'")
+  && /existing\.created_by<>actor/.test(finalFunctionBody.update_employer_job || '')
+  && /job_is_active_salon_member/.test(finalFunctionBody.update_employer_job || ''));
 check('My Applications renders the requested job and application fields',
   ['My Applications', 'Salary Range', 'Job Type', 'Applied Date', 'View Job', 'Withdraw Application']
     .every((label) => seekerWorkspace.includes(label)));

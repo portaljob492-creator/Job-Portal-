@@ -824,10 +824,9 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const client = requireSupabase();
   const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
 
-  // Resolve the employer's salon before reading posts. `job_posts` RLS also
-  // exposes approved public listings, so an unfiltered employer query mixed
-  // other salons into "My Jobs". The explicit salon predicate keeps this list
-  // scoped to the shop/workspace the signed-in member actually manages.
+  // Resolve the employer's salon for their profile while keeping My Job Posts
+  // actor-scoped below. `job_posts` RLS also exposes approved public listings,
+  // so every employer jobs query needs an explicit ownership predicate.
   const membershipResult = await client
     .from('job_salon_members')
     .select('salon_id,member_role')
@@ -841,9 +840,10 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const employerJobsQuery = client
     .from('job_posts')
     .select('*, location:job_salon_locations!job_posts_location_id_fkey(*)')
+    // My Job Posts is intentionally actor-scoped: salon teammates must not be
+    // mixed into the signed-in employer's personal posting history.
+    .eq('created_by', user.id)
     .order('created_at', { ascending: false });
-  if (membership?.salon_id) employerJobsQuery.eq('salon_id', membership.salon_id);
-  else employerJobsQuery.eq('created_by', user.id);
 
   const [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
     // maybeSingle: a missing profiles row (marketplace trigger lag, legacy user)
@@ -1273,6 +1273,49 @@ export async function createJob(_userId: string, job: JobPosting): Promise<JobPo
   if (error) throw error;
   const saved = Array.isArray(data) ? data[0] : data;
   if (!saved?.id) throw new Error('The job could not be confirmed after saving. Please retry.');
+  const { data: salonData } = await client
+    .from('public_job_salon_profiles')
+    .select('*')
+    .eq('id', saved.salon_id)
+    .maybeSingle();
+  return mapJob({ ...saved, salon: salonData });
+}
+
+export async function updateJob(job: JobPosting): Promise<JobPosting> {
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('update_employer_job', {
+    target_job_id: job.id,
+    p_job: {
+      title: job.title,
+      businessName: job.businessName || job.salonName,
+      category: job.category,
+      jobRole: job.jobRole || job.title,
+      description: job.description,
+      skills: job.requirements,
+      experienceMinMonths: job.experienceMinMonths ?? 0,
+      experienceMaxMonths: job.experienceMaxMonths ?? null,
+      freshersAllowed: job.freshersAllowed ?? false,
+      salaryMin: job.salaryMin ?? 0,
+      salaryMax: job.salaryMax ?? 0,
+      payType: job.payType || 'monthly',
+      employmentType: employmentToDb[job.jobType],
+      workplaceType: job.workplaceType || 'on_site',
+      workLocation: job.workLocation || job.location,
+      city: job.city || job.location,
+      area: job.area || job.location,
+      contactPerson: job.contactPerson || '',
+      contactMobile: job.contactMobile || '',
+      whatsappNumber: job.whatsappNumber || '',
+      openings: job.openings ?? 1,
+      interviewMode: job.interviewMode || 'in_person',
+      postingStatus: job.postingStatus || (job.approvalStatus === 'approved' ? 'published' : 'draft'),
+      tags: job.tags,
+      benefits: job.benefits.join('\n'),
+    },
+  });
+  if (error) throw error;
+  const saved = Array.isArray(data) ? data[0] : data;
+  if (!saved?.id) throw new Error('The updated job could not be confirmed. Please retry.');
   const { data: salonData } = await client
     .from('public_job_salon_profiles')
     .select('*')

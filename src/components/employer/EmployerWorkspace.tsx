@@ -38,8 +38,7 @@ import {
   TrendingUp,
   LayoutDashboard,
   Bell,
-  ArrowLeft,
-  MoreVertical
+  ArrowLeft
 } from 'lucide-react';
 
 interface EmployerWorkspaceProps {
@@ -49,6 +48,7 @@ interface EmployerWorkspaceProps {
   messages?: ChatMessage[];
   userProfile: UserProfile;
   onAddJob: (newJob: JobPosting) => Promise<JobPosting>;
+  onUpdateJob: (job: JobPosting) => Promise<JobPosting>;
   onUpdateApplicantStatus: (applicantId: string, status: Applicant['status']) => void;
   /** Persists a real interview row from the scheduling form payload. */
   onScheduleInterview: (applicantId: string, payload: InterviewSchedulePayload) => Promise<void>;
@@ -80,6 +80,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   messages = [],
   userProfile,
   onAddJob,
+  onUpdateJob,
   onUpdateApplicantStatus,
   onScheduleInterview,
   onRescheduleInterview,
@@ -96,9 +97,10 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'candidates' | 'interviews' | 'messages' | 'analytics' | 'profile'>(initialTab || 'dashboard');
-  const [openJobMenu, setOpenJobMenu] = useState<string | null>(null);
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
+  const [editingJob, setEditingJob] = useState<JobPosting | null>(null);
+  const [candidateJobFilter, setCandidateJobFilter] = useState<string | null>(null);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
   const [viewingPortfolioApplicant, setViewingPortfolioApplicant] = useState<Applicant | null>(null);
   const [offeringApplicant, setOfferingApplicant] = useState<Applicant | null>(null);
@@ -110,7 +112,10 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
   useEffect(() => {
-    if (openPostJobOnMount) setShowPostModal(true);
+    if (openPostJobOnMount) {
+      setEditingJob(null);
+      setShowPostModal(true);
+    }
   }, [openPostJobOnMount]);
 
   // Candidate Filter State
@@ -137,10 +142,16 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     return () => { cancelled = true; };
   }, [viewingPortfolioApplicant]);
 
-  const filteredApplicants = applicants.filter((a) => {
+  const applicationPool = candidateJobFilter
+    ? applicants.filter((applicant) => applicant.appliedJobId === candidateJobFilter)
+    : applicants;
+  const filteredApplicants = applicationPool.filter((applicant) => {
     if (candidateFilter === 'All') return true;
-    return a.status === candidateFilter;
+    return applicant.status === candidateFilter;
   });
+  const filteredJobTitle = candidateJobFilter
+    ? jobs.find((job) => job.id === candidateJobFilter)?.title
+    : undefined;
 
   const handleScheduleConfirm = async (payload: InterviewSchedulePayload) => {
     if (!selectedApplicant || isScheduling) return;
@@ -167,7 +178,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     
     return (
       <button 
-        onClick={() => setActiveTab(tab)}
+        onClick={() => { if (tab === 'candidates') setCandidateJobFilter(null); setActiveTab(tab); }}
         className={`flex items-center gap-3 p-3 rounded-lg w-full text-left transition-all active:translate-x-1 duration-150 cursor-pointer ${
           isActive 
             ? 'bg-[#e2007c] text-white font-bold' 
@@ -185,7 +196,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     
     return (
       <button 
-        onClick={() => setActiveTab(tab)}
+        onClick={() => { if (tab === 'candidates') setCandidateJobFilter(null); setActiveTab(tab); }}
         className={`flex flex-col items-center justify-center px-2 py-1 active:scale-90 transition-transform cursor-pointer ${
           isActive
             ? 'bg-[#b90064] text-[#ffcbd9] rounded-full px-4'
@@ -314,7 +325,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
               {/* Quick Actions */}
               <section className="flex gap-4 overflow-x-auto pb-4 snap-x hide-scrollbar">
                 <button 
-                  onClick={() => setShowPostModal(true)}
+                  onClick={() => { setEditingJob(null); setShowPostModal(true); }}
                   className="snap-start shrink-0 bg-[#8e004b] text-white rounded-full px-6 py-4 text-base font-semibold flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-md cursor-pointer"
                 >
                   <Plus className="w-5 h-5" />
@@ -422,9 +433,9 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           {activeTab === 'jobs' && (
             <div className="flex flex-col w-full h-full">
               <div className="flex justify-between items-center mb-8">
-                <div><h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">My Posted Jobs</h2><p className="text-xs text-[#594047] mt-1">Every job submitted by your salon, with its current approval status.</p></div>
+                <div><h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">My Job Posts</h2><p className="text-xs text-[#594047] mt-1">Every job posted by you, with applications and current status.</p></div>
                 <button
-                  onClick={() => setShowPostModal(true)}
+                  onClick={() => { setEditingJob(null); setShowPostModal(true); }}
                   className="hidden md:flex bg-[#e2007c] text-white px-4 py-2 rounded-full text-[13px] font-medium items-center gap-1 hover:bg-[#b50062] transition-colors shadow-sm cursor-pointer"
                 >
                   <Plus className="w-5 h-5" /> Post Job
@@ -435,14 +446,13 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                 <div className="overflow-x-auto hide-scrollbar -mx-5 px-5 md:mx-0 md:px-0">
                   <div className="flex gap-2 min-w-max pb-1">
                     <span className="bg-[#f2dde9] text-[#8e004b] px-4 py-2 rounded-full text-[13px] font-semibold border border-transparent">All Posted ({jobs.length})</span>
-                    <span className="bg-amber-50 text-amber-800 px-4 py-2 rounded-full text-[13px] font-medium">Pending ({jobs.filter((job) => job.approvalStatus === 'pending_approval').length})</span>
-                    <span className="bg-emerald-50 text-emerald-800 px-4 py-2 rounded-full text-[13px] font-medium">Live ({jobs.filter((job) => job.approvalStatus === 'approved').length})</span>
-                    <span className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium">Draft ({jobs.filter((job) => !job.approvalStatus || job.approvalStatus === 'draft' || job.approvalStatus === 'rejected').length})</span>
-                    <span className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium">Paused / Closed ({jobs.filter((job) => ['paused', 'closed', 'expired', 'archived'].includes(job.approvalStatus || '')).length})</span>
+                    <span className="bg-emerald-50 text-emerald-800 px-4 py-2 rounded-full text-[13px] font-medium">Published ({jobs.filter((job) => job.approvalStatus === 'approved').length})</span>
+                    <span className="bg-amber-50 text-amber-800 px-4 py-2 rounded-full text-[13px] font-medium">Draft ({jobs.filter((job) => !job.approvalStatus || !['approved', 'closed', 'expired', 'archived'].includes(job.approvalStatus)).length})</span>
+                    <span className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium">Closed ({jobs.filter((job) => ['closed', 'expired', 'archived'].includes(job.approvalStatus || '')).length})</span>
                   </div>
                 </div>
                 <button 
-                  onClick={() => setShowPostModal(true)}
+                  onClick={() => { setEditingJob(null); setShowPostModal(true); }}
                   className="md:hidden w-full bg-[#e2007c] text-white py-3 rounded-full text-[13px] font-medium items-center justify-center flex gap-2 hover:bg-[#b50062] transition-colors shadow-sm cursor-pointer"
                 >
                   <Plus className="w-5 h-5" /> Post a New Job
@@ -451,108 +461,94 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   
               <div className="flex flex-col gap-4">
                 {jobs.map((job) => {
-                  // Mirrors the server state machine: draft/rejected can be sent
-                  // for approval, approved can be paused or closed, paused can be
-                  // resumed or closed. Every action is a targeted RPC.
-                  const status = job.approvalStatus || 'draft';
-                  const jobActions: { action: 'submit' | 'pause' | 'resume' | 'close'; label: string }[] =
-                    status === 'draft' || status === 'rejected'
-                      ? [{ action: 'submit', label: 'Submit for approval' }]
-                      : status === 'approved'
-                        ? [{ action: 'pause', label: 'Pause applications' }, { action: 'close', label: 'Close this position' }]
-                        : status === 'paused'
-                          ? [{ action: 'resume', label: 'Resume applications' }, { action: 'close', label: 'Close this position' }]
-                          : [];
-                  const jobApplicants = applicants.filter((a) => a.appliedJobId === job.id);
-                  const shortlisted = jobApplicants.filter(a => a.status === 'Shortlisted').length;
-                  const interviewing = jobApplicants.filter(a => a.status === 'Interview Scheduled').length;
-                  const statusLabel = job.approvalStatus === 'pending_approval' ? 'Pending Admin Approval · Max 24 Hours'
-                    : job.approvalStatus === 'rejected' ? 'Rejected · Changes Required'
-                    : job.approvalStatus === 'approved' ? 'Approved · Live'
-                    : job.approvalStatus === 'paused' ? 'Paused · Not accepting applications'
-                    : job.approvalStatus === 'closed' ? 'Closed'
-                    : job.approvalStatus === 'expired' ? 'Expired'
-                    : job.approvalStatus === 'archived' ? 'Archived'
-                    : (job.approvalStatus || 'Draft');
-                  const pending = job.approvalStatus === 'pending_approval';
-                  
+                  const closed = ['closed', 'expired', 'archived'].includes(job.approvalStatus || '');
+                  const published = job.approvalStatus === 'approved';
+                  const statusLabel = published ? 'Published' : closed ? 'Closed' : 'Draft';
+                  const jobApplicants = applicants.filter((applicant) => applicant.appliedJobId === job.id);
+                  const totalApplications = Math.max(jobApplicants.length, job.activeApplicantsCount || 0);
+                  const newApplications = jobApplicants.filter((applicant) => applicant.status === 'New').length;
+
                   return (
-                    <div
+                    <article
                       key={job.id}
-                      className="bg-white rounded-lg border border-[#e8e8e8] p-4 md:p-6 shadow-[0_4px_12px_rgba(90,63,71,0.02)] hover:shadow-[0_4px_12px_rgba(90,63,71,0.05)] transition-shadow relative group"
+                      className="rounded-xl border border-[#e8e8e8] bg-white p-4 shadow-[0_4px_12px_rgba(90,63,71,0.03)] transition-shadow hover:shadow-md md:p-6"
                     >
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${pending ? 'text-amber-900 bg-amber-100' : job.approvalStatus === 'rejected' ? 'text-rose-700 bg-rose-50' : job.approvalStatus === 'approved' ? 'text-emerald-700 bg-emerald-50' : 'text-[#594047] bg-[#f1edec]'}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${pending ? 'bg-amber-500' : job.approvalStatus === 'rejected' ? 'bg-rose-500' : job.approvalStatus === 'approved' ? 'bg-emerald-500' : 'bg-[#8a7a80]'}`}></span> {statusLabel}
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${published ? 'bg-emerald-50 text-emerald-700' : closed ? 'bg-[#f1edec] text-[#594047]' : 'bg-amber-50 text-amber-800'}`}>
+                              <span className={`h-2 w-2 rounded-full ${published ? 'bg-emerald-500' : closed ? 'bg-[#8c7077]' : 'bg-amber-500'}`} />
+                              Status: {statusLabel}
                             </span>
-                            <span className="text-xs text-[#594047]">{job.postedDate}</span>
                           </div>
-                          <h2 className="text-[18px] font-semibold text-[#1c1b1b] leading-tight">{job.title}</h2>
-                          <p className="text-sm text-[#594047] mt-1 truncate max-w-full">{job.location} • {job.jobType} • {job.salary}</p>
+                          <h3 className="mt-3 truncate text-lg font-bold text-[#1c1b1b]">{job.title}</h3>
                         </div>
-                        <div className="relative shrink-0">
+                        <div className="flex shrink-0 flex-wrap gap-2">
                           <button
-                            disabled={pending || !jobActions.length}
-                            title={pending ? 'Editing is locked during admin review' : 'Job actions'}
-                            onClick={() => setOpenJobMenu((current) => (current === job.id ? null : job.id))}
-                            className="text-[#594047] p-1 hover:bg-[#f1edec] rounded-full transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                            type="button"
+                            disabled={closed}
+                            onClick={() => { setEditingJob(job); setShowPostModal(true); }}
+                            className="rounded-full border border-[#e0bec6] bg-white px-4 py-2 text-[13px] font-bold text-[#8e004b] hover:bg-[#f7f2f2] disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <MoreVertical className="w-5 h-5" />
+                            Edit Job
                           </button>
-                          {openJobMenu === job.id && (
-                            <div className="absolute right-0 top-9 z-20 w-56 bg-white border border-[#e8e8e8] rounded-xl shadow-lg py-1">
-                              {jobActions.map((action) => (
-                                <button
-                                  key={action.action}
-                                  onClick={() => {
-                                    setOpenJobMenu(null);
-                                    onJobAction?.(job.id, action.action);
-                                  }}
-                                  className="w-full text-left px-4 py-2.5 text-[13px] font-medium text-[#1c1b1b] hover:bg-[#f7f2f2] transition-colors cursor-pointer"
-                                >
-                                  {action.label}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-4 md:gap-6 mt-4 pt-4 border-t border-[#e8e8e8]">
-                        <div className="flex flex-col">
-                          <span className="text-[20px] font-semibold text-[#8e004b]">{jobApplicants.length || job.activeApplicantsCount || 0}</span>
-                          <span className="text-[13px] font-medium text-[#594047]">Applicants</span>
-                        </div>
-                        <div className="w-px bg-[#e8e8e8] hidden sm:block"></div>
-                        <div className="flex flex-col">
-                          <span className="text-[20px] font-semibold text-[#b50062]">{shortlisted}</span>
-                          <span className="text-[13px] font-medium text-[#594047]">Shortlisted</span>
-                        </div>
-                        <div className="w-px bg-[#e8e8e8] hidden sm:block"></div>
-                        <div className="flex flex-col">
-                          <span className="text-[20px] font-semibold text-[#1c1b1b]">{interviewing}</span>
-                          <span className="text-[13px] font-medium text-[#594047]">Interviewing</span>
-                        </div>
-                        <div className="flex-1 flex justify-end items-center mt-2 sm:mt-0">
-                          <button 
-                            onClick={() => {
-                              setActiveTab('candidates');
-                            }}
-                            className="text-[#b50062] text-[13px] font-semibold hover:underline cursor-pointer"
+                          <button
+                            type="button"
+                            disabled={closed}
+                            onClick={() => onJobAction?.(job.id, 'close')}
+                            className="rounded-full border border-rose-200 bg-white px-4 py-2 text-[13px] font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            View Candidates →
+                            {closed ? 'Job Closed' : 'Close Job'}
                           </button>
                         </div>
                       </div>
-                    </div>
+
+                      <dl className="mt-5 grid grid-cols-2 gap-4 border-y border-[#f1edec] py-4 md:grid-cols-3">
+                        {[
+                          ['Location', job.location],
+                          ['Salary', job.salary],
+                          ['Posted Date', job.postedDate],
+                          ['Total Applications', String(totalApplications)],
+                          ['New Applications', String(newApplications)],
+                        ].map(([label, value]) => (
+                          <div key={label} className={label === 'Salary' ? 'col-span-2 md:col-span-1' : ''}>
+                            <dt className="text-xs font-semibold uppercase tracking-wide text-[#8c7077]">{label}</dt>
+                            <dd className="mt-1 truncate text-sm font-bold text-[#1c1b1b]">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+
+                      <div className="mt-4 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCandidateFilter('All');
+                            setCandidateJobFilter(job.id);
+                            setActiveTab('candidates');
+                            onPostJobFlowExit?.('candidates');
+                          }}
+                          className="rounded-full bg-[#e2007c] px-5 py-2.5 text-[13px] font-bold text-white shadow-sm hover:bg-[#b50062]"
+                        >
+                          View Applications
+                        </button>
+                      </div>
+                    </article>
                   );
                 })}
-                
+
                 {jobs.length === 0 && (
-                  <div className="py-12 text-center border-2 border-dashed border-[#e0bec6] rounded-2xl">
-                     <p className="text-[#594047]">No jobs posted yet.</p>
+                  <div className="rounded-2xl border-2 border-dashed border-[#e0bec6] px-5 py-14 text-center">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#ffd9e2] text-[#e2007c]">
+                      <Briefcase className="h-7 w-7" />
+                    </div>
+                    <p className="mt-4 font-semibold text-[#594047]">You have not posted any job yet.</p>
+                    <button
+                      type="button"
+                      onClick={() => { setEditingJob(null); setShowPostModal(true); }}
+                      className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#e2007c] px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#b50062]"
+                    >
+                      <Plus className="h-5 w-5" /> Post a Job
+                    </button>
                   </div>
                 )}
               </div>
@@ -563,7 +559,14 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           {activeTab === 'candidates' && (
             <div className="flex flex-col w-full h-full pb-24 md:pb-0">
               <div className="flex justify-between items-center mb-8 px-5 md:px-0">
-                <h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">Applications</h2>
+                <div>
+                  <h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">Applications</h2>
+                  {filteredJobTitle && (
+                    <button type="button" onClick={() => setCandidateJobFilter(null)} className="mt-1 text-xs font-semibold text-[#594047] hover:text-[#8e004b]">
+                      Showing {filteredJobTitle} · Clear job filter
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <button className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full active:scale-95 flex items-center justify-center">
                     <span className="material-symbols-outlined">search</span>
@@ -587,7 +590,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                           : 'bg-[#f7f2f2] text-[#594047] border border-[#e0bec6] hover:bg-[#ece7e7]'
                       }`}
                     >
-                      {st} ({st === 'All' ? applicants.length : applicants.filter(a => a.status === st).length})
+                      {st} ({st === 'All' ? applicationPool.length : applicationPool.filter((applicant) => applicant.status === st).length})
                     </button>
                   ))}
                 </div>
@@ -774,42 +777,48 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       {/* POST NEW JOB WIZARD */}
       {showPostModal && (
         <PostJobWizard
+          key={editingJob?.id || 'new-job'}
+          initialJob={editingJob}
           initialBusinessName={userProfile.businessName}
           initialContactPerson={userProfile.contactPerson || userProfile.name}
           initialContactMobile={userProfile.phone}
           initialCity={userProfile.city || userProfile.location?.split(',')[0]?.trim()}
-          onClose={() => { setShowPostModal(false); onPostJobFlowExit?.('jobs'); }}
+          onClose={() => { setEditingJob(null); setShowPostModal(false); onPostJobFlowExit?.('jobs'); }}
           onComplete={async (newJobPartial) => {
-            const newJob: JobPosting = {
-              id: `job-${Date.now()}`,
-              title: newJobPartial.title || 'New Position',
-              salonName: newJobPartial.businessName || userProfile.businessName || 'Salon',
-              salonLogo: userProfile.avatarUrl,
-              location: newJobPartial.location || 'Location not specified',
-              image: '',
-              rating: 0,
-              reviewsCount: 0,
-              salary: newJobPartial.salary || 'Salary not specified',
-              jobType: newJobPartial.jobType || 'Full-time',
-              category: newJobPartial.category || 'Hair',
-              tags: newJobPartial.tags || ['New Listing'],
-              description: newJobPartial.description || '',
-              requirements: newJobPartial.requirements || [],
-              benefits: newJobPartial.benefits || ['Benefits discussed during interview'],
-              postedDate: 'Just now',
+            const job: JobPosting = {
+              ...(editingJob || {}),
+              id: editingJob?.id || `job-${Date.now()}`,
+              title: newJobPartial.title || editingJob?.title || 'New Position',
+              salonName: newJobPartial.businessName || editingJob?.salonName || userProfile.businessName || 'Salon',
+              salonLogo: editingJob?.salonLogo || userProfile.avatarUrl,
+              location: newJobPartial.location || editingJob?.location || 'Location not specified',
+              image: editingJob?.image || '',
+              rating: editingJob?.rating || 0,
+              reviewsCount: editingJob?.reviewsCount || 0,
+              salary: newJobPartial.salary || editingJob?.salary || 'Salary not specified',
+              jobType: newJobPartial.jobType || editingJob?.jobType || 'Full-time',
+              category: newJobPartial.category || editingJob?.category || 'Hair',
+              tags: newJobPartial.tags || editingJob?.tags || ['New Listing'],
+              description: newJobPartial.description || editingJob?.description || '',
+              requirements: newJobPartial.requirements || editingJob?.requirements || [],
+              benefits: newJobPartial.benefits || editingJob?.benefits || ['Benefits discussed during interview'],
+              postedDate: editingJob?.postedDate || 'Just now',
               isBookmarked: false,
-              isFeatured: true,
-              activeApplicantsCount: 0,
+              isFeatured: editingJob?.isFeatured ?? true,
+              activeApplicantsCount: editingJob?.activeApplicantsCount || 0,
               ...newJobPartial,
             };
-            return onAddJob(newJob);
+            return editingJob ? onUpdateJob(job) : onAddJob(job);
           }}
+          onPostAnother={() => setEditingJob(null)}
           onViewJobPosts={() => {
+            setEditingJob(null);
             setShowPostModal(false);
             setActiveTab('jobs');
             onPostJobFlowExit?.('jobs');
           }}
           onViewApplications={() => {
+            setEditingJob(null);
             setShowPostModal(false);
             setCandidateFilter('All');
             setActiveTab('candidates');
