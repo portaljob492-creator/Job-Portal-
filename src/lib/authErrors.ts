@@ -158,14 +158,16 @@ export function isPasswordSignInBlockedError(error: unknown): error is PasswordS
 
 /**
  * Errors the auth screens render as an actionable card (portal switch, password
- * recovery, confirmation re-send) instead of the generic banner. The app-level
- * handlers must let these through: swallowing them leaves the user on a sentence
- * with no way forward, because the card that offers the next step never renders.
+ * recovery, confirmation re-send, throttling countdown) instead of the generic
+ * banner. The app-level handlers must let these through: swallowing them leaves
+ * the user on a sentence with no way forward, because the card that offers the
+ * next step never renders.
  */
 export function isActionableAuthScreenError(error: unknown): boolean {
   return isPortalRoleMismatchError(error)
     || isPasswordSignInBlockedError(error)
-    || isUnassignedPortalRoleError(error);
+    || isUnassignedPortalRoleError(error)
+    || isAuthRateLimitError(error);
 }
 
 /** Extracts a searchable text fingerprint from any error shape. */

@@ -36,6 +36,7 @@ import {
   AuthRateLimitError,
   formatRetryCountdown,
   isRecoveryLinkRejectedError,
+  isSessionInvalidError,
   parsePortalRoleMismatch,
   parseRateLimitError,
   PasswordSignInBlockedError,
@@ -1161,6 +1162,13 @@ const backendErrorMessages: Record<string, string> = {
 const looksLikeRawSql = /violates|constraint|relation "|column "|pg_|sqlstate|permission denied for|syntax error/i;
 
 export function mapBackendError(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  // A dead session must read as a session problem, never as a generic failure:
+  // without this, a mid-use session death (deleted user, revoked tokens) shows
+  // the call-site fallback while the user sits on a broken workspace. Recovery
+  // itself stays on the auth-event path (failed refresh -> SIGNED_OUT ->
+  // invalidated); this only fixes the copy on the toast the user sees first.
+  // Keep this copy identical to the forced-logout message in App/authSession.
+  if (isSessionInvalidError(error)) return 'Your session expired. Please sign in again.';
   const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   const token = raw.toUpperCase();
   for (const [code, message] of Object.entries(backendErrorMessages)) {

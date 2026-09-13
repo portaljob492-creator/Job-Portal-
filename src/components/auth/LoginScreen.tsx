@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserRole } from '../../types';
 import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound, Mail } from 'lucide-react';
 import {
+  formatRetryCountdown,
+  isAuthRateLimitError,
   isPasswordSignInBlockedError,
   isPortalRoleMismatchError,
   portalRoleLabel,
@@ -57,9 +59,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
   const [signInBlocked, setSignInBlocked] = useState<PasswordSignInBlockedError | null>(null);
   const [confirmResend, setConfirmResend] = useState<{ email: string; state: 'idle' | 'sending' | 'sent' } | null>(null);
+  /** Seconds left on a sign-in throttle. The submit stays disabled so attempts are not burned. */
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = typeof window !== 'undefined' ? window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000) : 0;
+    return () => { if (typeof window !== 'undefined') window.clearInterval(timer); };
+  }, [cooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading || cooldown > 0) return;
     setError(null);
     setRoleMismatch(null);
     setSignInBlocked(null);
@@ -73,6 +84,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         // generic error toast.
         setRoleMismatch(loginError);
         setError(null);
+      } else if (isAuthRateLimitError(loginError)) {
+        // Throttled: count down on the button instead of letting the user burn
+        // more attempts. Social sign-in stays available as the way back in.
+        setCooldown(loginError.retryAfterSeconds);
+        setError(loginError.message);
       } else if (isPasswordSignInBlockedError(loginError)) {
         // The account is real, only the credential failed. Offer the way back in
         // right here instead of leaving the user on a sentence with no action.
@@ -328,10 +344,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             {/* Primary CTA */}
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || cooldown > 0}
               className="w-full bg-[#e6007e] disabled:opacity-60 disabled:cursor-wait text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#b50062] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
             >
-              <span>{isLoading ? 'Signing in…' : 'Login'}</span>
+              <span>{isLoading ? 'Signing in…' : cooldown > 0 ? `Try again in ${formatRetryCountdown(cooldown)}` : 'Login'}</span>
             </button>
           </form>
         </div>

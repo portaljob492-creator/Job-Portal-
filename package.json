@@ -15,6 +15,7 @@
     "test:recovery": "node scripts/test-password-recovery.mjs",
     "test:pwa": "npm run build && node scripts/test-pwa.mjs",
     "test:sprint1": "tsx scripts/test-sprint1.mjs",
+    "test:auth": "tsx scripts/test-auth-hardening.mjs",
     "test:reset": "tsx scripts/test-password-reset.mjs",
     "admin:reset-password": "tsx scripts/reset-user-password.mjs",
     "test:db": "node scripts/test-backend-db.mjs",
