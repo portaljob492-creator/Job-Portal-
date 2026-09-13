@@ -14,6 +14,7 @@ import type {
 import { requireSupabase } from '../lib/supabase';
 import { clearSessionBeforeSignUp, markUserInitiatedSignOut } from '../lib/authSession';
 import { normalizeEmail } from '../lib/email';
+import { isEmailNotConfirmedError } from '../lib/signUpOutcome';
 import { validateNewPassword } from '../lib/passwordPolicy';
 import type { RecoveryTokenInput } from '../lib/recoveryLink';
 import {
@@ -44,6 +45,12 @@ const one = <T>(value: T | T[] | null | undefined): T | null =>
 
 const appBaseUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin).toString();
 const appCallbackUrl = (query = '') => `${appBaseUrl()}${query}`;
+/**
+ * The sign-up confirmation link returns to this app with `?confirmed=1`, which
+ * is what tells the bootstrap to finish the sign-in (PKCE exchanges the code in
+ * the link automatically) instead of treating the visitor as a new arrival.
+ */
+const confirmationRedirectUrl = () => appCallbackUrl('?confirmed=1');
 const backendRole = (role: UserRole) => role === 'seeker' ? 'job_seeker' : role;
 const frontendRole = (role?: string | null): UserRole => role === 'admin' ? 'admin' : role === 'employer' ? 'employer' : 'seeker';
 const portalLabel = (role: UserRole) => role === 'seeker' ? 'Job Seeker' : role === 'admin' ? 'Admin' : 'Employer';
@@ -408,6 +415,11 @@ export const authBackend = {
       email,
       password: input.password,
       options: {
+        // Where the confirmation link lands. Without this the link follows the
+        // project's dashboard Site URL, which is usually not this deployment —
+        // and because the client uses PKCE the code in the link can only be
+        // exchanged by a page that actually runs this app.
+        emailRedirectTo: confirmationRedirectUrl(),
         data: {
           app_context: 'jobs',
           job_role: requestedBackendRole,
@@ -461,6 +473,16 @@ export const authBackend = {
 
     const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
     if (error) {
+      if (isEmailNotConfirmedError(error)) {
+        // The credentials were right; the address simply was never confirmed.
+        // Surface it as a structured error so the login screen can offer a
+        // re-send instead of a sentence with no action behind it.
+        throw new PasswordSignInBlockedError({
+          email: normalizedEmail,
+          role: requestedRole,
+          reason: 'unconfirmed',
+        });
+      }
       if (isInvalidLoginCredentialsError(error)) {
         // The account exists, so the failure is the credential itself: a typo, a
         // forgotten password, or an account created through Google/Apple that has
@@ -528,6 +550,22 @@ export const authBackend = {
     });
     if (error) throw mapAuthError(error);
     return data;
+  },
+
+  /**
+   * Re-sends the sign-up confirmation email for an account that was created but
+   * never confirmed. Uses the same redirect as sign-up so the link still lands
+   * on this app.
+   */
+  async resendConfirmationEmail(email: string) {
+    const normalized = normalizeEmail(email);
+    const { error } = await requireSupabase().auth.resend({
+      type: 'signup',
+      email: normalized,
+      options: { emailRedirectTo: confirmationRedirectUrl() },
+    });
+    if (error) throw mapAuthError(error);
+    return { email: normalized };
   },
 
   async sendPasswordReset(email: string) {

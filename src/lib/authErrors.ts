@@ -123,7 +123,7 @@ export function isPortalRoleMismatchError(error: unknown): error is PortalRoleMi
  * - `unassigned`: the email exists in Nexora but has no permanent Jobs portal
  *   role yet, so the user has to come back through a portal that assigns one.
  */
-export type PasswordSignInBlockedReason = 'wrong_password' | 'unassigned';
+export type PasswordSignInBlockedReason = 'wrong_password' | 'unassigned' | 'unconfirmed';
 
 /**
  * Thrown when a password sign-in fails for an account that definitely exists.
@@ -139,9 +139,11 @@ export class PasswordSignInBlockedError extends Error {
 
   constructor(details: { email: string; role: UserRole; reason: PasswordSignInBlockedReason }) {
     super(
-      details.reason === 'unassigned'
-        ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Use the same password or social sign-in method you used when creating it, then select the correct Jobs portal.'
-        : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Reset the password, or continue with Google/Apple if that is how the account was created.`,
+      details.reason === 'unconfirmed'
+        ? 'Your account exists but its email address was never confirmed. Open the confirmation email we sent, or send a fresh one below.'
+        : details.reason === 'unassigned'
+          ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Use the same password or social sign-in method you used when creating it, then select the correct Jobs portal.'
+          : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Reset the password, or continue with Google/Apple if that is how the account was created.`,
     );
     this.name = 'PasswordSignInBlockedError';
     this.email = details.email;
@@ -152,6 +154,18 @@ export class PasswordSignInBlockedError extends Error {
 
 export function isPasswordSignInBlockedError(error: unknown): error is PasswordSignInBlockedError {
   return error instanceof PasswordSignInBlockedError;
+}
+
+/**
+ * Errors the auth screens render as an actionable card (portal switch, password
+ * recovery, confirmation re-send) instead of the generic banner. The app-level
+ * handlers must let these through: swallowing them leaves the user on a sentence
+ * with no way forward, because the card that offers the next step never renders.
+ */
+export function isActionableAuthScreenError(error: unknown): boolean {
+  return isPortalRoleMismatchError(error)
+    || isPasswordSignInBlockedError(error)
+    || isUnassignedPortalRoleError(error);
 }
 
 /** Extracts a searchable text fingerprint from any error shape. */

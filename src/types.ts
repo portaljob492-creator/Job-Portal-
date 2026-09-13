@@ -5,6 +5,7 @@ export type ScreenState =
   | 'role_select' 
   | 'seeker_signup' 
   | 'employer_signup' 
+  | 'signup_confirmation'
   | 'login' 
   | 'forgot_password' 
   | 'reset_password' 

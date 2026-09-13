@@ -244,10 +244,25 @@ names, every table must be RLS-protected, the schema-integrity guarantees are
 present, and no secret may reach the bundle.
 
 `npm run test:location` executes the real modules (`src/lib/supabase.ts`,
-`src/routing.ts`, `src/lib/authErrors.ts`, `src/services/locationSync.ts`) with
-injected fakes and asserts the repository invariants: one Supabase client, one
-auth listener owner, the PKCE storage key, the login route alias, watcher
-throttling/cleanup, and the location migration's RLS posture.
+`src/routing.ts`, `src/lib/authErrors.ts`, `src/lib/signUpOutcome.ts`,
+`src/services/locationSync.ts`) with injected fakes and asserts the repository
+invariants: one Supabase client, one auth listener owner, the PKCE storage key,
+the login route alias, watcher throttling/cleanup, and the location migration's
+RLS posture. The sign-up / sign-in flow is covered there too: an unconfirmed
+sign-up is a success with a next step (never an error), the confirmation link
+returns to this app, a session arriving from that link still opens the portal,
+and the structured sign-in failures keep reaching the screens that render their
+recovery actions.
+
+## Sign-up and sign-in
+
+`signUp` sends `emailRedirectTo` pointing at this app (`?confirmed=1`) because
+the project uses PKCE: the code in the confirmation link can only be exchanged
+by a page that runs the app. When Supabase requires the address to be confirmed,
+sign-up returns a user and no session — that is a success, and the app shows the
+confirmation screen with a re-send button and a countdown. Signing in before
+confirming is reported as its own structured state, so the login screen offers
+the re-send instead of a bare credential error.
 
 An isolated end-to-end database acceptance test is included:
 

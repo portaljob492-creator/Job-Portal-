@@ -4,6 +4,7 @@ import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERS
 import { processNewJobForAlerts } from './utils/jobAlertMatcher';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import {
+  isActionableAuthScreenError,
   isPortalRoleMismatchError,
   isSessionInvalidError,
   isUnassignedPortalRoleError,
@@ -51,6 +52,8 @@ const normalizeSeekerTab = (tab: string): SeekerWorkspaceTab => tab === 'explore
 import { WelcomeScreen } from './components/auth/WelcomeScreen';
 import { RoleSelectionScreen } from './components/auth/RoleSelectionScreen';
 import { JobSeekerSignupScreen } from './components/auth/JobSeekerSignupScreen';
+import { ConfirmEmailScreen } from './components/auth/ConfirmEmailScreen';
+import { resolveSignUpResult } from './lib/signUpOutcome';
 import { EmployerSignupScreen } from './components/auth/EmployerSignupScreen';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { ForgotPasswordScreen } from './components/auth/ForgotPasswordScreen';
@@ -75,6 +78,8 @@ import { AdminJobsScreen } from './components/admin/AdminJobsScreen';
 export default function App() {
   const initialRoute = useRef<JobPortalRoute>(resolveJobPortalRoute()).current;
   const pendingProtectedRoute = useRef<JobPortalRoute | null>(initialRoute.protected ? initialRoute : null);
+  /** The user whose workspace was already entered, so an auth event cannot re-enter it. */
+  const enteredPortalUserId = useRef<string | null>(null);
   const [screen, setScreen] = useState<ScreenState>(initialRoute.protected ? (initialRoute.requiredRole === 'admin' ? 'admin_login' : 'login') : initialRoute.screen);
   const [userRole, setUserRole] = useState<UserRole>('seeker');
   const [selectedJobForApply, setSelectedJobForApply] = useState<JobPosting | null>(null);
@@ -84,6 +89,8 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isBackendLoading, setIsBackendLoading] = useState(isSupabaseConfigured);
   const [backendError, setBackendError] = useState<string | null>(null);
+  /** Set when sign-up succeeded but Supabase still requires the email to be confirmed. */
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<{ email: string; role: 'seeker' | 'employer' } | null>(null);
   const [passwordRecoveryState, setPasswordRecoveryState] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   /** Email shared between login → reset → login so it is never retyped. */
   const [recoveryEmail, setRecoveryEmail] = useState('');
@@ -132,6 +139,7 @@ export default function App() {
   }, []);
 
   const enterAuthenticatedPortal = useCallback(async (userId: string, expectedRole?: UserRole) => {
+    enteredPortalUserId.current = userId;
     // Auth succeeded: drop the /login?role=…&email=… prefill params so the
     // dashboard URL stays clean and the prefill can't leak into later states.
     if (typeof window !== 'undefined') {
@@ -172,8 +180,27 @@ export default function App() {
         const queryParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
         const hashParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.hash.replace(/^#/, '')) : new URLSearchParams();
         const isRecovery = queryParams.get('recovery') === '1';
+        const isConfirmationReturn = queryParams.get('confirmed') === '1';
         const recoveryError = queryParams.get('error_description') || hashParams.get('error_description');
-        if (isRecovery) {
+        if (isConfirmationReturn) {
+          // The PKCE code from the confirmation link has been exchanged by the
+          // time getSession() resolves, so a session here means the account is
+          // confirmed and the normal signed-in path below handles it. No session
+          // means the link was already used or opened where the exchange could
+          // not happen (another browser/device): send the user to sign in with
+          // an explanation instead of a bare login form.
+          if (!data.session?.user) {
+            setScreen('login');
+            setBackendError(
+              recoveryError
+                ? decodeURIComponent(recoveryError.replace(/\+/g, ' '))
+                : 'That confirmation link is no longer valid. Sign in, or create the account again if it was never confirmed.',
+            );
+            if (typeof window !== 'undefined') {
+              window.history.replaceState({}, document.title, loginPathWithPrefill(undefined, sessionEmail));
+            }
+          }
+        } else if (isRecovery) {
           setScreen('reset_password');
           if (recoveryError) {
             setPasswordRecoveryState('invalid');
@@ -186,8 +213,15 @@ export default function App() {
         } else if (data.session?.user) {
           await applyPendingOAuthRole(data.session.user.id);
           await enterAuthenticatedPortal(data.session.user.id, data.session.user.user_metadata?.role as UserRole | undefined);
-          if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('verified')) {
-            window.history.replaceState({}, document.title, window.location.pathname);
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            // Drop the one-time auth params so a reload cannot replay them.
+            if (params.has('verified') || params.has('confirmed')) {
+              params.delete('verified');
+              params.delete('confirmed');
+              const rest = params.toString();
+              window.history.replaceState({}, document.title, `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+            }
           }
         }
       } catch (error) {
@@ -239,12 +273,28 @@ export default function App() {
     void bootstrap();
     // Shared auth store: the app registers no direct Supabase auth listener, so
     // auth events stay single-sourced alongside the location sync lifecycle.
-    const unsubscribeAuth = subscribeToAuthChanges((event, _session, authSnapshot) => {
+    const unsubscribeAuth = subscribeToAuthChanges((event, session, authSnapshot) => {
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecoveryState('valid');
         setScreen('reset_password');
       }
+      if (event === 'SIGNED_IN' && session?.user) {
+        // Confirming an email or returning from a provider can produce the
+        // session after the bootstrap already decided the visitor was signed
+        // out. Enter the portal here as well — once per user — so those flows
+        // never leave a live session sitting on the welcome/login screen.
+        const userId = session.user.id;
+        if (enteredPortalUserId.current !== userId) {
+          enteredPortalUserId.current = userId;
+          void applyPendingOAuthRole(userId)
+            .then(() => enterAuthenticatedPortal(userId, session.user.user_metadata?.role as UserRole | undefined))
+            .catch((error) => {
+              setBackendError(mapBackendError(error, 'Unable to open your workspace.'));
+            });
+        }
+      }
       if (event === 'SIGNED_OUT') {
+        enteredPortalUserId.current = null;
         setCurrentUserId(null);
         setPasswordRecoveryState('idle');
         // An expired/revoked session returns to the login route; a deliberate
@@ -355,14 +405,21 @@ export default function App() {
         name: formData.name,
         phone: formData.phone,
       });
-      if (session && user) {
-        setCurrentUserId(user.id);
-        await hydrateWorkspace(user.id, 'seeker');
+      const outcome = resolveSignUpResult({ user, session });
+      if (outcome.status === 'signed_in') {
+        setCurrentUserId(outcome.userId);
+        await hydrateWorkspace(outcome.userId, 'seeker');
         setScreen('seeker_onboarding_step1');
+      } else if (outcome.status === 'confirmation_required') {
+        // The account exists; Supabase is waiting for the email confirmation.
+        // That is a successful sign-up, so never report it as a failure.
+        setPendingConfirmationEmail({ email: formData.email, role: 'seeker' });
+        setScreen('signup_confirmation');
       } else {
-        throw new Error('Account activation did not complete. Please try signing in or contact support.');
+        throw new Error('Unable to create your account. Please try again.');
       }
     } catch (error) {
+      if (isActionableAuthScreenError(error)) throw error;
       setBackendError(error instanceof Error ? error.message : 'Unable to create seeker account.');
     }
   };
@@ -385,14 +442,19 @@ export default function App() {
         name: formData.contactPerson,
         businessName: formData.businessName,
       });
-      if (session && user) {
-        setCurrentUserId(user.id);
-        await hydrateWorkspace(user.id, 'employer');
+      const outcome = resolveSignUpResult({ user, session });
+      if (outcome.status === 'signed_in') {
+        setCurrentUserId(outcome.userId);
+        await hydrateWorkspace(outcome.userId, 'employer');
         setScreen('employer_onboarding_step1');
+      } else if (outcome.status === 'confirmation_required') {
+        setPendingConfirmationEmail({ email: formData.email, role: 'employer' });
+        setScreen('signup_confirmation');
       } else {
-        throw new Error('Account activation did not complete. Please try signing in or contact support.');
+        throw new Error('Unable to create your account. Please try again.');
       }
     } catch (error) {
+      if (isActionableAuthScreenError(error)) throw error;
       setBackendError(error instanceof Error ? error.message : 'Unable to create employer account.');
     }
   };
@@ -413,6 +475,10 @@ export default function App() {
         throw portalError;
       }
     } catch (error) {
+      // The login screen renders these as cards with the next step in them
+      // (switch portal, reset the password, re-send the confirmation). Swallowing
+      // them here left the user with a sentence and nowhere to go.
+      if (isActionableAuthScreenError(error)) throw error;
       setBackendError(error instanceof Error ? error.message : 'Unable to sign in. Please try again.');
     }
   };
@@ -916,6 +982,16 @@ export default function App() {
         />
       )}
 
+      {/* SCREEN 3b: SIGNUP CONFIRMATION (account created, waiting for the email) */}
+      {screen === 'signup_confirmation' && (
+        <ConfirmEmailScreen
+          email={pendingConfirmationEmail?.email || ''}
+          role={pendingConfirmationEmail?.role || 'seeker'}
+          onResend={async (email) => { await authBackend.resendConfirmationEmail(email); }}
+          onBackToLogin={() => setScreen('login')}
+        />
+      )}
+
       {/* SCREEN 4: EMPLOYER SIGNUP */}
       {screen === 'employer_signup' && (
         <EmployerSignupScreen
@@ -932,6 +1008,7 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
           onSocialLogin={handleSocialLogin}
           onSignUp={() => setScreen('role_select')}
+          onResendConfirmation={async (email) => { await authBackend.resendConfirmationEmail(email); }}
           initialEmail={loginEmail}
           onForgotPassword={(email) => {
             const trimmed = (email || '').trim().toLowerCase();

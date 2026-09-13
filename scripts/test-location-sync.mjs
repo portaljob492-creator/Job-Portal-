@@ -17,10 +17,17 @@ import {
   projectRefFromUrl,
   NEXORA_SUPABASE_URL,
 } from '../src/lib/supabase.ts';
-import { resolveJobPortalRoute, loginPath } from '../src/routing.ts';
+import { pathForScreen, resolveJobPortalRoute, loginPath } from '../src/routing.ts';
 import { isSessionInvalidError } from '../src/lib/authErrors.ts';
 import { clearSessionBeforeSignUp } from '../src/lib/authSession.ts';
 import { createLocationSyncEngine, distanceMeters } from '../src/services/locationSync.ts';
+import { isEmailNotConfirmedError, resolveSignUpResult } from '../src/lib/signUpOutcome.ts';
+import {
+  isActionableAuthScreenError,
+  isPasswordSignInBlockedError,
+  PasswordSignInBlockedError,
+  PortalRoleMismatchError,
+} from '../src/lib/authErrors.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const checks = [];
@@ -390,6 +397,140 @@ assertCheck('location rpc granted to authenticated', /grant execute on function 
 assertCheck('rls not forced (definer write path intact)', !/force row level security/.test(migration));
 assertCheck('no insert policy for authenticated writers', !/for insert to authenticated/.test(migration));
 assertCheck('location cleanup rpc exists', /create or replace function public\.clear_user_location\(\)/.test(migration));
+
+// ---------------------------------------------------------------------------
+// 6. Sign-up / sign-in flow (email confirmation)
+// ---------------------------------------------------------------------------
+// Supabase returns a user with no session while the address is unconfirmed. The
+// signup screens used to call that a failure ("Account activation did not
+// complete"), which made every sign-up look broken while the account and the
+// confirmation email were created correctly.
+assertCheck(
+  'a session means the user is signed in',
+  resolveSignUpResult({ user: { id: 'u1' }, session: { access_token: 't' } }).status === 'signed_in',
+);
+assertCheck(
+  'a user without a session means the email must be confirmed',
+  resolveSignUpResult({ user: { id: 'u1' }, session: null }).status === 'confirmation_required',
+);
+assertCheck(
+  'a missing user is a failure',
+  resolveSignUpResult({ user: null, session: null }).status === 'failed'
+  && resolveSignUpResult(undefined).status === 'failed',
+);
+assertCheck(
+  'the confirmation branch keeps the created user id',
+  resolveSignUpResult({ user: { id: 'u9' }, session: null }).userId === 'u9',
+);
+
+const backendSource = sources.find((source) => source.file === 'src/services/backend.ts').text;
+assertCheck(
+  'sign-up sends the confirmation link back to this app',
+  /emailRedirectTo:\s*confirmationRedirectUrl\(\)/.test(backendSource)
+  && /confirmationRedirectUrl = \(\) => appCallbackUrl\('\?confirmed=1'\)/.test(backendSource),
+);
+assertCheck(
+  'the confirmation email can be re-sent with the same redirect',
+  /async resendConfirmationEmail/.test(backendSource)
+  && /type:\s*'signup'/.test(backendSource),
+);
+
+const appSource = sources.find((source) => source.file === 'src/App.tsx').text;
+assertCheck(
+  'sign-up no longer reports a confirmation-required account as a failure',
+  !/Account activation did not complete/.test(appSource)
+  && /outcome\.status === 'confirmation_required'/.test(appSource)
+  && /setScreen\('signup_confirmation'\)/.test(appSource),
+);
+assertCheck(
+  'the confirmation screen is rendered with the address and role',
+  /<ConfirmEmailScreen/.test(appSource)
+  && /email=\{pendingConfirmationEmail\?\.email/.test(appSource),
+);
+assertCheck(
+  'the confirmation screen can resend the email',
+  /onResend=\{async \(email\) => \{ await authBackend\.resendConfirmationEmail\(email\); \}\}/.test(appSource),
+);
+assertCheck(
+  'the app handles the return from the confirmation link',
+  /isConfirmationReturn/.test(appSource) && /params\.delete\('confirmed'\)/.test(appSource),
+);
+assertCheck(
+  'a session arriving from the email link still opens the portal',
+  /event === 'SIGNED_IN' && session\?\.user/.test(appSource)
+  && /enteredPortalUserId/.test(appSource),
+);
+
+const confirmScreen = sources.find((source) => source.file === 'src/components/auth/ConfirmEmailScreen.tsx');
+assertCheck('the confirmation screen exists', Boolean(confirmScreen));
+// Comments explain the old failure wording, so the check looks at the copy: strip
+// comments, then assert the screen still claims the account was created and
+// never uses failure language.
+const confirmScreenCopy = confirmScreen.text
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^\s*\/\/.*$/gm, '');
+assertCheck(
+  'the confirmation screen talks about the created account, not a failure',
+  /account has been created/.test(confirmScreenCopy) && !/fail/i.test(confirmScreenCopy),
+  'unexpected wording in the rendered copy',
+);
+assertCheck(
+  'the confirmation screen rate-limits resends',
+  /cooldown/.test(confirmScreen.text) && /formatRetryCountdown/.test(confirmScreen.text),
+);
+
+// The auth screens render structured failures as cards with the next step in
+// them. The app handlers therefore must NOT swallow those errors: swallowing
+// them was why the portal-switch, reset-link and re-send cards never appeared.
+assertCheck(
+  'structured auth errors are marked as screen-actionable',
+  isActionableAuthScreenError(new PortalRoleMismatchError({ email: 'a@b.com', requestedRole: 'seeker', existingRole: 'employer' }))
+  && isActionableAuthScreenError(new PasswordSignInBlockedError({ email: 'a@b.com', role: 'seeker', reason: 'wrong_password' }))
+  && !isActionableAuthScreenError(new Error('Invalid email or password.')),
+);
+const rethrowCount = (appSource.match(/if \(isActionableAuthScreenError\(error\)\) throw error;/g) || []).length;
+assertCheck(
+  'the app lets those errors reach the screen instead of a banner',
+  rethrowCount === 3,
+  `${rethrowCount} rethrow sites (login + both signups)`,
+);
+
+// Signing in before confirming must reach the user as an actionable state, not a
+// sentence: the login screen offers a re-send for exactly this reason.
+assertCheck(
+  'an unconfirmed sign-in is recognised',
+  isEmailNotConfirmedError(new Error('Email not confirmed'))
+  && isEmailNotConfirmedError({ message: 'email_not_confirmed' })
+  && !isEmailNotConfirmedError(new Error('Invalid login credentials')),
+);
+const unconfirmed = new PasswordSignInBlockedError({ email: 'a@b.com', role: 'seeker', reason: 'unconfirmed' });
+assertCheck(
+  'the unconfirmed state is structured and distinguishable',
+  isPasswordSignInBlockedError(unconfirmed)
+  && unconfirmed.reason === 'unconfirmed'
+  && /never confirmed/i.test(unconfirmed.message),
+);
+const loginSource = sources.find((source) => source.file === 'src/components/auth/LoginScreen.tsx').text;
+assertCheck(
+  'the login screen offers a resend for an unconfirmed account',
+  /onResendConfirmation/.test(loginSource)
+  && /signInBlocked\.reason === 'unconfirmed'/.test(loginSource)
+  && /handleResendConfirmation/.test(loginSource),
+);
+assertCheck(
+  'the login screen keeps the password and social path for the other reasons',
+  /signInBlocked\.reason !== 'unconfirmed'/.test(loginSource),
+);
+assertCheck(
+  'the backend raises the unconfirmed state before the generic mapper',
+  /isEmailNotConfirmedError\(error\)/.test(backendSource) && /reason: 'unconfirmed'/.test(backendSource),
+);
+
+assertCheck(
+  'the confirmation screen has a real route',
+  resolveJobPortalRoute(pathForScreen('signup_confirmation')).screen === 'signup_confirmation',
+  pathForScreen('signup_confirmation'),
+);
 
 console.log(`\n✅ ${checks.length} auth + location sync checks passed\n`);
 checks.forEach((name) => console.log(`  ✓ ${name}`));
