@@ -20,14 +20,14 @@ import {
   Check
 } from 'lucide-react';
 import { JobPosting, Application } from '../../types';
+import { getOfferDocumentUrl, mapBackendError } from '../../services/backend';
 
 interface JobOfferScreenProps {
   jobs: JobPosting[];
   applications: Application[];
   selectedApplication: Application | null;
-  onUpdateApplicationStatus: (appId: string, status: 'Submitted' | 'Under Review' | 'Interview Scheduled' | 'Offer Extended' | 'Accepted' | 'Declined', notes?: string) => void;
   /** Persists the answer through `accept_job_offer` / `decline_job_offer`. */
-  onOfferResponse?: (appId: string, action: 'accept' | 'decline', reason?: string) => void;
+  onOfferResponse?: (appId: string, action: 'accept' | 'decline', reason?: string) => Promise<void>;
   onBack: () => void;
   onNavigateTab?: (tab: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile') => void;
 }
@@ -36,59 +36,109 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
   jobs,
   applications,
   selectedApplication,
-  onUpdateApplicationStatus,
   onOfferResponse,
   onBack,
   onNavigateTab,
 }) => {
-  // Find matching application with 'Offer Extended' or fallback
-  const activeApp = selectedApplication || applications.find(a => a.status === 'Offer Extended') || applications[0] || {
-    id: 'mock-app',
-    jobId: 'mock-job',
-    jobTitle: 'Senior Hair Stylist',
-    salonName: 'Lumière Studio',
-    salonLogo: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB5JCqBiVfa_CwowlJQTTK_3eiwfgzf0Z_pWCPoR66iHIDnWdTP-9LiiTLzZTxOtz5HJf9bLk9EP0mNUCxumCZzM0Pmwefn6z0-gm4YPPCybj25rgcv3sPYZZxLYH0Vb3DXOe2V1qWVelxOYXhfccRaEHPtCX6kxTXwBjsEuww_XnixKQfqjq13RmtKMB10RjNUeKiXm-yvx2JrKNqO0Zj5PYIRZ4l94UjX9KIiXKDRSLfVkNB9MtY6-45ojbmNxLfHxQ',
-    location: 'Beverly Hills, CA',
-    appliedDate: 'Oct 28, 2023',
-    status: 'Offer Extended',
-    notes: 'We are thrilled to offer you this position. Your expertise in hair coloring and styling is exactly what we need at Lumière Studio. We look forward to having you on our team.',
-  };
+  const activeApp = selectedApplication
+    || applications.find((application) => application.status === 'Offer Extended')
+    || null;
 
   // Find matching job details
-  const matchingJob = jobs.find(j => j.id === activeApp.jobId);
+  const matchingJob = jobs.find((job) => job.id === activeApp?.jobId);
 
   // Offer dynamic state
-  const [offerState, setOfferState] = useState<'pending' | 'accepted' | 'declined'>('pending');
+  const [offerState, setOfferState] = useState<'pending' | 'accepted' | 'declined'>(
+    activeApp?.status === 'Accepted' ? 'accepted' : activeApp?.status === 'Declined' ? 'declined' : 'pending',
+  );
   const [showToast, setShowToast] = useState(false);
   const [showDeclineModal, setShowDeclineModal] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
+  const [pendingAction, setPendingAction] = useState<'accept' | 'decline' | 'download' | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // Extract variables
-  const jobTitle = matchingJob?.title || activeApp.jobTitle || 'Senior Hair Stylist';
-  const salonName = matchingJob?.salonName || activeApp.salonName || 'Lumière Studio';
-  const salonLogo = activeApp.salonLogo || matchingJob?.salonLogo || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=200';
-  const salary = matchingJob?.salary || activeApp.expectedSalary || '₹4,50,000 - ₹5,50,000 / year';
-  const jobType = matchingJob?.jobType || 'Full-time';
-  const location = matchingJob?.location || activeApp.location || 'Beverly Hills, CA';
-  
-  // Custom message/notes
-  const employerMessage = activeApp.notes || 'We are thrilled to offer you this position. Your expertise in hair coloring and styling is exactly what we need at Lumière Studio. We look forward to having you on our team.';
+  if (!activeApp) {
+    return (
+      <div className="min-h-screen bg-[#fdf8f8] text-[#1c1b1b]">
+        <header className="sticky top-0 z-40 flex h-16 items-center border-b border-[#e0bec6]/30 bg-white px-5 shadow-xs">
+          <button type="button" onClick={onBack} aria-label="Go back" className="flex h-10 w-10 items-center justify-center rounded-full text-[#8e004b] hover:bg-[#ffd9e2]/50">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <h1 className="mx-auto pr-10 text-lg font-bold text-[#8e004b]">Job Offer</h1>
+        </header>
+        <main className="mx-auto max-w-xl px-5 py-16 text-center">
+          <FileText className="mx-auto mb-4 h-10 w-10 text-[#8c7077]" />
+          <h2 className="text-lg font-bold">No active job offer</h2>
+          <p className="mt-2 text-sm text-[#594047]">Offers from employers will appear here with their confirmed terms.</p>
+          <button type="button" onClick={onBack} className="mt-6 rounded-full bg-[#8e004b] px-5 py-2.5 text-sm font-bold text-white">Back to applications</button>
+        </main>
+      </div>
+    );
+  }
 
-  const handleAccept = () => {
-    setOfferState('accepted');
-    onUpdateApplicationStatus(activeApp.id, 'Accepted', 'Offer accepted. Thank you!');
-    onOfferResponse?.(activeApp.id, 'accept');
-    setShowToast(true);
-    setTimeout(() => {
-      setShowToast(false);
-    }, 4000);
+  const jobTitle = activeApp.offerJobRole || matchingJob?.title || activeApp.jobTitle || 'Job offer';
+  const salonName = matchingJob?.salonName || activeApp.salonName || 'Employer';
+  const salonLogo = activeApp.salonLogo || matchingJob?.salonLogo;
+  const salary = activeApp.offerSalary == null
+    ? 'Not specified'
+    : `₹${activeApp.offerSalary.toLocaleString('en-IN')} / month`;
+  const jobType = activeApp.offerEmploymentType
+    ? activeApp.offerEmploymentType.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+    : 'Not specified';
+  const location = matchingJob?.location || activeApp.location || 'Location not specified';
+  const joiningDate = activeApp.offerJoiningDate
+    ? new Date(`${activeApp.offerJoiningDate}T00:00:00`).toLocaleDateString()
+    : 'To be confirmed';
+  const employerMessage = activeApp.offerNotes || 'No additional message was provided.';
+
+  const persistOfferResponse = async (action: 'accept' | 'decline', reason?: string) => {
+    if (!onOfferResponse) throw new Error('Offer updates are unavailable. Reload the page and try again.');
+    setPendingAction(action);
+    setActionError(null);
+    try {
+      await onOfferResponse(activeApp.id, action, reason);
+      setOfferState(action === 'accept' ? 'accepted' : 'declined');
+    } catch (error) {
+      setActionError(mapBackendError(error, 'Unable to update the offer. Please retry.'));
+      throw error;
+    } finally {
+      setPendingAction(null);
+    }
   };
 
-  const handleDeclineConfirm = () => {
-    setOfferState('declined');
-    onUpdateApplicationStatus(activeApp.id, 'Declined', `Offer declined. Reason: ${declineReason || 'None specified'}`);
-    onOfferResponse?.(activeApp.id, 'decline', declineReason);
-    setShowDeclineModal(false);
+  const handleAccept = async () => {
+    if (pendingAction) return;
+    try {
+      await persistOfferResponse('accept');
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 4000);
+    } catch {
+      // The offer remains pending and the inline error provides a retry path.
+    }
+  };
+
+  const handleDeclineConfirm = async () => {
+    if (pendingAction) return;
+    try {
+      await persistOfferResponse('decline', declineReason);
+      setShowDeclineModal(false);
+    } catch {
+      // Keep the reason intact for retry.
+    }
+  };
+
+  const handleDownloadOffer = async () => {
+    if (!activeApp.offerDocumentPath || pendingAction) return;
+    setPendingAction('download');
+    setActionError(null);
+    try {
+      const signedUrl = await getOfferDocumentUrl(activeApp.offerDocumentPath);
+      window.open(signedUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setActionError(mapBackendError(error, 'Unable to open the offer document. Please retry.'));
+    } finally {
+      setPendingAction(null);
+    }
   };
 
   return (
@@ -120,16 +170,11 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
         {/* Header Card: Identity */}
         <section className="bg-white rounded-2xl border border-[#e0bec6]/40 shadow-sm p-6 flex flex-col sm:flex-row gap-5 items-center sm:items-start text-center sm:text-left hover:shadow-md transition-shadow">
           <div className="w-20 h-20 rounded-2xl overflow-hidden border border-[#e0bec6]/30 shrink-0 relative shadow-inner bg-[#ffd9e2]/10 flex items-center justify-center">
-            <img 
-              alt={`${salonName} Logo`} 
-              className="w-full h-full object-cover" 
-              src={salonLogo}
-              onError={(e) => {
-                // Fail-safe placeholder
-                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=200';
-              }}
-              referrerPolicy="no-referrer"
-            />
+            {salonLogo ? (
+              <img alt={`${salonName} logo`} className="h-full w-full object-cover" src={salonLogo} referrerPolicy="no-referrer" />
+            ) : (
+              <Store className="h-8 w-8 text-[#8e004b]" />
+            )}
           </div>
           <div className="flex-grow flex flex-col gap-1 w-full">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -166,7 +211,7 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
               </div>
               <span className="text-[#594047] text-xs font-medium mb-1 uppercase tracking-wider">Salary Structure</span>
               <span className="text-base font-bold text-[#1c1b1b] leading-none">{salary}</span>
-              <span className="text-[10px] text-[#594047] font-semibold mt-1">Base + Commission</span>
+              <span className="text-[10px] text-[#594047] font-semibold mt-1">Confirmed offer amount</span>
             </div>
 
             {/* Employment Type Card */}
@@ -176,7 +221,7 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
               </div>
               <span className="text-[#594047] text-xs font-medium mb-1 uppercase tracking-wider">Employment Type</span>
               <span className="text-base font-bold text-[#1c1b1b] leading-none">{jobType}</span>
-              <span className="text-[10px] text-[#594047] font-semibold mt-1">Full-time standard</span>
+              <span className="text-[10px] text-[#594047] font-semibold mt-1">Offer employment terms</span>
             </div>
 
             {/* Joining Date Card */}
@@ -185,8 +230,8 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
                 <Calendar className="w-5 h-5" />
               </div>
               <span className="text-[#594047] text-xs font-medium mb-1 uppercase tracking-wider">Target Joining Date</span>
-              <span className="text-base font-bold text-[#1c1b1b] leading-none">Nov 15, 2026</span>
-              <span className="text-[10px] text-[#594047] font-semibold mt-1">Immediate start</span>
+              <span className="text-base font-bold text-[#1c1b1b] leading-none">{joiningDate}</span>
+              <span className="text-[10px] text-[#594047] font-semibold mt-1">Confirmed by the employer</span>
             </div>
 
           </div>
@@ -206,26 +251,32 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
 
         {/* Document Section */}
         <section>
-          <h3 className="text-base font-bold text-[#1c1b1b] mb-3">Documents</h3>
-          <div className="group bg-white rounded-2xl border border-[#e0bec6]/40 shadow-xs p-4 flex items-center gap-4 hover:border-[#8e004b] transition-all cursor-pointer">
-            <div className="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
-              <FileText className="w-6 h-6" />
+          <h3 className="mb-3 text-base font-bold text-[#1c1b1b]">Documents</h3>
+          {activeApp.offerDocumentPath ? (
+            <div className="flex items-center gap-4 rounded-2xl border border-[#e0bec6]/40 bg-white p-4 shadow-xs transition-all hover:border-[#8e004b]">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600">
+                <FileText className="h-6 w-6" />
+              </div>
+              <div className="min-w-0 flex-grow">
+                <p className="truncate text-sm font-bold text-[#1c1b1b]">Offer letter</p>
+                <p className="text-xs font-medium text-[#594047]">Private document • short-lived secure link</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleDownloadOffer()}
+                disabled={Boolean(pendingAction)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#e0bec6]/30 bg-[#fdf8f8] text-[#8e004b] transition-colors hover:border-[#8e004b] hover:bg-[#8e004b] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                title="Open offer document"
+              >
+                <Download className="h-4 w-4" />
+              </button>
             </div>
-            <div className="flex-grow min-w-0">
-              <p className="text-sm font-bold text-[#1c1b1b] truncate group-hover:text-[#8e004b] transition-colors">Offer_Letter_{salonName.replace(/\s+/g, '_')}.pdf</p>
-              <p className="text-xs text-[#594047] font-medium">PDF Document • 2.4 MB • Ready to sign</p>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-[#e0bec6] bg-white p-5 text-sm text-[#594047]">
+              The employer did not attach an offer document. Review the confirmed terms above.
             </div>
-            <button 
-              type="button"
-              onClick={() => {
-                alert('Offer letter downloaded. Please review, sign, and upload here if necessary.');
-              }}
-              className="w-10 h-10 rounded-full bg-[#fdf8f8] text-[#8e004b] flex items-center justify-center border border-[#e0bec6]/30 hover:bg-[#8e004b] hover:text-white hover:border-[#8e004b] transition-colors shrink-0 cursor-pointer"
-              title="Download Document"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-          </div>
+          )}
+          {actionError && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700">{actionError}</p>}
         </section>
 
       </main>
@@ -236,15 +287,17 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
           {offerState === 'pending' ? (
             <>
               <button 
-                onClick={handleAccept}
-                className="flex-1 h-12 bg-[#8e004b] text-white rounded-full font-bold flex items-center justify-center gap-2 hover:bg-[#b90064] active:scale-98 transition-all shadow-md cursor-pointer"
+                onClick={() => void handleAccept()}
+                disabled={Boolean(pendingAction)}
+                className="flex-1 h-12 bg-[#8e004b] text-white rounded-full font-bold flex items-center justify-center gap-2 hover:bg-[#b90064] active:scale-98 transition-all shadow-md cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <CheckCircle className="w-5 h-5" />
-                <span>Accept Offer</span>
+                <span>{pendingAction === 'accept' ? 'Accepting…' : 'Accept Offer'}</span>
               </button>
               <button 
                 onClick={() => setShowDeclineModal(true)}
-                className="flex-1 h-12 bg-white text-[#594047] border border-[#8c7077] rounded-full font-bold flex items-center justify-center gap-2 hover:bg-[#f1edec] active:scale-98 transition-all cursor-pointer"
+                disabled={Boolean(pendingAction)}
+                className="flex-1 h-12 bg-white text-[#594047] border border-[#8c7077] rounded-full font-bold flex items-center justify-center gap-2 hover:bg-[#f1edec] active:scale-98 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <XCircle className="w-5 h-5" />
                 <span>Decline Offer</span>
@@ -317,6 +370,7 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
               className="w-full h-28 p-3 rounded-xl border border-[#e0bec6]/50 focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] outline-none text-xs text-[#1c1b1b] resize-none mb-6"
             />
 
+            {actionError && <p role="alert" className="mb-3 text-xs font-semibold text-rose-700">{actionError}</p>}
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDeclineModal(false)}
@@ -325,10 +379,11 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
                 Cancel
               </button>
               <button
-                onClick={handleDeclineConfirm}
-                className="flex-1 h-10 rounded-full bg-rose-600 text-white font-bold text-xs hover:bg-rose-700 cursor-pointer"
+                onClick={() => void handleDeclineConfirm()}
+                disabled={Boolean(pendingAction)}
+                className="flex-1 h-10 rounded-full bg-rose-600 text-white font-bold text-xs hover:bg-rose-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Confirm Decline
+                {pendingAction === 'decline' ? 'Declining…' : 'Confirm Decline'}
               </button>
             </div>
           </div>

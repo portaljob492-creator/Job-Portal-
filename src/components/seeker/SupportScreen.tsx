@@ -42,6 +42,7 @@ import { uploadSupportAttachment } from '../../lib/storageMedia';
 
 interface SupportScreenProps {
   onBack: () => void;
+  userEmail?: string;
   onNavigateTab?: (tab: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile') => void;
 }
 
@@ -52,7 +53,7 @@ interface Message {
   time: string;
 }
 
-export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigateTab }) => {
+export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, userEmail, onNavigateTab }) => {
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -75,7 +76,7 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
 
   const [contactSubject, setContactSubject] = useState('');
   const [contactMessage, setContactMessage] = useState('');
-  const [contactEmail, setContactEmail] = useState('jane.doe@example.com');
+  const [contactEmail, setContactEmail] = useState(userEmail || '');
   
   const [reportJobQuery, setReportJobQuery] = useState('');
   const [reportJobHits, setReportJobHits] = useState<PublicJobHit[]>([]);

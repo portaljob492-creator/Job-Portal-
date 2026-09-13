@@ -4,7 +4,6 @@ import { requireSupabase } from '../../lib/supabase';
 import {
   MEDIA_BUCKETS,
   deleteMediaObject,
-  isRemoteUrl,
   isStoragePath,
   uploadAvatar,
 } from '../../lib/storageMedia';
@@ -26,8 +25,9 @@ import {
 
 interface ProfileImageUploaderProps {
   currentAvatar?: string;
+  currentAvatarPath?: string;
   userName: string;
-  onSaveAvatar: (newAvatarUrl: string | undefined) => void;
+  onSaveAvatar: (newAvatarUrl: string | undefined) => Promise<void>;
   onClose: () => void;
 }
 
@@ -67,6 +67,7 @@ const PRESET_HEADSHOTS = [
 
 export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
   currentAvatar,
+  currentAvatarPath,
   userName,
   onSaveAvatar,
   onClose,
@@ -238,46 +239,62 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
     }
   };
 
-  const removeOldStorageAvatar = (next: string | null) => {
-    // Best-effort cleanup of the replaced object; the DB update already won.
-    if (currentAvatar && isStoragePath(currentAvatar) && currentAvatar !== next) {
-      void deleteMediaObject(MEDIA_BUCKETS.profileMedia, currentAvatar);
+  const removeReplacedStorageAvatar = async (next: string | null) => {
+    // The stable path is passed separately from its expiring signed display URL.
+    // Cleanup happens only after the database has accepted the replacement.
+    if (currentAvatarPath && isStoragePath(currentAvatarPath) && currentAvatarPath !== next) {
+      await deleteMediaObject(MEDIA_BUCKETS.profileMedia, currentAvatarPath);
     }
   };
 
   const handleSave = async () => {
     if (isSaving) return;
-    // Unchanged avatar or a remote preset URL: nothing to upload.
-    if (!selectedFile || !selectedImage || isRemoteUrl(selectedImage)) {
-      onSaveAvatar(selectedImage || undefined);
+    if (!selectedFile && selectedImage === currentAvatar) {
       onClose();
       return;
     }
     setIsSaving(true);
     setSaveError(null);
+    let uploadedPath: string | null = null;
     try {
-      const { data: userData, error: userError } = await requireSupabase().auth.getUser();
-      if (userError) throw userError;
-      const userId = userData.user?.id;
-      if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
-      const storagePath = await uploadAvatar(userId, selectedFile);
-      removeOldStorageAvatar(storagePath);
-      onSaveAvatar(storagePath);
+      let value = selectedImage || undefined;
+      if (selectedFile && selectedImage) {
+        const { data: userData, error: userError } = await requireSupabase().auth.getUser();
+        if (userError) throw userError;
+        const userId = userData.user?.id;
+        if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+        uploadedPath = await uploadAvatar(userId, selectedFile);
+        value = uploadedPath;
+      }
+      await onSaveAvatar(value);
+      await removeReplacedStorageAvatar(uploadedPath || value || null);
       onClose();
     } catch (error) {
+      // A fresh object with no matching database row is an orphan; remove only
+      // that new object and retain the old, still-authoritative avatar.
+      if (uploadedPath) await deleteMediaObject(MEDIA_BUCKETS.profileMedia, uploadedPath);
       setSaveError(mapBackendError(error, 'Unable to save your photo.'));
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleRemovePhoto = () => {
-    setSelectedImage(null);
-    setCapturedPhoto(null);
-    setSelectedFile(null);
-    removeOldStorageAvatar(null);
-    onSaveAvatar(undefined);
-    onClose();
+  const handleRemovePhoto = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onSaveAvatar(undefined);
+      await removeReplacedStorageAvatar(null);
+      setSelectedImage(null);
+      setCapturedPhoto(null);
+      setSelectedFile(null);
+      onClose();
+    } catch (error) {
+      setSaveError(mapBackendError(error, 'Unable to remove your photo.'));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

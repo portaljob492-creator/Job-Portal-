@@ -4,10 +4,7 @@ import { ProfileImageUploader } from '../profile/ProfileImageUploader';
 import { MessagingCenter } from '../messaging/MessagingCenter';
 import { PortfolioGallery } from '../profile/PortfolioGallery';
 import { BeautyNews } from './BeautyNews';
-import { ResumePreview } from './ResumePreview';
 import { SeekerProfileTab } from './SeekerProfileTab';
-import { INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from '../../data/mockData';
-import { processNewJobForAlerts } from '../../utils/jobAlertMatcher';
 import {
   Search,
   MapPin,
@@ -88,8 +85,8 @@ interface JobSeekerWorkspaceProps {
   onWithdrawApplication: (applicationId: string) => Promise<void>;
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
-  onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
-  onUpdateProfile?: (updatedProfile: UserProfile) => void;
+  onUpdateAvatar?: (newAvatarUrl: string | undefined) => Promise<void>;
+  onUpdateProfile?: (updatedProfile: UserProfile) => Promise<void>;
   onSubmitProfile: (input: CandidateProfileInput) => Promise<CandidateProfileSubmission>;
   onMarkAlertRead?: (alertId: string) => void;
   onMarkAllAlertsRead?: () => void;
@@ -109,7 +106,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   conversations = [],
   messages = [],
   userProfile,
-  jobAlerts = INITIAL_JOB_ALERTS,
+  jobAlerts = [],
   onToggleBookmark,
   onApplyJob,
   isAuthenticated,
@@ -147,11 +144,8 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>(
-    userProfile.portfolioItems || INITIAL_PORTFOLIO_ITEMS
+    userProfile.portfolioItems || []
   );
-  const [workspaceResumeName, setWorkspaceResumeName] = useState<string>('Jane_Doe_Beauty_CV_2026.pdf');
-  const [resumeFileUrl, setResumeFileUrl] = useState<string | null>(null);
-  const [showResumePreviewModal, setShowResumePreviewModal] = useState<boolean>(false);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const [isJustUploaded, setIsJustUploaded] = useState<boolean>(false);
   
@@ -176,7 +170,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
 
   // Saved Search Filters State
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(
-    userProfile.savedFilters || INITIAL_SAVED_FILTERS
+    userProfile.savedFilters || []
   );
   const [showSaveFilterModal, setShowSaveFilterModal] = useState<boolean>(false);
   const [newFilterNameInput, setNewFilterNameInput] = useState<string>('');
@@ -258,37 +252,6 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
       })
     );
     showToast('Notification preference updated');
-  };
-
-  // Live Push Alert Simulation Engine Trigger
-  const handleSimulateNewMatchAlert = () => {
-    const targetFilter = savedFilters[0] || INITIAL_SAVED_FILTERS[0];
-    const simulatedJob: JobPosting = {
-      id: `job-sim-${Date.now()}`,
-      title: 'Lead Colorist & Senior Stylist',
-      salonName: 'Maison de Beauté Beverly Hills',
-      location: 'Beverly Hills, CA',
-      image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=600&q=80',
-      rating: 4.9,
-      reviewsCount: 38,
-      salary: '₹7,00,000 - ₹10,00,000/year',
-      jobType: 'Full-time',
-      category: (targetFilter.category && targetFilter.category !== 'All' ? targetFilter.category : 'Hair') as any,
-      tags: ['Balayage', 'Commission', 'Paid Education', 'Health Benefits'],
-      description: 'Prestigious salon searching for an elite Lead Colorist. High client retention, luxury chair setup.',
-      requirements: ['5+ years salon experience', 'Valid Cosmetology License', 'Balayage Mastery'],
-      benefits: ['Medical & Dental', '401k Matching', '55% Commission Split'],
-      postedDate: 'Just now'
-    };
-
-    const newAlerts = processNewJobForAlerts(simulatedJob, [targetFilter]);
-    if (newAlerts.length > 0) {
-      setAlertsList((prev) => [...newAlerts, ...prev]);
-      showToast(`🔔 Instant Push Alert: New job match for "${targetFilter.name}"!`);
-      setShowNotificationDrawer(true);
-    } else {
-      showToast('Simulated new job posting checked against saved search filters!');
-    }
   };
 
   const handleApplySavedFilter = (sf: SavedFilter) => {
@@ -2093,7 +2056,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                     )}
                     <div>
                       <h5 className="text-sm font-bold text-[#1c1b1b]">{userProfile.name}</h5>
-                      <p className="text-xs text-[#594047] font-medium">{userProfile.specialties?.[0] || 'Senior Beauty Professional'}</p>
+                      <p className="text-xs text-[#594047] font-medium">{userProfile.primaryRole || userProfile.specialties?.[0] || 'Role not added'}</p>
                       <p className="text-[11px] text-[#8c7077] mt-0.5">{userProfile.email} • {userProfile.phone}</p>
                     </div>
                   </div>
@@ -2101,24 +2064,24 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#e0bec6]/30 text-xs">
                     <div>
                       <span className="text-[#8c7077] block text-[11px]">Experience</span>
-                      <span className="font-semibold text-[#1c1b1b]">5+ Years Professional</span>
+                      <span className="font-semibold text-[#1c1b1b]">{Math.floor((userProfile.totalExperienceMonths || 0) / 12)} years professional</span>
                     </div>
                     <div>
                       <span className="text-[#8c7077] block text-[11px]">License</span>
-                      <span className="font-semibold text-[#1c1b1b]">{userProfile.licenseNumber || 'CA-COS-889124'}</span>
+                      <span className="font-semibold text-[#1c1b1b]">{userProfile.licenseNumber || 'Not added'}</span>
                     </div>
                     <div className="sm:col-span-2">
                       <span className="text-[#8c7077] block text-[11px]">Key Skills & Specialties</span>
-                      <span className="font-semibold text-[#1c1b1b]">{userProfile.specialties?.join(', ') || 'Balayage, Color Correction, Precision Cutting, Bridal Styling'}</span>
+                      <span className="font-semibold text-[#1c1b1b]">{userProfile.skills?.join(', ') || userProfile.specialties?.join(', ') || 'No skills added'}</span>
                     </div>
                   </div>
 
                   <div className="pt-2 border-t border-[#e0bec6]/30 flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2">
                       <FileText className="w-4 h-4 text-[#8e004b]" />
-                      <span className="font-medium text-[#1c1b1b]">Resume & Portfolio Attached</span>
+                      <span className="font-medium text-[#1c1b1b]">Resume attachment</span>
                     </div>
-                    <span className="font-bold text-[#e2007c] text-[11px] bg-[#ffd9e2]/50 px-2 py-1 rounded-lg">{workspaceResumeName}</span>
+                    <span className="font-bold text-[#e2007c] text-[11px] bg-[#ffd9e2]/50 px-2 py-1 rounded-lg">Select when applying</span>
                   </div>
                 </div>
 
@@ -2190,8 +2153,11 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
       {showImageUploader && (
         <ProfileImageUploader
           currentAvatar={userProfile.avatarUrl}
+          currentAvatarPath={userProfile.avatarPath}
           userName={userProfile.name}
-          onSaveAvatar={(newUrl) => onUpdateAvatar?.(newUrl)}
+          onSaveAvatar={(newUrl) => onUpdateAvatar
+            ? onUpdateAvatar(newUrl)
+            : Promise.reject(new Error('Profile photo saving is unavailable.'))}
           onClose={() => setShowImageUploader(false)}
         />
       )}
@@ -2361,15 +2327,6 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                 </label>
               </div>
 
-              {/* Simulation Trigger Button */}
-              <button
-                onClick={handleSimulateNewMatchAlert}
-                className="px-2.5 py-1 bg-[#ffd9e2] hover:bg-[#ffb0c8] text-[#8e004b] font-bold text-[11px] rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                title="Trigger a new job posting test to verify push alert matching"
-              >
-                <Sparkles className="w-3 h-3 text-[#e2007c]" />
-                <span>Test Alert</span>
-              </button>
             </div>
 
             {/* Notification List Content */}
@@ -2381,13 +2338,6 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                   <p className="text-xs text-[#594047] max-w-xs mx-auto leading-relaxed">
                     When new employers post jobs matching your saved search filters, instant push alerts will appear here in real time!
                   </p>
-                  <button
-                    onClick={handleSimulateNewMatchAlert}
-                    className="mt-2 px-4 py-2 bg-[#8e004b] text-white text-xs font-bold rounded-full shadow-xs cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <Sparkles className="w-4 h-4 text-amber-300" />
-                    <span>Simulate New Posting Match</span>
-                  </button>
                 </div>
               ) : (
                 alertsList.map((alert) => {
@@ -2467,22 +2417,6 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
           </div>
         </div>
       )}
-
-      {/* RESUME PREVIEW MODAL */}
-      <ResumePreview
-        isOpen={showResumePreviewModal}
-        onClose={() => setShowResumePreviewModal(false)}
-        resumeFileName={workspaceResumeName}
-        resumeFileUrl={resumeFileUrl}
-        userName={userProfile.name}
-        userEmail={userProfile.email}
-        userPhone={userProfile.phone}
-        userRole={userProfile.primaryRole}
-        userBio={userProfile.bio}
-        userSkills={userProfile.skills}
-        userLocation={userProfile.location}
-        onDownload={() => showToast('Downloading resume PDF...')}
-      />
 
       {/* FLOATING TOAST NOTIFICATION */}
       {toastMessage && (

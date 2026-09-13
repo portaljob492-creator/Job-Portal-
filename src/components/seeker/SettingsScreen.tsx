@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { UserProfile } from '../../types';
 import { ProfileEditor } from '../profile/ProfileEditor';
-import { changePassword, mapBackendError, requestAccountDeletion } from '../../services/backend';
+import { changePassword, listBlockedEmployers, mapBackendError, requestAccountDeletion, unblockEmployer } from '../../services/backend';
 import {
   ArrowLeft,
   User,
@@ -29,7 +29,7 @@ interface SettingsScreenProps {
   onLogout: () => void;
   onNavigateTab?: (tab: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile') => void;
   userProfile: UserProfile;
-  onUpdateProfile: (profile: UserProfile) => void;
+  onUpdateProfile: (profile: UserProfile) => Promise<void>;
 }
 
 interface BlockedEmployer {
@@ -50,13 +50,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [activeSection, setActiveSection] = useState<
     'account' | 'notifications' | 'privacy' | 'language' | 'password' | 'blocked' | 'terms' | 'policy' | null
   >(null);
-
-  // Account Settings state
-  const [fullName, setFullName] = useState('Jane Doe');
-  const [email, setEmail] = useState('jane.doe@example.com');
-  const [phone, setPhone] = useState('(555) 342-9988');
-  const [licenseNumber, setLicenseNumber] = useState('CA-COS-889124');
-  const [contactMethod, setContactMethod] = useState<'email' | 'phone' | 'both'>('both');
 
   // Notifications toggles
   const [emailAlerts, setEmailAlerts] = useState(true);
@@ -85,11 +78,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Blocked employers list
-  const [blockedEmployers, setBlockedEmployers] = useState<BlockedEmployer[]>([
-    { id: 'be-1', name: 'Velvet Hair Salon', location: 'Los Angeles, CA', dateBlocked: 'June 14, 2026' },
-    { id: 'be-2', name: 'Elite Nails Spa', location: 'Santa Monica, CA', dateBlocked: 'July 02, 2026' },
-    { id: 'be-3', name: 'Glow Esthetics Group', location: 'Beverly Hills, CA', dateBlocked: 'July 28, 2026' },
-  ]);
+  const [blockedEmployers, setBlockedEmployers] = useState<BlockedEmployer[]>([]);
+  const [blockedEmployersLoading, setBlockedEmployersLoading] = useState(true);
+  const [blockedEmployersError, setBlockedEmployersError] = useState<string | null>(null);
+  const [unblockingEmployerId, setUnblockingEmployerId] = useState<string | null>(null);
 
   // Modals / Confirmation dialogues
   const [employerToUnblock, setEmployerToUnblock] = useState<BlockedEmployer | null>(null);
@@ -120,11 +112,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }, 3000);
   };
 
-  const handleSaveAccount = (e: React.FormEvent) => {
-    e.preventDefault();
-    triggerToast('✅ Account changes saved successfully.');
-    setActiveSection(null);
-  };
+  const loadBlockedEmployerRows = useCallback(async () => {
+    setBlockedEmployersLoading(true);
+    setBlockedEmployersError(null);
+    try {
+      setBlockedEmployers(await listBlockedEmployers());
+    } catch (error) {
+      setBlockedEmployersError(mapBackendError(error, 'Unable to load blocked employers. Please retry.'));
+    } finally {
+      setBlockedEmployersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadBlockedEmployerRows(); }, [loadBlockedEmployerRows]);
 
   const handleUpdateNotifications = (key: string, value: boolean) => {
     if (key === 'email') setEmailAlerts(value);
@@ -181,10 +181,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  const handleUnblockEmployer = (employer: BlockedEmployer) => {
-    setBlockedEmployers(prev => prev.filter(emp => emp.id !== employer.id));
-    setEmployerToUnblock(null);
-    triggerToast(`🔓 Unblocked ${employer.name}.`);
+  const handleUnblockEmployer = async (employer: BlockedEmployer) => {
+    if (unblockingEmployerId) return;
+    setUnblockingEmployerId(employer.id);
+    setBlockedEmployersError(null);
+    try {
+      await unblockEmployer(employer.id);
+      setBlockedEmployers((current) => current.filter((item) => item.id !== employer.id));
+      setEmployerToUnblock(null);
+      triggerToast(`🔓 Unblocked ${employer.name}.`);
+    } catch (error) {
+      setBlockedEmployersError(mapBackendError(error, 'Unable to unblock this employer. Please retry.'));
+    } finally {
+      setUnblockingEmployerId(null);
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -463,8 +473,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             <ProfileEditor
               profile={userProfile}
-              onUpdate={(updatedProfile) => {
-                onUpdateProfile(updatedProfile);
+              onUpdate={async (updatedProfile) => {
+                await onUpdateProfile(updatedProfile);
                 triggerToast('✅ Account changes saved successfully.');
                 setActiveSection(null);
               }}
@@ -867,7 +877,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <p className="text-xs text-[#594047] mt-1 font-medium">Salons and aesthetic studios added to this list won't see your profile, browse portfolios, or contact you inside the chat pipeline.</p>
             </div>
 
-            {blockedEmployers.length === 0 ? (
+            {blockedEmployersLoading ? (
+              <div className="py-8 text-center text-xs font-semibold text-[#594047]">Loading blocked employers…</div>
+            ) : blockedEmployersError ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                <p role="alert" className="text-xs font-semibold text-rose-700">{blockedEmployersError}</p>
+                <button type="button" onClick={() => void loadBlockedEmployerRows()} className="mt-2 text-xs font-bold text-[#8e004b] hover:underline">Retry</button>
+              </div>
+            ) : blockedEmployers.length === 0 ? (
               <div className="py-12 text-center bg-[#fdf8f8] rounded-xl border border-dashed border-[#e0bec6] p-6">
                 <span className="material-symbols-outlined text-[#8c7077]/40 text-4xl mb-2">block</span>
                 <p className="text-xs font-bold text-[#1c1b1b]">No blocked employers</p>
@@ -1013,6 +1030,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <p className="text-[10px] text-[#594047] mt-1 leading-relaxed font-medium">
                   Are you sure you want to unblock <strong className="text-[#1c1b1b]">{employerToUnblock.name}</strong>? They will immediately regain ability to search your profile, view portfolio, and initiate chat listings.
                 </p>
+                {blockedEmployersError && <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{blockedEmployersError}</p>}
               </div>
             </div>
 
@@ -1024,10 +1042,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 Cancel
               </button>
               <button
-                onClick={() => handleUnblockEmployer(employerToUnblock)}
-                className="px-4 py-2 bg-[#8e004b] hover:bg-[#b90064] text-white rounded-full transition-colors cursor-pointer"
+                onClick={() => void handleUnblockEmployer(employerToUnblock)}
+                disabled={unblockingEmployerId === employerToUnblock.id}
+                className="px-4 py-2 bg-[#8e004b] hover:bg-[#b90064] text-white rounded-full transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Confirm Unblock
+                {unblockingEmployerId === employerToUnblock.id ? 'Unblocking…' : 'Confirm Unblock'}
               </button>
             </div>
           </div>

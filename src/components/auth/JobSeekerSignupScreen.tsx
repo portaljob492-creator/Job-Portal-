@@ -25,14 +25,14 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
   onLogin,
   onSwitchPortal,
 }) => {
-  const [fullName, setFullName] = useState('Jane Doe');
-  const [email, setEmail] = useState('jane@example.com');
-  const [phone, setPhone] = useState('(555) 000-0000');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [agreedToTerms, setAgreedToTerms] = useState(true);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);

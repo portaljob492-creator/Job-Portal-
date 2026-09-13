@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { JobPosting, Application, ResumeFile, UserProfile } from '../../types';
 import { listResumes, mapBackendError } from '../../services/backend';
 import { motion, AnimatePresence } from 'motion/react';
@@ -29,7 +29,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
   );
 
   // Form Fields
-  const [expectedSalary, setExpectedSalary] = useState<string>('65000');
+  const [expectedSalary, setExpectedSalary] = useState<string>('');
   const [availability, setAvailability] = useState<string>('immediate');
   const [coverNote, setCoverNote] = useState<string>('');
   
@@ -41,18 +41,24 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
   // The primary resume attaches to the application (optional but recommended).
   const [resumes, setResumes] = useState<ResumeFile[]>([]);
   const [selectedResumeId, setSelectedResumeId] = useState<string>('');
-  useEffect(() => {
-    let cancelled = false;
-    listResumes()
-      .then((files) => {
-        if (cancelled) return;
-        setResumes(files);
-        const primary = files.find((file) => file.isPrimary) ?? files[0];
-        if (primary) setSelectedResumeId(primary.id);
-      })
-      .catch(() => { if (!cancelled) setResumes([]); });
-    return () => { cancelled = true; };
+  const [isLoadingResumes, setIsLoadingResumes] = useState(true);
+  const [resumeLoadError, setResumeLoadError] = useState<string | null>(null);
+  const loadResumeOptions = useCallback(async () => {
+    setIsLoadingResumes(true);
+    setResumeLoadError(null);
+    try {
+      const files = await listResumes();
+      setResumes(files);
+      const primary = files.find((file) => file.isPrimary) ?? files[0];
+      setSelectedResumeId(primary?.id || '');
+    } catch (error) {
+      setResumes([]);
+      setResumeLoadError(mapBackendError(error, 'Unable to load your resumes. Retry, or apply without one.'));
+    } finally {
+      setIsLoadingResumes(false);
+    }
   }, []);
+  useEffect(() => { void loadResumeOptions(); }, [loadResumeOptions]);
 
   if (!selectedJob) {
     return (
@@ -172,12 +178,15 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                     </div>
                   )}
                   <div>
-                    <h3 className="font-card-title text-card-title text-on-surface">{userProfile.name || 'Anjali Sharma'}</h3>
+                    <h3 className="font-card-title text-card-title text-on-surface">{userProfile.name || 'Candidate'}</h3>
                     <p className="font-body-md text-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
                       <Briefcase className="w-4 h-4 text-outline" />
-                      {userProfile.primaryRole || 'Senior Hair Stylist'}
+                      {userProfile.primaryRole || 'Role not added'}
                     </p>
-                    <p className="font-label-sm text-xs text-outline mt-0.5">5+ Years Experience • License: {userProfile.licenseNumber || 'CA-COS-889124'}</p>
+                    <p className="font-label-sm text-xs text-outline mt-0.5">
+                      {Math.floor((userProfile.totalExperienceMonths || 0) / 12)} years experience
+                      {userProfile.licenseNumber ? ` • License: ${userProfile.licenseNumber}` : ''}
+                    </p>
                   </div>
                 </div>
 
@@ -192,12 +201,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                       </span>
                     ))
                   ) : (
-                    <>
-                      <span className="bg-secondary-fixed text-primary px-3 py-1 rounded-full font-label-sm text-xs border border-outline-variant/30">Color Correction</span>
-                      <span className="bg-secondary-fixed text-primary px-3 py-1 rounded-full font-label-sm text-xs border border-outline-variant/30">Balayage</span>
-                      <span className="bg-secondary-fixed text-primary px-3 py-1 rounded-full font-label-sm text-xs border border-outline-variant/30">Bridal Styling</span>
-                      <span className="bg-secondary-fixed text-primary px-3 py-1 rounded-full font-label-sm text-xs border border-outline-variant/30">Extensions</span>
-                    </>
+                    <span className="font-label-sm text-xs text-outline">No skills added yet</span>
                   )}
                 </div>
               </div>
@@ -206,7 +210,18 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
             {/* Resume Section */}
             <section className="mb-6">
               <h2 className="font-section-title text-section-title text-on-surface mb-3">Resume Attachment</h2>
-              {resumes.length === 0 ? (
+              {isLoadingResumes ? (
+                <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 text-sm text-on-surface-variant">
+                  Loading your resumes…
+                </div>
+              ) : resumeLoadError ? (
+                <div className="bg-surface-container-lowest border border-error/30 rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+                  <p role="alert" className="font-body-md text-sm text-error">{resumeLoadError}</p>
+                  <button type="button" onClick={() => void loadResumeOptions()} className="mt-2 text-primary text-xs font-semibold hover:underline">
+                    Retry resume loading
+                  </button>
+                </div>
+              ) : resumes.length === 0 ? (
                 <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
                   <p className="font-body-md text-sm text-on-surface-variant">
                     No resume on your profile yet. Upload one under Profile → Resume to attach it automatically — you can still apply without it.
@@ -270,13 +285,13 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                 
                 {/* Expected Salary */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="font-label-sm text-xs text-on-surface font-semibold" htmlFor="salary">Expected Salary (Annual)</label>
+                  <label className="font-label-sm text-xs text-on-surface font-semibold" htmlFor="salary">Expected Monthly Salary</label>
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-on-surface-variant font-body-md">₹</span>
                     <input
                       className="w-full bg-surface-container border border-surface-variant rounded-lg pl-8 pr-4 py-3 font-body-md text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:bg-surface-container-lowest transition-colors placeholder:text-outline"
                       id="salary"
-                      placeholder="e.g. 6,50,000"
+                      placeholder="e.g. 65,000"
                       type="number"
                       required
                       disabled={hasAlreadyApplied}
@@ -313,7 +328,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                   <textarea
                     className="w-full bg-surface-container border border-surface-variant rounded-lg px-4 py-3 font-body-md text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:bg-surface-container-lowest transition-colors placeholder:text-outline resize-none"
                     id="coverNote"
-                    placeholder="Briefly introduce yourself and why you're a great fit for Lumière Studio..."
+                    placeholder={`Briefly introduce yourself and why you're a great fit for ${selectedJob.salonName}…`}
                     rows={4}
                     disabled={hasAlreadyApplied}
                     value={coverNote}

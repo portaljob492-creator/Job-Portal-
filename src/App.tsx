@@ -1,7 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile, Conversation, ChatMessage, JobAlertNotification, CandidateProfileInput, CandidateProfileSubmission } from './types';
-import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERSATIONS, INITIAL_MESSAGES, INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from './data/mockData';
-import { processNewJobForAlerts } from './utils/jobAlertMatcher';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import {
   PortalRoleMismatchError,
@@ -28,6 +26,7 @@ import {
   completeSeekerOnboarding,
   createApplication,
   createConversationRecord,
+  deleteEmployerJob,
   setJobLifecycleState,
   createJob,
   deleteAlert,
@@ -46,13 +45,15 @@ import {
   sendMessageRecord,
   setBookmark,
   updateAlertRead,
-  updateEmployerSalonDetails,
+  updateEmployerProfile,
   updateJob,
+  uploadCandidateAvatar,
+  uploadResume,
   updateApplicationStatus,
   withdrawApplication,
   mapBackendError,
 } from './services/backend';
-import { MEDIA_BUCKETS, isStoragePath, resolveStorageUrls } from './lib/storageMedia';
+import { MEDIA_BUCKETS, deleteMediaObject, isStoragePath, resolveStorageUrls } from './lib/storageMedia';
 import type { InterviewSchedulePayload } from './lib/interviewSchedule';
 import { formatInterviewDateTime } from './lib/interviewSchedule';
 
@@ -110,26 +111,25 @@ export default function App() {
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [pendingOnboardingResume, setPendingOnboardingResume] = useState<File | null>(null);
 
   // Application Data States
-  const [jobs, setJobs] = useState<JobPosting[]>(INITIAL_JOBS);
-  const [applications, setApplications] = useState<Application[]>(INITIAL_APPLICATIONS);
-  const [applicants, setApplicants] = useState<Applicant[]>(INITIAL_APPLICANTS);
-  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
-  const [jobAlerts, setJobAlerts] = useState<JobAlertNotification[]>(INITIAL_JOB_ALERTS);
+  const [jobs, setJobs] = useState<JobPosting[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [jobAlerts, setJobAlerts] = useState<JobAlertNotification[]>([]);
 
   const [userProfile, setUserProfile] = useState<UserProfile>({
-    name: 'Jane Doe',
-    email: 'jane@example.com',
-    phone: '(555) 000-0000',
+    name: '',
+    email: '',
+    phone: '',
     role: 'seeker',
-    businessName: 'Nexora Beauty Group',
-    contactPerson: 'Sarah Jenkins',
-    licenseNumber: 'CA-COS-889124',
-    specialties: ['Balayage', 'Color Specialist', 'Facials'],
-    portfolioItems: INITIAL_PORTFOLIO_ITEMS,
-    savedFilters: INITIAL_SAVED_FILTERS,
+    specialties: [],
+    skills: [],
+    portfolioItems: [],
+    savedFilters: [],
   });
 
   const hydrateWorkspace = useCallback(async (userId: string, expectedRole?: UserRole) => {
@@ -428,13 +428,16 @@ export default function App() {
   const handleSeekerSignup = async (formData: { name: string; email: string; phone: string; password: string }) => {
     try {
       setUserRole('seeker');
-      setUserProfile((prev) => ({
-        ...prev,
+      setUserProfile({
         name: formData.name,
         email: formData.email,
         phone: formData.phone,
         role: 'seeker',
-      }));
+        specialties: [],
+        skills: [],
+        portfolioItems: [],
+        savedFilters: [],
+      });
       const { user, session } = await authBackend.signUp({
         role: 'seeker',
         email: formData.email,
@@ -464,14 +467,16 @@ export default function App() {
   const handleEmployerSignup = async (formData: { businessName: string; contactPerson: string; email: string; password: string }) => {
     try {
       setUserRole('employer');
-      setUserProfile((prev) => ({
-        ...prev,
+      setUserProfile({
         name: formData.contactPerson,
         email: formData.email,
+        phone: '',
         businessName: formData.businessName,
         contactPerson: formData.contactPerson,
         role: 'employer',
-      }));
+        portfolioItems: [],
+        savedFilters: [],
+      });
       const { user, session } = await authBackend.signUp({
         role: 'employer',
         email: formData.email,
@@ -637,12 +642,6 @@ export default function App() {
     }
 
     setJobs((prev) => [newJob, ...prev]);
-
-    // Demo-mode alert matcher. Supabase creates these through a database trigger.
-    const matchedAlerts = processNewJobForAlerts(newJob, userProfile.savedFilters || INITIAL_SAVED_FILTERS);
-    if (matchedAlerts.length > 0) {
-      setJobAlerts((prev) => [...matchedAlerts, ...prev]);
-    }
     return newJob;
   };
 
@@ -653,6 +652,18 @@ export default function App() {
       return savedJob;
     } catch (error) {
       const message = mapBackendError(error, 'Unable to update this job. Your changes are still here — please retry.');
+      setBackendError(message);
+      throw new Error(message);
+    }
+  };
+
+  const handleDeleteJob = async (jobId: string): Promise<void> => {
+    try {
+      if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
+      await deleteEmployerJob(jobId);
+      setJobs((current) => current.filter((job) => job.id !== jobId));
+    } catch (error) {
+      const message = mapBackendError(error, 'Unable to delete this job. Close it instead if candidates have applied.');
       setBackendError(message);
       throw new Error(message);
     }
@@ -809,55 +820,63 @@ export default function App() {
   };
 
   /** Candidate answers an interview invitation (accept / decline / reschedule). */
-  const handleInterviewResponse = (applicationId: string, action: 'accept' | 'decline' | 'reschedule', reason?: string) => {
-    if (!currentUserId) return;
+  const handleInterviewResponse = async (applicationId: string, action: 'accept' | 'decline' | 'reschedule', reason?: string): Promise<void> => {
+    if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
     const application = applications.find((app) => app.id === applicationId);
-    setApplications((prev) =>
-      prev.map((app) =>
-        app.id === applicationId
-          ? {
-              ...app,
-              status: action === 'accept' ? 'Interview Scheduled' : 'Under Review',
-              applicationStatus: 'Shortlisted',
-              notes:
-                action === 'decline'
-                  ? 'Declined current interview invitation. Awaiting further updates.'
-                  : action === 'reschedule'
-                    ? 'Reschedule requested with the hiring team.'
-                    : 'Interview accepted. Looking forward to meeting you!',
-            }
-          : app,
-      ),
-    );
-    if (!application?.interviewId) return;
-    void respondToInterview(application.interviewId, action, reason).catch((error) =>
-      setBackendError(mapBackendError(error, 'Unable to update the interview.')),
-    );
+    if (!application?.interviewId) throw new Error('This interview is no longer available. Refresh your applications and try again.');
+    try {
+      await respondToInterview(application.interviewId, action, reason);
+      setApplications((prev) =>
+        prev.map((app) =>
+          app.id === applicationId
+            ? {
+                ...app,
+                status: action === 'accept' ? 'Interview Scheduled' : 'Under Review',
+                applicationStatus: 'Shortlisted',
+                notes:
+                  action === 'decline'
+                    ? 'Declined current interview invitation. Awaiting further updates.'
+                    : action === 'reschedule'
+                      ? 'Reschedule requested with the hiring team.'
+                      : 'Interview accepted. Looking forward to meeting you!',
+              }
+            : app,
+        ),
+      );
+    } catch (error) {
+      const message = mapBackendError(error, 'Unable to update the interview. Please retry.');
+      setBackendError(message);
+      throw new Error(message);
+    }
   };
 
   /** Candidate answers a job offer. Hiring is completed by the employer. */
-  const handleOfferResponse = (applicationId: string, action: 'accept' | 'decline', reason?: string) => {
-    if (!currentUserId) return;
+  const handleOfferResponse = async (applicationId: string, action: 'accept' | 'decline', reason?: string): Promise<void> => {
+    if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
     const application = applications.find((app) => app.id === applicationId);
-    setApplications((prev) =>
-      prev.map((app) =>
-        app.id === applicationId
-          ? {
-              ...app,
-              status: action === 'accept' ? 'Accepted' : 'Declined',
-              applicationStatus: action === 'accept' ? 'Hired' : 'Rejected',
-              notes:
-                action === 'accept'
-                  ? 'Offer accepted. Thank you!'
-                  : `Offer declined. Reason: ${reason || 'None specified'}`,
-            }
-          : app,
-      ),
-    );
-    if (!application?.offerId) return;
-    void respondToJobOffer(application.offerId, action).catch((error) =>
-      setBackendError(mapBackendError(error, 'Unable to update the job offer.')),
-    );
+    if (!application?.offerId) throw new Error('This offer is no longer available. Refresh your applications and try again.');
+    try {
+      await respondToJobOffer(application.offerId, action);
+      setApplications((prev) =>
+        prev.map((app) =>
+          app.id === applicationId
+            ? {
+                ...app,
+                status: action === 'accept' ? 'Accepted' : 'Declined',
+                applicationStatus: action === 'accept' ? 'Hired' : 'Rejected',
+                notes:
+                  action === 'accept'
+                    ? 'Offer accepted. Thank you!'
+                    : `Offer declined. Reason: ${reason || 'None specified'}`,
+              }
+            : app,
+        ),
+      );
+    } catch (error) {
+      const message = mapBackendError(error, 'Unable to update the job offer. Please retry.');
+      setBackendError(message);
+      throw new Error(message);
+    }
   };
 
   const handleSendMessage = (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => {    const newMsg: ChatMessage = {
@@ -976,48 +995,46 @@ export default function App() {
     }
   };
 
-  const handleProfileUpdate = (updatedProfile: UserProfile) => {
-    // Salon brand/location rows live outside `job_save_profile`, so they are
-    // persisted separately — but only when they actually changed. Otherwise an
-    // onboarding-time save (whose profile never loaded the salon row) would
-    // blank the website/instagram/location the onboarding RPC just wrote.
-    const salonDetailsChanged =
-      updatedProfile.role === 'employer' &&
-      ((updatedProfile.website ?? '') !== (userProfile.website ?? '') ||
-        (updatedProfile.instagram ?? '') !== (userProfile.instagram ?? '') ||
-        (updatedProfile.location ?? '') !== (userProfile.location ?? ''));
-    setUserProfile(updatedProfile);
-    if (currentUserId) {
-      void saveProfile(currentUserId, updatedProfile)
-        .then(() => {
-          if (salonDetailsChanged && currentUserId) return updateEmployerSalonDetails(currentUserId, updatedProfile);
-        })
-        .catch((error) => setBackendError(mapBackendError(error, 'Unable to save profile.')));
+  const handleProfileUpdate = async (updatedProfile: UserProfile): Promise<void> => {
+    if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
+    setBackendError(null);
+    try {
+      if (updatedProfile.role === 'employer') {
+        await updateEmployerProfile(updatedProfile);
+      } else {
+        await saveProfile(currentUserId, updatedProfile);
+      }
+      // State follows the authoritative write; callers may show success or move
+      // to another screen only after this promise resolves.
+      setUserProfile(updatedProfile);
+    } catch (error) {
+      const message = mapBackendError(error, 'Unable to save profile. Please retry.');
+      setBackendError(message);
+      throw new Error(message);
     }
   };
 
-  const handleAvatarUpdate = (avatarUrl: string | undefined) => {
-    // `avatarUrl` is a storage path for fresh uploads (persisted as-is), a
-    // remote URL for presets, or undefined when removed. State always holds
-    // the renderable URL, so paths resolve to a signed URL first.
-    if (avatarUrl && isStoragePath(avatarUrl)) {
-      const path = avatarUrl;
-      setUserProfile((prev) => ({ ...prev, avatarUrl: undefined, avatarPath: path }));
-      void resolveStorageUrls(MEDIA_BUCKETS.profileMedia, [path]).then((resolved) => {
-        setUserProfile((prev) => ({ ...prev, avatarUrl: resolved.get(path), avatarPath: path }));
-      });
-    } else {
-      setUserProfile((prev) => ({ ...prev, avatarUrl, avatarPath: undefined }));
-    }
-    if (currentUserId) {
-      const updatedProfile = {
-        ...userProfile,
-        avatarUrl,
-        avatarPath: avatarUrl && isStoragePath(avatarUrl) ? avatarUrl : undefined,
-      };
-      void saveProfile(currentUserId, updatedProfile).catch((error) =>
-        setBackendError(mapBackendError(error, 'Unable to save profile photo.')),
-      );
+  const handleAvatarUpdate = async (avatarUrl: string | undefined): Promise<void> => {
+    if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
+    const path = avatarUrl && isStoragePath(avatarUrl) ? avatarUrl : undefined;
+    const updatedProfile: UserProfile = {
+      ...userProfile,
+      avatarUrl: path ? undefined : avatarUrl,
+      avatarPath: path,
+    };
+    try {
+      if (updatedProfile.role === 'employer') await updateEmployerProfile(updatedProfile);
+      else await saveProfile(currentUserId, updatedProfile);
+      if (path) {
+        const resolved = await resolveStorageUrls(MEDIA_BUCKETS.profileMedia, [path]);
+        setUserProfile({ ...updatedProfile, avatarUrl: resolved.get(path), avatarPath: path });
+      } else {
+        setUserProfile(updatedProfile);
+      }
+    } catch (error) {
+      const message = mapBackendError(error, 'Unable to save profile photo. Please retry.');
+      setBackendError(message);
+      throw new Error(message);
     }
   };
 
@@ -1221,18 +1238,37 @@ export default function App() {
             fullName: userProfile.name,
             email: userProfile.email,
             mobile: userProfile.phone,
+            city: userProfile.city,
+            state: userProfile.state,
             avatarUrl: userProfile.avatarUrl,
           }}
           onBack={() => setScreen('seeker_signup')}
-          onNext={(stepData) => {
-            handleProfileUpdate({
-              ...userProfile,
-              name: stepData.fullName || userProfile.name,
-              email: stepData.email || userProfile.email,
-              phone: stepData.mobile || userProfile.phone,
-              avatarUrl: stepData.avatarUrl || userProfile.avatarUrl,
-            });
-            setScreen('seeker_onboarding_step2');
+          onNext={async (stepData) => {
+            let uploadedAvatarPath: string | undefined;
+            try {
+              if (stepData.avatarFile) uploadedAvatarPath = await uploadCandidateAvatar(stepData.avatarFile);
+              await handleProfileUpdate({
+                ...userProfile,
+                name: stepData.fullName || userProfile.name,
+                // The authenticated email is read-only in this form.
+                email: userProfile.email,
+                phone: stepData.mobile || userProfile.phone,
+                city: stepData.city || undefined,
+                state: stepData.state || undefined,
+                avatarUrl: uploadedAvatarPath ? undefined : userProfile.avatarUrl,
+                avatarPath: uploadedAvatarPath || userProfile.avatarPath,
+              });
+              if (uploadedAvatarPath && userProfile.avatarPath && userProfile.avatarPath !== uploadedAvatarPath) {
+                await deleteMediaObject(MEDIA_BUCKETS.profileMedia, userProfile.avatarPath);
+              }
+              setPendingOnboardingResume(stepData.resumeFile || null);
+              setScreen('seeker_onboarding_step2');
+            } catch (error) {
+              if (uploadedAvatarPath) {
+                await deleteMediaObject(MEDIA_BUCKETS.profileMedia, uploadedAvatarPath);
+              }
+              throw error;
+            }
           }}
         />
       )}
@@ -1240,22 +1276,25 @@ export default function App() {
       {/* SCREEN 11: JOB SEEKER ONBOARDING STEP 2 */}
       {screen === 'seeker_onboarding_step2' && (
         <SeekerOnboardingStep2Screen
-          initialRoles={userProfile.primaryRole ? [userProfile.primaryRole] : ['Makeup Artist', 'Skin Therapist']}
+          initialRoles={userProfile.primaryRole ? [userProfile.primaryRole] : []}
           onBack={() => setScreen('seeker_onboarding_step1')}
           onNext={async (selectedRoles) => {
-            const updatedProfile = selectedRoles.length > 0
-              ? {
-                  ...userProfile,
-                  primaryRole: selectedRoles[0],
-                  specialties: Array.from(new Set([selectedRoles[0], ...(userProfile.specialties || [])])),
-                }
-              : userProfile;
-            handleProfileUpdate(updatedProfile);
+            const updatedProfile: UserProfile = {
+              ...userProfile,
+              primaryRole: selectedRoles[0],
+              specialties: Array.from(new Set([selectedRoles[0], ...(userProfile.specialties || [])])),
+            };
             try {
-              if (currentUserId) await completeSeekerOnboarding(updatedProfile, selectedRoles);
+              if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
+              await completeSeekerOnboarding(updatedProfile, selectedRoles);
+              if (pendingOnboardingResume) await uploadResume(pendingOnboardingResume);
+              setPendingOnboardingResume(null);
+              await hydrateWorkspace(currentUserId, 'seeker');
               setScreen('main_app');
             } catch (error) {
-              setBackendError(mapBackendError(error, 'Unable to complete onboarding.'));
+              const message = mapBackendError(error, 'Unable to complete onboarding. Your details are still here — please retry.');
+              setBackendError(message);
+              throw new Error(message);
             }
           }}
         />
@@ -1268,11 +1307,25 @@ export default function App() {
           onBack={() => setScreen('employer_signup')}
           onContinue={async (businessData) => {
             try {
-              if (currentUserId) await completeEmployerOnboarding(businessData);
-              handleProfileUpdate({ ...userProfile, businessName: businessData.businessName });
+              if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
+              await completeEmployerOnboarding(businessData);
+              await handleProfileUpdate({
+                ...userProfile,
+                businessName: businessData.businessName,
+                contactPerson: businessData.contactName || userProfile.contactPerson,
+                name: businessData.contactName || userProfile.name,
+                location: [businessData.city, businessData.state].filter(Boolean).join(', '),
+                city: businessData.city,
+                state: businessData.state,
+                bio: businessData.description || undefined,
+                website: businessData.website || undefined,
+                instagram: businessData.instagram?.replace(/^@+/, '') || undefined,
+              });
               setScreen('employer_onboarding_step2');
             } catch (error) {
-              setBackendError(mapBackendError(error, 'Unable to complete business setup.'));
+              const message = mapBackendError(error, 'Unable to complete business setup. Please retry.');
+              setBackendError(message);
+              throw new Error(message);
             }
           }}
         />
@@ -1358,6 +1411,7 @@ export default function App() {
               onStartConversation={handleStartConversation}
               onUpdateAvatar={handleAvatarUpdate}
               onUpdateProfile={handleProfileUpdate}
+              onDeleteJob={handleDeleteJob}
               onJobAction={handleJobAction}
               initialTab={employerInitialTab}
               initialJobId={employerApplicationJobId}
@@ -1395,11 +1449,6 @@ export default function App() {
           jobs={jobs}
           applications={applications}
           selectedApplication={selectedApplicationForInvitation}
-          onUpdateApplicationStatus={(appId, status, notes) => {
-            setApplications((prev) =>
-              prev.map((app) => (app.id === appId ? { ...app, status, notes } : app))
-            );
-          }}
           onInterviewResponse={handleInterviewResponse}
           onBack={() => {
             setSeekerInitialTab('applications');
@@ -1418,11 +1467,6 @@ export default function App() {
           jobs={jobs}
           applications={applications}
           selectedApplication={selectedApplicationForOffer}
-          onUpdateApplicationStatus={(appId, status, notes) => {
-            setApplications((prev) =>
-              prev.map((app) => (app.id === appId ? { ...app, status, notes } : app))
-            );
-          }}
           onOfferResponse={handleOfferResponse}
           onBack={() => {
             setSeekerInitialTab('applications');
@@ -1438,6 +1482,7 @@ export default function App() {
       {/* SCREEN 32 — SUPPORT */}
       {screen === 'support' && (
         <SupportScreen
+          userEmail={userProfile.email}
           onBack={() => setScreen('main_app')}
           onNavigateTab={(tab) => {
             setSeekerInitialTab(normalizeSeekerTab(tab));

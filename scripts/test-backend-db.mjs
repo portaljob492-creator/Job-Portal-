@@ -46,7 +46,7 @@ const db = await PGlite.create({ extensions: { pg_trgm } });
 // ---------------------------------------------------------------------------
 // Bootstrap: roles, schemas and the shared Nexora tables the Jobs schema reuses
 // ---------------------------------------------------------------------------
-await db.exec(`
+const bootstrapSql = `
   create role anon nologin;
   create role authenticated nologin;
   create role service_role nologin bypassrls;
@@ -137,7 +137,8 @@ await db.exec(`
 
   alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
   alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
-`);
+`;
+await db.exec(bootstrapSql);
 
 // ---------------------------------------------------------------------------
 // Apply every migration in filename order
@@ -147,12 +148,27 @@ for (const file of files) {
   let sql = fs.readFileSync(path.join(MIGRATION_DIR, file), 'utf8');
   sql = sql.replace(/create extension if not exists pgcrypto;?/gi, '-- [harness] pgcrypto is built in on pg13+');
   try {
+    if (file === '20260913001500_jobs_schema_contract.sql') {
+      await db.exec(`create unique index job_applications_redundant_probe
+        on public.job_applications(job_id,candidate_user_id)`);
+    }
     await db.exec(sql);
     console.log(`  applied  ${file}`);
   } catch (error) {
     console.log(`  FAILED   ${file}\n           ${error.message}`);
     process.exit(1);
   }
+}
+
+// The final reconciliation is intentionally safe to rerun against an already
+// reconciled catalog, as can happen during production recovery/deployment.
+const reconciliationFile = '20260913001500_jobs_schema_contract.sql';
+try {
+  await db.exec(fs.readFileSync(path.join(MIGRATION_DIR, reconciliationFile), 'utf8'));
+  console.log(`  reapplied ${reconciliationFile} (idempotency)`);
+} catch (error) {
+  console.log(`  FAILED   ${reconciliationFile} (idempotency)\n           ${error.message}`);
+  process.exit(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -253,8 +269,8 @@ check('updated_at trigger coverage', updatedAtTriggers.rows[0].n >= 19, `${updat
 const candidateContractRelation = (await db.query(`
   select relkind from pg_class c join pg_namespace n on n.oid=c.relnamespace
    where n.nspname='public' and c.relname='candidate_profiles'`)).rows[0];
-check('candidate_profiles is a compatibility view, not a duplicate table',
-  candidateContractRelation?.relkind === 'v', candidateContractRelation?.relkind || 'missing');
+check('candidate_profiles preserves a physical production table or uses a compatibility view when absent',
+  ['r','p','v'].includes(candidateContractRelation?.relkind), candidateContractRelation?.relkind || 'missing');
 
 const missingContractColumns = async (relation, required) => {
   const actual = new Set((await db.query(`
@@ -272,17 +288,16 @@ check('candidate profile compatibility shape is complete', missingCandidateColum
   missingCandidateColumns.join(', '));
 
 const missingPostColumns = await missingContractColumns('job_posts', [
-  'id','owner_id','salon_id','shop_id','business_name','job_title','category','job_role',
-  'description','skills_required','experience_required','salary_min','salary_max','pay_type',
-  'job_type','workplace_type','city','area','address','contact_person','contact_mobile',
-  'whatsapp_number','openings','interview_mode','status','created_at','updated_at',
+  'id','salon_id','created_by','title','category','description','employment_type',
+  'salary_min','salary_max','pay_type','workplace_type','openings','status','created_at','updated_at',
 ]);
-check('job post compatibility shape is complete', missingPostColumns.length === 0,
+check('existing rich job post shape remains intact', missingPostColumns.length === 0,
   missingPostColumns.join(', '));
 
 const missingApplicationColumns = await missingContractColumns('job_applications', [
-  'id','job_id','candidate_id','candidate_profile_id','candidate_user_id','owner_id',
-  'status','applied_at','submitted_at','updated_at',
+  'id','job_id','candidate_user_id','candidate_profile_id','resume_id','cover_note',
+  'expected_salary','available_from','status','employer_notes','submitted_at','updated_at',
+  'candidate_id','owner_id','applied_at',
 ]);
 check('job application compatibility shape is complete', missingApplicationColumns.length === 0,
   missingApplicationColumns.join(', '));
@@ -293,10 +308,11 @@ const contractForeignKeys = await db.query(`
     join pg_namespace n on n.oid=t.relnamespace
    where n.nspname='public' and t.relname in ('job_posts','job_applications') and c.contype='f'`);
 const contractFkText = contractForeignKeys.rows.map((row) => row.definition).join(' | ');
-check('compatibility owners and candidate references have direct foreign keys',
-  /FOREIGN KEY \(owner_id\) REFERENCES auth\.users\(id\)/.test(contractFkText)
-    && /FOREIGN KEY \(candidate_id\) REFERENCES job_seeker_profiles\(id\)/.test(contractFkText)
-    && /FOREIGN KEY \(candidate_user_id\) REFERENCES auth\.users\(id\)/.test(contractFkText),
+check('application owners and both candidate models retain direct foreign keys',
+  /FOREIGN KEY \(owner_id\) REFERENCES auth\.users\(id\) ON DELETE CASCADE/.test(contractFkText)
+    && /FOREIGN KEY \(candidate_id\) REFERENCES (candidate_profiles|job_seeker_profiles)\(id\) ON DELETE CASCADE/.test(contractFkText)
+    && /FOREIGN KEY \(candidate_profile_id\) REFERENCES job_seeker_profiles\(id\) ON DELETE RESTRICT/.test(contractFkText)
+    && /FOREIGN KEY \(candidate_user_id\) REFERENCES profiles\(id\) ON DELETE RESTRICT/.test(contractFkText),
   contractFkText);
 
 const applicationUniqueColumns = await db.query(`
@@ -306,9 +322,21 @@ const applicationUniqueColumns = await db.query(`
     join pg_attribute a on a.attrelid=c.conrelid and a.attnum=keys.attnum
    where c.conrelid='public.job_applications'::regclass and c.contype='u'
    group by c.oid`);
-check('database enforces one application per candidate per job',
-  applicationUniqueColumns.rows.some((row) => JSON.stringify(row.columns) === JSON.stringify(['job_id','candidate_user_id'])),
-  JSON.stringify(applicationUniqueColumns.rows));
+const equivalentApplicationGuards = applicationUniqueColumns.rows.filter(
+  (row) => JSON.stringify(row.columns) === JSON.stringify(['job_id','candidate_user_id']),
+);
+check('database retains exactly one candidate/job unique constraint',
+  equivalentApplicationGuards.length === 1, JSON.stringify(applicationUniqueColumns.rows));
+const equivalentUniqueIndexes = await db.query(`
+  select x.relname from pg_index i join pg_class x on x.oid=i.indexrelid
+  where i.indrelid='public.job_applications'::regclass and i.indisunique and i.indisvalid
+    and i.indpred is null and i.indexprs is null
+    and array(select a.attname from unnest(i.indkey::smallint[]) k(attnum)
+      join pg_attribute a on a.attrelid=i.indrelid and a.attnum=k.attnum order by a.attname)
+      = array['candidate_user_id','job_id']::name[]`);
+check('redundant equivalent standalone unique indexes are consolidated',
+  equivalentUniqueIndexes.rows.length === 1,
+  equivalentUniqueIndexes.rows.map((row) => row.relname).join(', '));
 check('candidate profile compatibility access is authenticated-only',
   !(await db.query(`select has_table_privilege('anon','public.candidate_profiles','SELECT') as allowed`)).rows[0].allowed
     && (await db.query(`select has_table_privilege('authenticated','public.candidate_profiles','SELECT') as allowed`)).rows[0].allowed);
@@ -426,17 +454,6 @@ check('Post a Job persists business, location, openings, contact and interview f
   JSON.stringify(publishedPost));
 check('Published Post a Job rows are live with a server publication timestamp',
   publishedPost.status === 'approved' && Boolean(publishedPost.published_at), JSON.stringify(publishedPost));
-const postContractAliases = (await db.query(`
-  select owner_id,job_title,skills_required,experience_required,job_type,address
-    from public.job_posts where id='${publishedPostId}'`)).rows[0];
-check('job post compatibility aliases stay synchronized with canonical writes',
-  postContractAliases.owner_id === employer
-    && postContractAliases.job_title === 'Colour Specialist'
-    && JSON.stringify(postContractAliases.skills_required) === JSON.stringify(['Hair colouring','Customer service'])
-    && postContractAliases.experience_required === '1 - 5 years'
-    && postContractAliases.job_type === 'full_time'
-    && postContractAliases.address === '1 Main Street',
-  JSON.stringify(postContractAliases));
 const publicPublishedPost = (await db.query(`select salon_name,city,area from public.public_job_listings where id='${publishedPostId}'`)).rows[0];
 check('published employer jobs appear in candidate search with the entered salon and area',
   publicPublishedPost?.salon_name === 'Probe Salon' && publicPublishedPost?.city === 'Jaipur'
@@ -974,9 +991,11 @@ check('anon cannot read skills of an unapproved job', anonSkills.rows[0].n === 0
 const insertPolicyCount = async (table) => (await db.query(`
   select count(*)::int as n from pg_policies
    where schemaname='public' and tablename='${table}' and cmd in ('INSERT','ALL')`)).rows[0].n;
-for (const table of ['job_salon_members', 'job_salon_profiles', 'job_posts']) {
+for (const table of ['job_salon_members', 'job_salon_profiles']) {
   check(`no client insert policy on ${table}`, (await insertPolicyCount(table)) === 0, `${await insertPolicyCount(table)} policies`);
 }
+check('job posts expose one authenticated owner/admin insert policy',
+  (await insertPolicyCount('job_posts')) === 1, `${await insertPolicyCount('job_posts')} policies`);
 const forgedMembership = await asUser(employerB, async () => {
   try {
     await db.query(`insert into public.job_salon_members(salon_id,user_id,member_role,status)
@@ -1215,8 +1234,8 @@ const ownerCandidateProfile = await rpc(employer, `
   select user_id from public.candidate_profiles where user_id='${seeker}'`);
 const unrelatedFlatProfile = await rpc(outsider, `
   select user_id from public.candidate_profiles where user_id='${seeker}'`);
-check('job owner can read the compatibility profile of their applicant',
-  ownerCandidateProfile.rows.length === 1, `${ownerCandidateProfile.rows.length} rows`);
+check('compatibility profile remains private even from a related employer',
+  ownerCandidateProfile.rows.length === 0, `${ownerCandidateProfile.rows.length} rows`);
 check('compatibility view hides candidate PII from unrelated users',
   unrelatedFlatProfile.rows.length === 0, `${unrelatedFlatProfile.rows.length} rows`);
 const invalidLateCandidateSubmit = await caught(seeker, `select * from public.job_submit_candidate_profile(
@@ -1433,6 +1452,15 @@ const linkedJob = (await rpc(employer, `select public.create_job_post(
   'A posting used to check who may read an attached resume.', 'full_time') as id`)).rows[0].id;
 await rpc(admin, `select public.approve_job('${linkedJob}')`);
 await rpc(seeker, `select public.submit_job_application('${linkedJob}', '${resumeId}')`);
+const linkedApplicationId = (await db.query(`select id from public.job_applications
+  where job_id='${linkedJob}' and candidate_user_id='${seeker}'`)).rows[0].id;
+await db.query(`insert into public.job_portfolio_items(candidate_id,title,category,image_path)
+  values((select id from public.job_seeker_profiles where user_id='${seeker}'),
+    'Applicant portfolio work','Hair','${seeker}/portfolio/work.jpg')`);
+const ownerPortfolio = await rpc(employer, `select id,title from public.job_get_applicant_portfolio('${linkedApplicationId}')`);
+check('salon owner can load applicant portfolio through the limited RPC',
+  ownerPortfolio.rows.length === 1 && ownerPortfolio.rows[0].title === 'Applicant portfolio work',
+  JSON.stringify(ownerPortfolio.rows));
 const employerResume = await asUser(employer, () =>
   db.query(`select count(*)::int as n from storage.objects where bucket_id='job-resumes' and name='${seeker}/resume.pdf'`));
 check('the employer can read the resume attached to an application they own',
@@ -1450,10 +1478,8 @@ check('job-specific employer applications return the candidate card and attached
   JSON.stringify(employerApplicationCards.rows));
 const compatibleResume = await rpc(employer, `
   select resume_url from public.candidate_profiles where user_id='${seeker}'`);
-check('candidate compatibility view exposes only an application-attached resume to the job owner',
-  compatibleResume.rows.length === 1
-    && compatibleResume.rows[0].resume_url === `${seeker}/resume.pdf`,
-  JSON.stringify(compatibleResume.rows));
+check('candidate compatibility profile remains candidate/admin-only',
+  compatibleResume.rows.length === 0, JSON.stringify(compatibleResume.rows));
 let foreignApplicationsError = '';
 try {
   await rpc(employerB, `select * from public.get_employer_job_applications('${linkedJob}')`);
@@ -1505,7 +1531,7 @@ check('the employer can resubmit a rejected posting', (await lifecycleStatus()) 
 await rpc(admin, `select public.approve_job('${lifecycleJob}')`);
 check('an admin approval makes the posting live', (await lifecycleStatus()) === 'approved', await lifecycleStatus());
 const strangerPause = await caught(employerB, `select public.pause_job('${lifecycleJob}')`);
-check('another salon cannot pause this posting', /INVALID_JOB_TRANSITION/.test(strangerPause.error ?? ''), strangerPause.error || 'allowed');
+check('another salon cannot pause this posting', /INVALID_JOB_TRANSITION|SALON_ACCESS_DENIED/.test(strangerPause.error ?? ''), strangerPause.error || 'allowed');
 
 await rpc(employer, `select public.pause_job('${lifecycleJob}')`);
 check('the employer can pause a live posting', (await lifecycleStatus()) === 'paused', await lifecycleStatus());
@@ -1520,6 +1546,369 @@ check('a closed posting cannot be resumed', /INVALID_JOB_TRANSITION/.test(resume
 const draftVisibility = (await db.query(`
   select count(*)::int as n from public.public_job_listings where id = '${lifecycleJob}'`)).rows[0].n;
 check('a closed posting is not listed publicly', draftVisibility === 0, `${draftVisibility} rows`);
+
+// ---------------------------------------------------------------------------
+// 13. Authority hardening: spoofing, atomic writes, and guarded deletion
+// ---------------------------------------------------------------------------
+await rpc(candidateB, `select public.complete_job_seeker_onboarding(
+  'Stylist','Candidate B profile','Jaipur','Rajasthan','junior',12,null,null,null,false,'{}','{full_time}')`);
+const candidateProfileInserter = uid(11);
+await db.exec(`
+  insert into auth.users(id,email,raw_user_meta_data) values
+    ('${candidateProfileInserter}','candidate-insert@example.com','{"app_context":"jobs","job_role":"seeker"}');
+  insert into public.profiles(id,full_name,is_active) values
+    ('${candidateProfileInserter}','Candidate Insert',true)
+  on conflict(id) do update set full_name=excluded.full_name,is_active=true;
+`);
+await rpc(candidateProfileInserter, `select public.job_register_role('job_seeker')`);
+const ownCandidateProfileInsert = await asUser(candidateProfileInserter, () => db.query(`
+  insert into public.job_seeker_profiles(user_id,headline,bio,city,state,experience_level,total_experience_months)
+  values('${candidateProfileInserter}','New candidate','Own profile','Jaipur','Rajasthan','fresher',0)
+  returning user_id`));
+check('candidate can insert their own canonical profile through RLS',
+  ownCandidateProfileInsert.rows[0]?.user_id === candidateProfileInserter,
+  JSON.stringify(ownCandidateProfileInsert.rows));
+const forgedCandidateProfileInsert = await asUser(candidateProfileInserter, async () => {
+  try {
+    await db.query(`insert into public.job_seeker_profiles(user_id,headline,total_experience_months)
+      values('${employerB}','Forged profile',0)`);
+    return 'inserted';
+  } catch (error) { return error.message; }
+});
+check('candidate cannot insert a profile for another user',
+  forgedCandidateProfileInsert !== 'inserted', forgedCandidateProfileInsert);
+const ownCandidateProfileUpdate = await asUser(candidateB, () => db.query(`
+  update public.job_seeker_profiles set bio='Candidate B updated own profile'
+  where user_id='${candidateB}' returning user_id`));
+check('candidate can update only their own canonical profile through RLS',
+  ownCandidateProfileUpdate.rows[0]?.user_id === candidateB, JSON.stringify(ownCandidateProfileUpdate.rows));
+const foreignCandidateProfileUpdate = await asUser(seeker, () => db.query(`
+  update public.job_seeker_profiles set bio='forged' where user_id='${candidateB}' returning user_id`));
+check('candidate cannot update another candidate profile',
+  foreignCandidateProfileUpdate.rows.length === 0, JSON.stringify(foreignCandidateProfileUpdate.rows));
+const employerCandidateProjection = await asUser(employer, () =>
+  db.query(`select count(*)::int as n from public.candidate_profiles where user_id='${candidateB}'`));
+check('employer cannot browse private candidate compatibility profiles',
+  employerCandidateProjection.rows[0].n === 0, `${employerCandidateProjection.rows[0].n} rows`);
+const adminCandidateProjection = await asUser(admin, () =>
+  db.query(`select count(*)::int as n from public.candidate_profiles`));
+check('admin can view all candidate compatibility profiles',
+  adminCandidateProjection.rows[0].n >= 2, `${adminCandidateProjection.rows[0].n} rows`);
+const sameSalonRecruiter = uid(10), sameSalonManager = uid(12);
+await db.exec(`
+  insert into auth.users(id,email,raw_user_meta_data) values
+    ('${sameSalonRecruiter}','recruiter@example.com','{"app_context":"jobs","job_role":"employer"}'),
+    ('${sameSalonManager}','manager@example.com','{"app_context":"jobs","job_role":"employer"}');
+  insert into public.profiles(id,full_name,is_active) values
+    ('${sameSalonRecruiter}','Same Salon Recruiter',true),
+    ('${sameSalonManager}','Same Salon Manager',true)
+  on conflict(id) do update set full_name=excluded.full_name,is_active=true;
+`);
+await rpc(sameSalonRecruiter, `select public.job_register_role('employer')`);
+await rpc(sameSalonManager, `select public.job_register_role('employer')`);
+await db.exec(`insert into public.job_salon_members(salon_id,user_id,member_role,status) values
+  ('${salonId}','${sameSalonRecruiter}','recruiter','active'),
+  ('${salonId}','${sameSalonManager}','manager','active')`);
+const recruiterMembership = await asUser(sameSalonRecruiter, () =>
+  db.query(`select public.job_is_active_salon_member('${salonId}') as allowed`));
+check('recruiter membership is active through the preserved salon helper',
+  recruiterMembership.rows[0]?.allowed === true, JSON.stringify(recruiterMembership.rows));
+const managerMembership = await asUser(sameSalonManager, () =>
+  db.query(`select public.job_is_active_salon_member('${salonId}') as allowed`));
+check('manager membership is active through the preserved salon helper',
+  managerMembership.rows[0]?.allowed === true, JSON.stringify(managerMembership.rows));
+const managerApplicationRows = await asUser(sameSalonManager, () =>
+  db.query(`select count(*)::int as n from public.job_applications where job_id='${linkedJob}'`));
+check('an active same-salon manager can read application rows',
+  managerApplicationRows.rows[0].n === 1, `${managerApplicationRows.rows[0].n} rows`);
+const teammateApplicationRows = await asUser(sameSalonRecruiter, () =>
+  db.query(`select count(*)::int as n from public.job_applications where job_id='${linkedJob}'`));
+check('an active same-salon recruiter can read application rows',
+  teammateApplicationRows.rows[0].n === 1, `${teammateApplicationRows.rows[0].n} rows`);
+const teammatePortfolioRows = await caught(sameSalonRecruiter,
+  `select id from public.job_get_applicant_portfolio('${linkedApplicationId}')`);
+check('an active same-salon recruiter can load applicant portfolio through the managed application',
+  !teammatePortfolioRows.error, teammatePortfolioRows.error || 'allowed');
+const teammateResumeRows = await asUser(sameSalonRecruiter, () =>
+  db.query(`select count(*)::int as n from storage.objects where bucket_id='job-resumes' and name='${seeker}/resume.pdf'`));
+check('an active same-salon recruiter can read the related applicant resume',
+  teammateResumeRows.rows[0].n === 1, `${teammateResumeRows.rows[0].n} rows`);
+const teammateApplicationAction = await caught(sameSalonRecruiter,
+  `select public.mark_application_viewed((select id from public.job_applications where job_id='${linkedJob}' limit 1))`);
+check('an active same-salon recruiter can mutate the managed application workflow',
+  !teammateApplicationAction.error, teammateApplicationAction.error || 'allowed');
+
+const forgedApplication = await asUser(candidateB, async () =>
+  (await db.query(`insert into public.job_applications(
+    job_id,candidate_user_id,candidate_profile_id,candidate_id,owner_id
+  ) values(
+    '${linkedJob}','${seeker}',
+    (select id from public.job_seeker_profiles where user_id='${seeker}'),
+    (select id from public.job_seeker_profiles where user_id='${seeker}'),
+    '${employerB}'
+  ) returning id,candidate_user_id,candidate_profile_id,candidate_id,owner_id`)).rows[0]);
+const candidateBProfileId = (await db.query(`select id from public.job_seeker_profiles where user_id='${candidateB}'`)).rows[0].id;
+check('application trigger ignores spoofed candidate and owner ids',
+  forgedApplication.candidate_user_id === candidateB
+    && forgedApplication.candidate_profile_id === candidateBProfileId
+    && forgedApplication.candidate_id === candidateBProfileId
+    && forgedApplication.owner_id === employer,
+  JSON.stringify(forgedApplication));
+const immutableApplication = await (async () => {
+  try {
+    await db.query(`update public.job_applications set candidate_user_id='${seeker}' where id='${forgedApplication.id}'`);
+    return 'updated';
+  } catch (error) { return error.message; }
+})();
+check('application ownership and job references are immutable',
+  /IMMUTABLE_APPLICATION_OWNERSHIP/.test(immutableApplication), immutableApplication);
+const candidateDirectStatusUpdate = await asUser(candidateB, () =>
+  db.query(`update public.job_applications set status='viewed' where id='${forgedApplication.id}' returning status`));
+check('candidate cannot directly update their application status',
+  candidateDirectStatusUpdate.rows.length === 0, JSON.stringify(candidateDirectStatusUpdate.rows));
+const ownerStatusUpdate = await asUser(employer, () =>
+  db.query(`update public.job_applications set status='viewed' where id='${forgedApplication.id}' returning status`));
+check('salon owner can update an applicant status through RLS',
+  ownerStatusUpdate.rows[0]?.status === 'viewed', JSON.stringify(ownerStatusUpdate.rows));
+const managerStatusUpdate = await asUser(sameSalonManager, () =>
+  db.query(`update public.job_applications set status='shortlisted' where id='${forgedApplication.id}' returning status`));
+check('an active same-salon manager can update an applicant status through RLS',
+  managerStatusUpdate.rows[0]?.status === 'shortlisted', JSON.stringify(managerStatusUpdate.rows));
+const foreignStatusUpdate = await asUser(employerB, () =>
+  db.query(`update public.job_applications set status='rejected' where id='${forgedApplication.id}' returning status`));
+check('another employer cannot update an applicant status',
+  foreignStatusUpdate.rows.length === 0, JSON.stringify(foreignStatusUpdate.rows));
+const adminStatusUpdate = await asUser(admin, () =>
+  db.query(`update public.job_applications set status='rejected' where id='${forgedApplication.id}' returning status`));
+check('admin can manage application status through RLS',
+  adminStatusUpdate.rows[0]?.status === 'rejected', JSON.stringify(adminStatusUpdate.rows));
+const offerDocumentPath = `${forgedApplication.id}/offer.pdf`;
+await asUser(employer, () => db.query(`
+  insert into storage.objects(bucket_id,name,owner)
+  values('job-offers','${offerDocumentPath}','${employer}')`));
+const candidateOfferDocument = await asUser(candidateB, () => db.query(`
+  select count(*)::int as n from storage.objects
+  where bucket_id='job-offers' and name='${offerDocumentPath}'`));
+check('related candidate can read their private offer document',
+  candidateOfferDocument.rows[0].n === 1, `${candidateOfferDocument.rows[0].n} rows`);
+const sameSalonOfferDocument = await asUser(sameSalonRecruiter, () => db.query(`
+  select count(*)::int as n from storage.objects
+  where bucket_id='job-offers' and name='${offerDocumentPath}'`));
+check('an active same-salon recruiter can read a managed offer document',
+  sameSalonOfferDocument.rows[0].n === 1, `${sameSalonOfferDocument.rows[0].n} rows`);
+const candidateOfferDelete = await asUser(candidateB, () => db.query(`
+  delete from storage.objects where bucket_id='job-offers' and name='${offerDocumentPath}' returning name`));
+check('candidate cannot delete an employer offer document',
+  candidateOfferDelete.rows.length === 0, JSON.stringify(candidateOfferDelete.rows));
+const recruiterOfferDelete = await asUser(sameSalonRecruiter, () => db.query(`
+  delete from storage.objects where bucket_id='job-offers' and name='${offerDocumentPath}' returning name`));
+check('an active same-salon recruiter can delete a managed offer document',
+  recruiterOfferDelete.rows[0]?.name === offerDocumentPath, JSON.stringify(recruiterOfferDelete.rows));
+
+const immutablePost = await (async () => {
+  try {
+    await db.query(`update public.job_posts set created_by='${employerB}' where id='${linkedJob}'`);
+    return 'updated';
+  } catch (error) { return error.message; }
+})();
+check('post creator, compatibility owner, and salon are immutable',
+  /IMMUTABLE_JOB_OWNERSHIP/.test(immutablePost), immutablePost);
+
+const duplicateEvidence = await db.query(`select count(*)::int as n from public.job_application_duplicate_report`);
+check('duplicate report is non-destructive and currently empty under the unique contract',
+  duplicateEvidence.rows[0].n === 0, `${duplicateEvidence.rows[0].n} groups`);
+
+await rpc(employer, `select public.job_update_employer_profile(
+  'Authority Salon','Authority Owner','9876543210',null,'Atomic employer profile',
+  'https://authority.example','authoritysalon','Jaipur','Rajasthan')`);
+const persistedEmployerProfile = (await db.query(`
+  select p.full_name,p.phone,s.name,s.description,s.city,s.state,
+         sp.website_url,sp.instagram_url,l.city as location_city,l.state as location_state
+  from public.profiles p
+  join public.job_salon_members m on m.user_id=p.id and m.member_role='owner' and m.status='active'
+  join public.salons s on s.id=m.salon_id
+  join public.job_salon_profiles sp on sp.salon_id=s.id
+  left join public.job_salon_locations l on l.salon_id=s.id and l.is_primary=true
+  where p.id='${employer}' limit 1`)).rows[0];
+check('employer profile RPC persists platform, salon, brand, and location rows atomically',
+  persistedEmployerProfile.full_name === 'Authority Owner'
+    && persistedEmployerProfile.phone === '9876543210'
+    && persistedEmployerProfile.name === 'Authority Salon'
+    && persistedEmployerProfile.description === 'Atomic employer profile'
+    && persistedEmployerProfile.website_url === 'https://authority.example'
+    && persistedEmployerProfile.instagram_url === 'authoritysalon'
+    && persistedEmployerProfile.city === 'Jaipur'
+    && persistedEmployerProfile.state === 'Rajasthan'
+    && persistedEmployerProfile.location_city === 'Jaipur'
+    && persistedEmployerProfile.location_state === 'Rajasthan',
+  JSON.stringify(persistedEmployerProfile));
+
+await db.exec(`insert into storage.objects(bucket_id,name,owner) values
+  ('job-resumes','${seeker}/atomic-one.pdf','${seeker}'),
+  ('job-resumes','${seeker}/atomic-two.pdf','${seeker}')`);
+const atomicResumeOne = (await rpc(seeker, `select (public.job_create_candidate_resume(
+  '${seeker}/atomic-one.pdf','atomic-one.pdf','application/pdf',2048,true)).id as id`)).rows[0].id;
+const atomicResumeTwo = (await rpc(seeker, `select (public.job_create_candidate_resume(
+  '${seeker}/atomic-two.pdf','atomic-two.pdf','application/pdf',4096,true)).id as id`)).rows[0].id;
+const onePrimaryResume = (await db.query(`select count(*)::int as n from public.job_candidate_resumes
+  where candidate_id=(select id from public.job_seeker_profiles where user_id='${seeker}') and is_primary`)).rows[0].n;
+check('resume upload switches the primary row in the same transaction', onePrimaryResume === 1, `${onePrimaryResume} primary rows`);
+await rpc(seeker, `select public.job_set_primary_resume('${atomicResumeOne}')`);
+const selectedPrimaryResume = (await db.query(`select id from public.job_candidate_resumes where is_primary
+  and candidate_id=(select id from public.job_seeker_profiles where user_id='${seeker}')`)).rows[0].id;
+check('primary resume selection is atomic', selectedPrimaryResume === atomicResumeOne, selectedPrimaryResume);
+const foreignPrimaryResume = await caught(candidateB, `select public.job_set_primary_resume('${atomicResumeTwo}')`);
+check('another candidate cannot select a foreign resume', /RESUME_NOT_FOUND/.test(foreignPrimaryResume.error ?? ''), foreignPrimaryResume.error || 'allowed');
+
+const directOwnerJobId = (await rpc(employer, `select public.create_job_post(
+  '${salonId}',null,'Managed Team Draft','Hair',
+  'A valid draft used to verify the preserved salon team RLS paths.','full_time') as id`)).rows[0].id;
+const directOwnerJob = (await db.query(`select id,created_by,status from public.job_posts where id='${directOwnerJobId}'`)).rows[0];
+check('salon owner can create their own job post through the guarded RPC',
+  directOwnerJob.created_by === employer, JSON.stringify(directOwnerJob));
+const teammateDirectJob = await asUser(sameSalonRecruiter, () =>
+  db.query(`select count(*)::int as n from public.job_posts where id='${directOwnerJob.id}'`));
+check('an active same-salon recruiter can view a team non-public post',
+  teammateDirectJob.rows[0].n === 1, `${teammateDirectJob.rows[0].n} rows`);
+const teamDraft = (await asUser(admin, () => db.query(`
+  insert into public.job_posts(salon_id,created_by,title,description,employment_type,status)
+  values('${salonId}','${employer}','Team Editable Draft',
+    'An administrative test fixture for the preserved team draft policies.','full_time','draft')
+  returning id,status`))).rows[0];
+const teammateDirectUpdate = await asUser(sameSalonRecruiter, () => db.query(`
+  update public.job_posts set title='Managed Team Draft Updated' where id='${teamDraft.id}' returning title`));
+check('an active same-salon recruiter can update a team draft through RLS',
+  teammateDirectUpdate.rows[0]?.title === 'Managed Team Draft Updated', JSON.stringify(teammateDirectUpdate.rows));
+const adminDirectUpdate = await asUser(admin, () => db.query(`
+  update public.job_posts set description='An administrator reviewed and updated this valid draft description.'
+  where id='${directOwnerJob.id}' returning id`));
+check('admin can manage any job post through RLS',
+  adminDirectUpdate.rows[0]?.id === directOwnerJob.id, JSON.stringify(adminDirectUpdate.rows));
+const foreignDirectDelete = await asUser(employerB, () => db.query(`
+  delete from public.job_posts where id='${teamDraft.id}' returning id`));
+check('an unrelated employer cannot delete another salon job post',
+  foreignDirectDelete.rows.length === 0, JSON.stringify(foreignDirectDelete.rows));
+const teammateDirectDelete = await asUser(sameSalonRecruiter, () => db.query(`
+  delete from public.job_posts where id='${teamDraft.id}' returning id`));
+check('an active same-salon recruiter can delete an eligible team draft through RLS',
+  teammateDirectDelete.rows[0]?.id === teamDraft.id, JSON.stringify(teammateDirectDelete.rows));
+
+const deletableJob = (await rpc(employer, `select public.create_job_post(
+  '${salonId}',null,'Delete Guard Role','Hair',
+  'A posting used to verify guarded, salon-authorized deletion.','full_time') as id`)).rows[0].id;
+await rpc(admin, `select public.reject_job('${deletableJob}','Not required')`);
+const teammatePrivateJobRows = await asUser(sameSalonRecruiter, () =>
+  db.query(`select count(*)::int as n from public.job_posts where id='${deletableJob}'`));
+check('an active same-salon recruiter can read a team non-public job',
+  teammatePrivateJobRows.rows[0].n === 1, `${teammatePrivateJobRows.rows[0].n} rows`);
+const foreignDeleteJob = await caught(employerB, `select public.delete_employer_job('${deletableJob}')`);
+check('another employer cannot delete a job they did not create',
+  /SALON_ACCESS_DENIED/.test(foreignDeleteJob.error ?? ''), foreignDeleteJob.error || 'allowed');
+await rpc(sameSalonRecruiter, `select public.delete_employer_job('${deletableJob}')`);
+const deletedJobCount = (await db.query(`select count(*)::int as n from public.job_posts where id='${deletableJob}'`)).rows[0].n;
+check('an authorized same-salon recruiter can delete an eligible job with no applications', deletedJobCount === 0, `${deletedJobCount} rows`);
+const appliedJobDelete = await caught(employer, `select public.delete_employer_job('${linkedJob}')`);
+check('a job with applications cannot be deleted',
+  /INVALID_JOB_TRANSITION|JOB_HAS_APPLICATIONS/.test(appliedJobDelete.error ?? ''), appliedJobDelete.error || 'allowed');
+
+// ---------------------------------------------------------------------------
+// 12. Production-layout variant: preserve a physical candidate_profiles table
+//     and pre-existing FK targets/actions rather than replacing or duplicating.
+// ---------------------------------------------------------------------------
+const physicalDb = await PGlite.create({ extensions: { pg_trgm } });
+await physicalDb.exec(bootstrapSql);
+for (const file of files.filter((name) => name < reconciliationFile)) {
+  let sql = fs.readFileSync(path.join(MIGRATION_DIR, file), 'utf8');
+  sql = sql.replace(/create extension if not exists pgcrypto;?/gi, '-- [harness] pgcrypto is built in on pg13+');
+  await physicalDb.exec(sql);
+}
+await physicalDb.exec(`
+  create table public.candidate_profiles(
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null unique references auth.users(id) on delete cascade
+  );
+  alter table public.candidate_profiles enable row level security;
+  alter table public.job_applications
+    add column candidate_id uuid,
+    add column owner_id uuid,
+    add column applied_at timestamptz,
+    add constraint legacy_application_candidate_fkey
+      foreign key(candidate_id) references public.candidate_profiles(id) on delete restrict,
+    add constraint legacy_application_owner_fkey
+      foreign key(owner_id) references public.profiles(id) on delete restrict;
+
+  insert into auth.users(id,email) values
+    ('${uid(21)}','physical-candidate@example.com'),
+    ('${uid(22)}','physical-owner@example.com');
+  insert into public.profiles(id,full_name,is_active) values
+    ('${uid(21)}','Physical Candidate',true),
+    ('${uid(22)}','Physical Owner',true)
+  on conflict(id) do update set full_name=excluded.full_name,is_active=true;
+  insert into public.salons(id,slug,name,is_active) values
+    ('${uid(25)}','physical-salon','Physical Salon',true);
+  insert into public.job_seeker_profiles(id,user_id,profile_completion)
+    values('${uid(24)}','${uid(21)}',100);
+  insert into public.candidate_profiles(id,user_id)
+    values('${uid(23)}','${uid(21)}');
+  insert into public.job_posts(id,salon_id,created_by,title,description,employment_type,status)
+    values('${uid(26)}','${uid(25)}','${uid(22)}','Physical Schema Role',
+      'A production variant fixture with duplicate historical applications.','full_time','approved');
+
+  alter table public.job_applications
+    drop constraint job_applications_job_id_candidate_user_id_key;
+  insert into public.job_applications(
+    id,job_id,candidate_user_id,candidate_profile_id,candidate_id,owner_id,applied_at
+  ) values
+    ('${uid(27)}','${uid(26)}','${uid(21)}','${uid(24)}','${uid(23)}','${uid(22)}',now()),
+    ('${uid(28)}','${uid(26)}','${uid(21)}','${uid(24)}','${uid(23)}','${uid(22)}',now());
+
+  create function public.job_can_manage_offer_media(target_application_id uuid)
+  returns boolean language sql stable security definer set search_path=''
+  as $$ select false $$;
+  create function public.delete_employer_job(target_job_id uuid)
+  returns void language plpgsql security definer set search_path=''
+  as $$ begin raise exception 'legacy exact-owner placeholder'; end $$;
+`);
+const reconciliationSql = fs.readFileSync(path.join(MIGRATION_DIR, reconciliationFile), 'utf8');
+await physicalDb.exec(reconciliationSql);
+await physicalDb.exec(reconciliationSql);
+const physicalKind = (await physicalDb.query(`
+  select c.relkind,c.relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace
+  where n.nspname='public' and c.relname='candidate_profiles'`)).rows[0];
+check('reconciliation preserves a physical candidate_profiles table with RLS',
+  physicalKind?.relkind === 'r' && physicalKind?.relrowsecurity === true, JSON.stringify(physicalKind));
+const preservedVariantFks = (await physicalDb.query(`
+  select pg_get_constraintdef(c.oid) as definition
+  from pg_constraint c
+  where c.conrelid='public.job_applications'::regclass and c.contype='f'
+    and c.conkey in (
+      array[(select attnum from pg_attribute where attrelid=c.conrelid and attname='candidate_id')]::smallint[],
+      array[(select attnum from pg_attribute where attrelid=c.conrelid and attname='owner_id')]::smallint[]
+    ) order by c.conname`)).rows.map((row) => row.definition);
+check('reconciliation preserves physical-profile and owner FK targets and ON DELETE actions',
+  preservedVariantFks.length === 2
+    && preservedVariantFks.some((definition) => /REFERENCES candidate_profiles\(id\) ON DELETE RESTRICT/.test(definition))
+    && preservedVariantFks.some((definition) => /REFERENCES profiles\(id\) ON DELETE RESTRICT/.test(definition)),
+  preservedVariantFks.join(' | '));
+const preservedDuplicates = (await physicalDb.query(`
+  select count(*)::int as n from public.job_applications
+  where job_id='${uid(26)}' and candidate_user_id='${uid(21)}'`)).rows[0].n;
+const duplicateReportCount = (await physicalDb.query(`
+  select count(*)::int as n from public.job_applications
+  group by job_id,candidate_user_id having count(*)>1`)).rows.length;
+check('reconciliation reports duplicate applications without deleting either row',
+  preservedDuplicates === 2 && duplicateReportCount === 1,
+  `${preservedDuplicates} rows / ${duplicateReportCount} duplicate groups`);
+const reconciledHelperDefinitions = (await physicalDb.query(`
+  select p.proname,lower(pg_get_functiondef(p.oid)) as definition
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname in ('delete_employer_job','job_can_manage_offer_media')`)).rows;
+check('legacy exact-owner compatibility helpers are narrowly reconciled to team authorization',
+  reconciledHelperDefinitions.length === 2
+    && reconciledHelperDefinitions.every((row) => row.definition.includes('job_is_active_salon_member')
+      || row.definition.includes('job_can_manage_application')),
+  JSON.stringify(reconciledHelperDefinitions));
+await physicalDb.close();
 
 // ---------------------------------------------------------------------------
 // Report

@@ -12,6 +12,7 @@ export const MEDIA_BUCKETS = {
   resumes: 'job-resumes',
   certificates: 'job-certificates',
   profileMedia: 'job-profile-media',
+  offers: 'job-offers',
   supportAttachments: 'job-support-attachments',
   messageAttachments: 'job-message-attachments',
   salonPublicMedia: 'salon-public-media',

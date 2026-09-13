@@ -17,11 +17,12 @@ import {
 } from 'lucide-react';
 import type { UserProfile } from '../../types';
 import { jobPortalPath } from '../../routing';
+import { mapBackendError } from '../../services/backend';
 
 interface EmployerProfileTabProps {
   userProfile: UserProfile;
   onUpdateAvatar?: (url: string) => void;
-  onUpdateProfile?: (updated: UserProfile) => void;
+  onUpdateProfile?: (updated: UserProfile) => Promise<void>;
   onLogout?: () => void;
 }
 
@@ -77,6 +78,7 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
   const [website, setWebsite] = useState('');
   const [instagram, setInstagram] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
@@ -113,8 +115,9 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
     };
   }, [isEditOpen]);
 
-  const handleSaveProfile = (event: React.FormEvent) => {
+  const handleSaveProfile = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (isSavingProfile) return;
     const trimmedBusinessName = businessName.trim();
     const trimmedContact = contactPerson.trim();
     if (!trimmedBusinessName) {
@@ -125,21 +128,30 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
       setSaveError('Contact person name must be at least 2 characters.');
       return;
     }
-    onUpdateProfile?.({
-      ...userProfile,
-      businessName: trimmedBusinessName,
-      location: location.trim(),
-      contactPerson: trimmedContact,
-      // The employer display name mirrors the contact person (same convention
-      // as sign-up and the workspace loader).
-      name: trimmedContact,
-      phone: phone.trim(),
-      bio: bio.trim(),
-      website: website.trim(),
-      instagram: instagram.trim().replace(/^@+/, ''),
-    });
-    setIsEditOpen(false);
-    triggerToast('Profile updated successfully');
+    setIsSavingProfile(true);
+    setSaveError(null);
+    try {
+      if (!onUpdateProfile) throw new Error('Profile saving is unavailable. Reload the page and try again.');
+      await onUpdateProfile({
+        ...userProfile,
+        businessName: trimmedBusinessName,
+        location: location.trim(),
+        contactPerson: trimmedContact,
+        // The employer display name mirrors the contact person (same convention
+        // as sign-up and the workspace loader).
+        name: trimmedContact,
+        phone: phone.trim(),
+        bio: bio.trim(),
+        website: website.trim(),
+        instagram: instagram.trim().replace(/^@+/, ''),
+      });
+      setIsEditOpen(false);
+      triggerToast('Profile updated successfully');
+    } catch (error) {
+      setSaveError(mapBackendError(error, 'Unable to save the employer profile. Please retry.'));
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   const handleShareProfile = async () => {
@@ -204,11 +216,17 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
               aria-label="Change business logo"
               className="block w-24 h-24 rounded-full border-4 border-[#fdf8f8] shadow-sm overflow-hidden bg-white cursor-pointer hover:ring-2 hover:ring-[#e2007c]/40 active:scale-95 transition-all"
             >
-              <img
-                src={userProfile.avatarUrl || "https://lh3.googleusercontent.com/aida-public/AB6AXuB1IZp_aPzxW5vzzGvqJyENlLGvQmQa4pziAu_d8jlQh61Nz_UTjiKRxKcTN4IwiS341AkL6z2aar11pEB-eHxHJqodq9kweLNGjYVzXaen3emVdt9B--SZsDuGafZd22tQ-6BL4pH1ka-h_tkYlmTfYQFqneZr8pSLa6MQfX2rrHdcrjy2dWJwpTBK4lV8fCKsNtHjhK93Z9QKs2hk_Qv_dgup4VbcPmZL0KKSKCf1XzqFY41vvfpoasNr7Tqwf1U8ug"}
-                alt={userProfile.businessName || "Employer Logo"}
-                className="w-full h-full object-contain p-2"
-              />
+              {userProfile.avatarUrl ? (
+                <img
+                  src={userProfile.avatarUrl}
+                  alt={userProfile.businessName || 'Employer logo'}
+                  className="w-full h-full object-contain p-2"
+                />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center text-2xl font-bold text-[#8e004b]">
+                  {(userProfile.businessName || userProfile.name || 'E').charAt(0).toUpperCase()}
+                </span>
+              )}
             </button>
             <div className="absolute bottom-0 right-0 bg-[#e2007c] text-white rounded-full p-1 shadow-md border-2 border-[#fdf8f8] pointer-events-none">
               <CheckCircle2 className="w-4 h-4" fill="currentColor" color="white" />
@@ -217,11 +235,11 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
 
           <div className="space-y-1">
             <h2 className="text-[18px] font-semibold text-[#1c1b1b] flex items-center justify-center gap-2">
-              {userProfile.businessName || 'Nexora Beauty Group'}
+              {userProfile.businessName || 'Employer profile'}
             </h2>
             <p className="text-[16px] text-[#594047] flex items-center justify-center gap-1">
               <MapPin className="w-[18px] h-[18px]" />
-              {userProfile.location || 'Malviya Nagar, Jaipur'}
+              {userProfile.location || 'Location not added'}
             </p>
           </div>
 
@@ -550,10 +568,11 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-5 py-3 bg-[#8e004b] hover:bg-[#b90064] text-white rounded-full text-xs font-bold active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-1.5"
+                  disabled={isSavingProfile}
+                  className="flex-1 px-5 py-3 bg-[#8e004b] hover:bg-[#b90064] text-white rounded-full text-xs font-bold active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Check className="w-4 h-4" />
-                  <span>Save Changes</span>
+                  <span>{isSavingProfile ? 'Saving…' : 'Save Changes'}</span>
                 </button>
               </div>
             </form>

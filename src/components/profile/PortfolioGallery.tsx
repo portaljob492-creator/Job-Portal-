@@ -4,6 +4,7 @@ import { requireSupabase } from '../../lib/supabase';
 import { PortfolioItem } from '../../types';
 import {
   MEDIA_BUCKETS,
+  deleteMediaObject,
   isStoragePath,
   pickDisplayUrl,
   resolveStorageUrls,
@@ -268,6 +269,10 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
   };
 
   const handleSavePortfolioItem = async () => {
+    if (!titleInput.trim()) {
+      setSaveError('Add a title for this work sample.');
+      return;
+    }
     if (!previewImageUrl) {
       setSaveError('Snap a photo or choose an image for your work sample.');
       return;
@@ -276,6 +281,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
     const editing = activeItemModal && activeItemModal !== 'new' ? activeItemModal : null;
     setIsSavingItem(true);
     setSaveError(null);
+    let uploadedPath: string | null = null;
     try {
       // Fresh bytes upload to Storage; presets persist as remote URLs; an
       // unchanged edit keeps the stored value (never a signed display URL).
@@ -285,18 +291,19 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
         if (userError) throw userError;
         const userId = userData.user?.id;
         if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
-        imageValue = await uploadPortfolioImage(userId, stagedFile);
+        uploadedPath = await uploadPortfolioImage(userId, stagedFile);
+        imageValue = uploadedPath;
       } else if (editing && !imageChanged) {
         imageValue = editing.imageUrl;
       }
 
       const newItem: PortfolioItem = {
         id: editing ? editing.id : crypto.randomUUID(),
-        title: titleInput.trim() || 'Work Transformation Sample',
+        title: titleInput.trim(),
         category: categoryInput,
         imageUrl: imageValue,
-        technique: techniqueInput.trim() || 'Custom Technique',
-        description: descriptionInput.trim() || 'Captured with camera',
+        technique: techniqueInput.trim() || undefined,
+        description: descriptionInput.trim() || undefined,
         date: editing?.date || new Date().toISOString().slice(0, 10),
         isPlaceholder: false
       };
@@ -313,8 +320,12 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
         onUpdateItems(previousItems);
         throw persistError;
       }
+      if (editing && isStoragePath(editing.imageUrl) && editing.imageUrl !== imageValue) {
+        await deleteMediaObject(MEDIA_BUCKETS.profileMedia, editing.imageUrl);
+      }
       handleCloseModal();
     } catch (error) {
+      if (uploadedPath) await deleteMediaObject(MEDIA_BUCKETS.profileMedia, uploadedPath);
       setSaveError(mapBackendError(error, 'Unable to save your work sample.'));
     } finally {
       setIsSavingItem(false);
@@ -327,12 +338,16 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
     e.stopPropagation();
     if (confirm('Are you sure you want to remove this work sample from your portfolio?')) {
       const previousItems = items;
+      const removedItem = items.find((item) => item.id === id);
       onUpdateItems(items.filter((it) => it.id !== id));
       if (lightboxItem?.id === id) setLightboxItem(null);
       // Local-only legacy ids were never persisted; nothing to delete remotely.
       if (!UUID_RE.test(id)) return;
       try {
         await deletePortfolioItem(id);
+        if (removedItem && isStoragePath(removedItem.imageUrl)) {
+          await deleteMediaObject(MEDIA_BUCKETS.profileMedia, removedItem.imageUrl);
+        }
       } catch (error) {
         onUpdateItems(previousItems);
         alert(mapBackendError(error, 'Unable to remove your work sample.'));

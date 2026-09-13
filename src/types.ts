@@ -95,10 +95,22 @@ export interface Application {
   interviewDate?: string;
   expectedSalary?: string;
   availability?: string;
-  /** Latest interview row for this application (workflow RPCs need its id). */
+  /** Latest interview row and its authoritative scheduling details. */
   interviewId?: string;
-  /** Latest active offer row for this application (workflow RPCs need its id). */
+  interviewType?: EmployerInterview['interviewType'];
+  interviewDurationMinutes?: number;
+  interviewLocation?: string;
+  interviewMeetingUrl?: string;
+  interviewEmployerMessage?: string;
+  /** Latest active offer row and its authoritative terms. */
   offerId?: string;
+  offerJobRole?: string;
+  offerSalary?: number;
+  offerEmploymentType?: string;
+  offerJoiningDate?: string;
+  offerNotes?: string;
+  offerDocumentPath?: string;
+  offerExpiresAt?: string;
 }
 
 export interface Applicant {

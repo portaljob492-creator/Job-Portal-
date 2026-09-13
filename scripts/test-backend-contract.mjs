@@ -51,7 +51,7 @@ const signatures = {};
 const finalFunctionBody = {};
 // Bodies may be quoted with $$ or a tagged delimiter such as $fn$; the tag is
 // captured so the regex cannot stop at the wrong place.
-for (const match of sql.matchAll(/create or replace function public\.([a-z_]+)\s*\((.*?)\)\s*returns.*?\$([a-z_]*)\$(.*?)\$\3\$;/gis)) {
+for (const match of sql.matchAll(/create(?: or replace)? function public\.([a-z_]+)\s*\((.*?)\)\s*returns.*?\$([a-z_]*)\$(.*?)\$\3\$/gis)) {
   const [, name, params, , body] = match;
   signatures[name] = signatures[name] || new Set();
   finalFunctionBody[name] = body;
@@ -128,7 +128,10 @@ for (const arrayMatch of sql.matchAll(/foreach table_name in array array\[(.*?)\
 const tablesWithoutRls = createdTables.filter((name) => !rlsTables.has(name));
 check('every job table enables row level security', tablesWithoutRls.length === 0, tablesWithoutRls.join(', '));
 
-const bucketRows = [...sql.matchAll(/\('([a-z-]+)',\s*'[a-z-]+',\s*(true|false),/g)].map((m) => ({ id: m[1], public: m[2] }));
+const bucketRows = Object.values(Object.fromEntries(
+  [...sql.matchAll(/\('([a-z-]+)',\s*'[a-z-]+',\s*(true|false),/g)]
+    .map((m) => [m[1], { id: m[1], public: m[2] }]),
+));
 check('storage buckets declared', bucketRows.length === 7, bucketRows.map((b) => b.id).join(', '));
 const publicBuckets = bucketRows.filter((b) => b.public === 'true').map((b) => b.id);
 check('only salon-public-media is a public bucket',
@@ -315,13 +318,82 @@ for (const [name, body] of Object.entries(finalFunctionBody)) {
 }
 check('every procedure carries a server-side authorization guard', guardless.length === 0, guardless.join(', '));
 
-// Writes into the marketplace go through RPCs: no client insert policy may
-// exist for membership, plan enablement or postings.
-for (const table of ['job_salon_members', 'job_salon_profiles', 'job_posts']) {
+// Membership and plan enablement remain RPC-only. Existing salon team job-post
+// workflows stay active, admin authority remains job_is_admin(), and immutable
+// ownership columns prevent members from moving posts between users or salons.
+for (const table of ['job_salon_members', 'job_salon_profiles']) {
   const policyBlocks = [...sql.matchAll(new RegExp(`create policy [a-z_]+ on public\\.${table}\\b[\\s\\S]*?;`, 'g'))];
   const insertPolicies = policyBlocks.filter((block) => /for insert|for all/i.test(block[0]));
   check(`no client insert policy on ${table}`, insertPolicies.length === 0, `${insertPolicies.length} found`);
 }
+check('job post RLS preserves team workflows and adds active-admin CRUD',
+  /create policy job_posts_read[\s\S]*job_my_active_salon_ids/.test(sql)
+  && /create policy job_posts_member_update[\s\S]*job_is_active_salon_member\(salon_id\)/.test(sql)
+  && /create policy job_posts_member_delete_draft[\s\S]*job_is_active_salon_member\(salon_id\)/.test(sql)
+  && ['select','insert','update','delete'].every((operation) =>
+    new RegExp(`create policy job_posts_reconcile_admin_${operation}[\\s\\S]*job_is_admin\\(\\)`).test(sql)));
+check('application RLS includes self-insert, salon-team status update, and admin management',
+  /create policy job_applications_reconcile_candidate_insert[\s\S]*candidate_user_id=\(select auth\.uid\(\)\)/.test(sql)
+  && /create policy job_applications_reconcile_manager_status[\s\S]*job_my_active_salon_ids/.test(sql)
+  && /create policy job_applications_reconcile_admin_update[\s\S]*job_is_admin\(\)/.test(sql));
+check('offer documents use candidate/team reads and manager-admin writes',
+  /create policy job_offer_related_read[\s\S]*job_can_read_offer_media/.test(sql)
+  && /create policy job_offer_authorized_insert[\s\S]*job_can_manage_offer_media/.test(sql)
+  && /create policy job_offer_authorized_delete[\s\S]*job_can_manage_offer_media/.test(sql));
+check('employer portfolio view uses an application-scoped team-aware RPC',
+  /function public\.job_get_applicant_portfolio\(target_application_id uuid\)/.test(sql)
+  && /job_can_manage_application\(target_application_id\)/.test(sql)
+  && /rpc\('job_get_applicant_portfolio', \{ target_application_id: applicationId \}\)/.test(read('src/services/backend.ts')));
+
+// Authority hardening remains server-enforced and the UI uses only the guarded
+// transactional entry points for deletion/profile/resume workflows.
+const backendService = read('src/services/backend.ts');
+const appSource = read('src/App.tsx');
+const avatarUploader = read('src/components/profile/ProfileImageUploader.tsx');
+check('application trigger derives candidate identity and owner from relationships',
+  /job_reconcile_application_insert/.test(sql)
+  && /new\.candidate_user_id:=actor/.test(sql)
+  && /new\.candidate_profile_id:=seeker_id/.test(sql)
+  && /new\.candidate_id:=candidate_record_id/.test(sql)
+  && /new\.owner_id:=post_owner/.test(sql));
+check('application and post ownership references are immutable',
+  /IMMUTABLE_APPLICATION_OWNERSHIP/.test(sql) && /IMMUTABLE_JOB_OWNERSHIP/.test(sql));
+check('duplicate applications have a non-destructive admin report',
+  /job_application_duplicate_report/.test(sql)
+  && /having count\(\*\)>1/.test(sql)
+  && /no rows (?:were )?deleted/i.test(sql));
+check('job deletion is salon-authorized, application-guarded, and wired to the employer UI',
+  /create(?: or replace)? function public\.delete_employer_job/.test(sql)
+  && /job_is_active_salon_member\(post\.salon_id\)/.test(finalFunctionBody.delete_employer_job || '')
+  && /JOB_HAS_APPLICATIONS/.test(finalFunctionBody.delete_employer_job || '')
+  && backendService.includes("rpc('delete_employer_job'")
+  && appSource.includes('onDeleteJob={handleDeleteJob}'));
+check('employer profile persistence is one authenticated transaction',
+  /create(?: or replace)? function public\.job_update_employer_profile/.test(sql)
+  && backendService.includes("rpc('job_update_employer_profile'")
+  && /await updateEmployerProfile/.test(appSource));
+check('resume creation and primary selection use atomic RPCs',
+  backendService.includes("rpc('job_create_candidate_resume'")
+  && backendService.includes("rpc('job_set_primary_resume'")
+  && /update public\.job_candidate_resumes set is_primary=false/.test(sql));
+check('avatar replacement waits for profile persistence before old-object cleanup',
+  /await onSaveAvatar\(value\)/.test(avatarUploader)
+  && avatarUploader.indexOf('await onSaveAvatar(value)') < avatarUploader.indexOf('await removeReplacedStorageAvatar'));
+check('apply flow reports and retries resume loading failures',
+  /resumeLoadError/.test(read('src/components/seeker/ApplyJobScreen.tsx'))
+  && /Retry resume loading/.test(read('src/components/seeker/ApplyJobScreen.tsx')));
+check('interview and offer screens use returned workflow details instead of fabricated fixtures',
+  /interviewMeetingUrl/.test(backendService) && /offerJoiningDate/.test(backendService)
+  && !/mock-app|zoom\.us\/j\/1234567890|Lumière Studio|Nov 15, 2026/.test(
+    read('src/components/seeker/InterviewInvitationScreen.tsx')
+      + read('src/components/seeker/JobOfferScreen.tsx'),
+  ));
+check('candidate signup starts empty and requires explicit terms consent',
+  /useState\(''\)/.test(read('src/components/auth/JobSeekerSignupScreen.tsx'))
+  && /useState\(false\)/.test(read('src/components/auth/JobSeekerSignupScreen.tsx')));
+check('salary analytics derives from loaded jobs and disclaims market estimates',
+  /filteredJobs/.test(read('src/components/employer/RegionalSalaryAnalytics.tsx'))
+  && /no estimated market data/i.test(read('src/components/employer/RegionalSalaryAnalytics.tsx')));
 
 // ---------------------------------------------------------------------------
 // 4. Schema integrity guarantees

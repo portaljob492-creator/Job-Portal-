@@ -9,13 +9,14 @@ export interface EmployerBusinessSetupData {
   state: string;
   postalCode?: string;
   businessType?: string;
+  description?: string;
   website?: string;
   instagram?: string;
 }
 
 interface EmployerOnboardingStep1ScreenProps {
   onBack: () => void;
-  onContinue: (data: EmployerBusinessSetupData) => Promise<void> | void;
+  onContinue: (data: EmployerBusinessSetupData) => Promise<void>;
   contactName?: string;
 }
 
@@ -33,6 +34,32 @@ export const EmployerOnboardingStep1Screen: React.FC<EmployerOnboardingStep1Scre
   const [zip, setZip] = useState('');
   const [website, setWebsite] = useState('');
   const [instagram, setInstagram] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const handleContinue = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onContinue({
+        businessName,
+        contactName,
+        address,
+        city,
+        state,
+        postalCode: zip,
+        businessType,
+        description,
+        website,
+        instagram,
+      });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save the business details. Please retry.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="font-body-md text-[#1c1b1b] bg-[#fdf8f8] min-h-screen pb-[100px] md:pb-[120px] select-none">
@@ -227,22 +254,13 @@ export const EmployerOnboardingStep1Screen: React.FC<EmployerOnboardingStep1Scre
 
       {/* Sticky Bottom CTA */}
       <div className="fixed bottom-0 left-0 w-full bg-[#fdf8f8]/90 backdrop-blur-md border-t border-[#e0bec6] p-5 pb-safe z-40 md:bg-transparent md:border-transparent md:backdrop-blur-none md:static md:mt-8 md:p-0 md:max-w-2xl md:mx-auto">
+        {saveError && <p role="alert" className="mb-2 text-sm font-semibold text-rose-700">{saveError}</p>}
         <button
-          onClick={() => onContinue({
-            businessName,
-            contactName,
-            address,
-            city,
-            state,
-            postalCode: zip,
-            businessType,
-            website,
-            instagram,
-          })}
-          disabled={!businessName.trim() || !address.trim() || !city.trim() || !state.trim()}
+          onClick={() => void handleContinue()}
+          disabled={isSaving || !businessName.trim() || !address.trim() || !city.trim() || !state.trim()}
           className="w-full bg-[#e6007e] disabled:bg-[#e6e1e1] disabled:text-[#8c7077] disabled:cursor-not-allowed hover:bg-[#e2007c] text-white text-base md:text-xl font-semibold py-4 rounded-full shadow-lg hover:shadow-xl transition-all active:scale-[0.98] flex justify-center items-center h-14 cursor-pointer"
         >
-          Continue
+          {isSaving ? 'Saving…' : 'Continue'}
         </button>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
 interface SeekerOnboardingStep2ScreenProps {
   initialRoles?: string[];
   onBack: () => void;
-  onNext: (selectedRoles: string[]) => void;
+  onNext: (selectedRoles: string[]) => Promise<void>;
 }
 
 const DEFAULT_ROLES = [
@@ -29,6 +29,8 @@ export const SeekerOnboardingStep2Screen: React.FC<SeekerOnboardingStep2ScreenPr
   onNext,
 }) => {
   const [selectedRoles, setSelectedRoles] = useState<string[]>(initialRoles);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const toggleRole = (role: string) => {
     if (selectedRoles.includes(role)) {
@@ -38,8 +40,17 @@ export const SeekerOnboardingStep2Screen: React.FC<SeekerOnboardingStep2ScreenPr
     }
   };
 
-  const handleContinue = () => {
-    onNext(selectedRoles);
+  const handleContinue = async () => {
+    if (isSaving || selectedRoles.length === 0) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onNext(selectedRoles);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save your roles. Please retry.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -123,17 +134,18 @@ export const SeekerOnboardingStep2Screen: React.FC<SeekerOnboardingStep2ScreenPr
       {/* Fixed Bottom CTA */}
       <div className="fixed bottom-0 left-0 w-full p-5 bg-gradient-to-t from-[#fdf8f8] via-[#fdf8f8] to-transparent pt-8 z-40 border-t border-[#e6e1e1]/60">
         <div className="max-w-2xl mx-auto">
+          {saveError && <p role="alert" className="mb-2 text-sm font-semibold text-rose-700">{saveError}</p>}
           <button
             type="button"
-            onClick={handleContinue}
-            disabled={selectedRoles.length === 0}
+            onClick={() => void handleContinue()}
+            disabled={selectedRoles.length === 0 || isSaving}
             className={`w-full h-12 rounded-full font-extrabold text-base flex items-center justify-center gap-2 transition-all shadow-md ${
               selectedRoles.length === 0
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-[#e2007c] hover:bg-[#8e004b] text-white active:scale-[0.98] cursor-pointer'
             }`}
           >
-            <span>Continue</span>
+            <span>{isSaving ? 'Saving…' : 'Continue'}</span>
             <ArrowRight className="w-5 h-5" />
           </button>
         </div>

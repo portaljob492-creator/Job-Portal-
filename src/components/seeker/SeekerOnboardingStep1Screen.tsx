@@ -1,5 +1,16 @@
-import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, Camera, Edit2, MapPin, Calendar, ChevronDown, CheckCircle2, FileText, Upload } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ArrowLeft, ArrowRight, Camera, Edit2, FileText, Upload } from 'lucide-react';
+import { assertImageFile, assertResumeFile } from '../../lib/storageMedia';
+
+export interface SeekerOnboardingPersonalData {
+  fullName: string;
+  email: string;
+  mobile: string;
+  city: string;
+  state: string;
+  avatarFile?: File;
+  resumeFile?: File;
+}
 
 interface SeekerOnboardingStep1ScreenProps {
   initialData?: {
@@ -8,14 +19,11 @@ interface SeekerOnboardingStep1ScreenProps {
     mobile?: string;
     city?: string;
     state?: string;
-    currentLocation?: string;
-    dob?: string;
-    gender?: string;
     avatarUrl?: string;
     resumeFileName?: string;
   };
   onBack: () => void;
-  onNext: (data: any) => void;
+  onNext: (data: SeekerOnboardingPersonalData) => Promise<void>;
 }
 
 export const SeekerOnboardingStep1Screen: React.FC<SeekerOnboardingStep1ScreenProps> = ({
@@ -23,54 +31,72 @@ export const SeekerOnboardingStep1Screen: React.FC<SeekerOnboardingStep1ScreenPr
   onBack,
   onNext,
 }) => {
-  const [fullName, setFullName] = useState(initialData?.fullName || 'Jane Doe');
-  const [email, setEmail] = useState(initialData?.email || 'jane@example.com');
-  const [mobile, setMobile] = useState(initialData?.mobile || '+1 (555) 000-0000');
-  const [city, setCity] = useState(initialData?.city || 'New York');
-  const [state, setState] = useState(initialData?.state || 'NY');
-  const [currentLocation, setCurrentLocation] = useState(initialData?.currentLocation || 'SoHo, New York, NY');
-  const [dob, setDob] = useState(initialData?.dob || '');
-  const [gender, setGender] = useState(initialData?.gender || '');
+  const [fullName, setFullName] = useState(initialData?.fullName || '');
+  const [email] = useState(initialData?.email || '');
+  const [mobile, setMobile] = useState(initialData?.mobile || '');
+  const [city, setCity] = useState(initialData?.city || '');
+  const [state, setState] = useState(initialData?.state || '');
   const [avatarPreview, setAvatarPreview] = useState<string | null>(initialData?.avatarUrl || null);
-  const [resumeFileName, setResumeFileName] = useState<string>(initialData?.resumeFileName || 'Jane_Doe_Resume_2026.pdf');
+  const [avatarFile, setAvatarFile] = useState<File | undefined>();
+  const [resumeFile, setResumeFile] = useState<File | undefined>();
+  const [resumeFileName, setResumeFileName] = useState<string>(initialData?.resumeFileName || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => () => {
+    if (avatarPreview?.startsWith('blob:')) URL.revokeObjectURL(avatarPreview);
+  }, [avatarPreview]);
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setAvatarPreview(url);
+      try {
+        assertImageFile(file);
+        setSaveError(null);
+        setAvatarFile(file);
+        setAvatarPreview(URL.createObjectURL(file));
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : 'Choose a valid profile image.');
+        e.target.value = '';
+      }
     }
   };
 
   const handleResumeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setResumeFileName(file.name);
+      try {
+        assertResumeFile(file);
+        setSaveError(null);
+        setResumeFile(file);
+        setResumeFileName(file.name);
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : 'Choose a valid resume file.');
+        e.target.value = '';
+      }
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onNext({
-      fullName,
-      email,
-      mobile,
-      city,
-      state,
-      currentLocation,
-      dob,
-      gender,
-      avatarUrl: avatarPreview,
-      resumeFileName,
-    });
-  };
-
-  // Helper for date display format (MM/DD/YYYY)
-  const formatDobDisplay = (dateString: string) => {
-    if (!dateString) return 'MM/DD/YYYY';
-    const [year, month, day] = dateString.split('-');
-    if (year && month && day) return `${month}/${day}/${year}`;
-    return dateString;
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onNext({
+        fullName,
+        email,
+        mobile,
+        city,
+        state,
+        avatarFile,
+        resumeFile,
+      });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save these details. Please retry.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -183,7 +209,7 @@ export const SeekerOnboardingStep1Screen: React.FC<SeekerOnboardingStep1ScreenPr
                 type="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                readOnly
                 placeholder="jane@example.com"
                 className="w-full bg-[#f1edec] text-[#1c1b1b] border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-[#b90064] focus:bg-white transition-all placeholder:text-[#8c7077]/60 outline-none"
               />
@@ -238,53 +264,7 @@ export const SeekerOnboardingStep1Screen: React.FC<SeekerOnboardingStep1ScreenPr
               </div>
             </div>
 
-            <div className="flex flex-col gap-1.5 relative">
-              <label className="text-xs font-bold text-[#1c1b1b]" htmlFor="current-location">
-                Current Location <span className="text-rose-600">*</span>
-              </label>
-              <div className="relative">
-                <MapPin className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-[#8c7077] pointer-events-none" />
-                <input
-                  id="current-location"
-                  name="current-location"
-                  type="text"
-                  required
-                  value={currentLocation}
-                  onChange={(e) => setCurrentLocation(e.target.value)}
-                  placeholder="Search location..."
-                  className="w-full bg-[#f1edec] text-[#1c1b1b] border-none rounded-xl pl-11 pr-4 py-3 text-sm focus:ring-2 focus:ring-[#b90064] focus:bg-white transition-all placeholder:text-[#8c7077]/60 outline-none"
-                />
-              </div>
-            </div>
-
             <div className="h-px bg-[#e6e1e1] my-2 w-full" />
-
-            {/* Optional Fields */}
-            <h3 className="font-extrabold text-base text-[#1c1b1b] mt-1">
-              Additional Information (Optional)
-            </h3>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-[#1c1b1b]" htmlFor="dob">
-                Date of Birth
-              </label>
-              <div className="relative">
-                <input
-                  id="dob"
-                  name="dob"
-                  type="date"
-                  value={dob}
-                  onChange={(e) => setDob(e.target.value)}
-                  className="w-full bg-[#f1edec] text-[#1c1b1b] border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-[#b90064] focus:bg-white transition-all appearance-none [&::-webkit-calendar-picker-indicator]:opacity-0 absolute inset-0 z-10 cursor-pointer"
-                />
-                <div className="w-full bg-[#f1edec] rounded-xl px-4 py-3 flex items-center justify-between text-sm text-[#1c1b1b]">
-                  <span className={dob ? 'text-[#1c1b1b] font-medium' : 'text-[#8c7077]'}>
-                    {formatDobDisplay(dob)}
-                  </span>
-                  <Calendar className="w-4 h-4 text-[#8c7077]" />
-                </div>
-              </div>
-            </div>
 
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-[#1c1b1b]" htmlFor="resume-upload">
@@ -297,7 +277,7 @@ export const SeekerOnboardingStep1Screen: React.FC<SeekerOnboardingStep1ScreenPr
                     {resumeFileName || 'Upload your resume'}
                   </p>
                   <p className="text-[10px] text-[#8c7077]">
-                    PDF, DOC, DOCX up to 10MB
+                    PDF, DOC, DOCX up to 5MB
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5 bg-[#ffd9e2] text-[#8e004b] px-3 py-1.5 rounded-lg text-xs font-bold shadow-2xs group-hover:bg-[#ffb0c8] transition-colors">
@@ -317,11 +297,13 @@ export const SeekerOnboardingStep1Screen: React.FC<SeekerOnboardingStep1ScreenPr
 
             {/* Action Area */}
             <div className="mt-6 flex flex-col gap-2">
+              {saveError && <p role="alert" className="text-sm font-semibold text-rose-700">{saveError}</p>}
               <button
                 type="submit"
-                className="w-full bg-[#e2007c] hover:bg-[#8e004b] text-white rounded-full py-3.5 px-6 font-extrabold text-base flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-md cursor-pointer"
+                disabled={isSaving}
+                className="w-full bg-[#e2007c] hover:bg-[#8e004b] text-white rounded-full py-3.5 px-6 font-extrabold text-base flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-md cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <span>Continue</span>
+                <span>{isSaving ? 'Saving…' : 'Continue'}</span>
                 <ArrowRight className="w-5 h-5" />
               </button>
               <p className="text-center text-xs text-[#594047] mt-1 font-medium">

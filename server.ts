@@ -13,14 +13,15 @@ import { logger } from "./src/lib/logger";
 
 const serverLog = logger("server");
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
+// Keep optional AI configuration lazy: a missing GEMINI_API_KEY must disable
+// only /api/news, never prevent the Job Portal or Supabase health routes from
+// starting.
+const ai = process.env.GEMINI_API_KEY
+  ? new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+    })
+  : null;
 
 /** Reads a server-side env var, accepting `VITE_*` first then plain aliases. */
 function readServerEnv(...names: string[]): string {
@@ -148,9 +149,24 @@ async function startServer() {
   });
 
   app.get("/api/health/supabase", async (req, res) => {
-    const url = (process.env.VITE_SUPABASE_URL || 'https://qwaehqsmodekbgvnaavz.supabase.co').replace(/\/+$/, '');
-    const anonKey = (process.env.VITE_SUPABASE_ANON_KEY || '').trim();
-    const hasValidKey = Boolean(anonKey && anonKey.startsWith('eyJ') && anonKey.split('.').length === 3);
+    const url = (readServerEnv("VITE_SUPABASE_URL", "SUPABASE_URL") || 'https://qwaehqsmodekbgvnaavz.supabase.co').replace(/\/+$/, '');
+    const anonKey = readServerEnv(
+      "VITE_SUPABASE_ANON_KEY",
+      "SUPABASE_ANON_KEY",
+      "SUPABASE_PUBLISHABLE_KEY",
+    );
+    const jwtRole = (() => {
+      try {
+        const payload = anonKey.split('.')[1];
+        return payload ? JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))?.role : null;
+      } catch {
+        return null;
+      }
+    })();
+    const hasValidKey = !isPlaceholderEnvValue(anonKey) && (
+      /^sb_publishable_[A-Za-z0-9_-]+$/.test(anonKey)
+      || (anonKey.startsWith('eyJ') && anonKey.split('.').length === 3 && jwtRole === 'anon')
+    );
 
     if (!hasValidKey) {
       return res.status(503).json({
@@ -171,10 +187,11 @@ async function startServer() {
       const latencyMs = Date.now() - start;
 
       if (error) {
+        serverLog.error('Supabase health query failed', error, { latencyMs });
         return res.status(502).json({
           ok: false,
           configured: true,
-          message: `Supabase query error: ${error.message}`,
+          message: 'Supabase is configured but the data service is unavailable.',
           url,
           latencyMs,
         });
@@ -188,18 +205,19 @@ async function startServer() {
         latencyMs,
         recordsReturned: data?.length ?? 0,
       });
-    } catch (err: any) {
+    } catch (error) {
+      serverLog.error('Supabase health probe threw', error);
       return res.status(500).json({
         ok: false,
         configured: true,
-        message: `Failed to initialize or connect to Supabase: ${err?.message}`,
+        message: 'Unable to complete the Supabase health check.',
       });
     }
   });
 
   // API routes
   app.post("/api/news", async (req, res) => {
-    if (!process.env.GEMINI_API_KEY) {
+    if (!ai) {
       sendApiError(
         req, res, 503, "ai_unavailable",
         "Trend service is not configured. Please try again later.",

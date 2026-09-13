@@ -350,7 +350,19 @@ function mapApplication(row: any, salonLookup?: Map<string, any>, ownedListing?:
     expectedSalary: row.expected_salary == null ? undefined : `₹${Number(row.expected_salary).toLocaleString('en-IN')}`,
     availability: row.available_from || undefined,
     interviewId: workflowInterview?.id || undefined,
+    interviewType: workflowInterview?.interview_type || undefined,
+    interviewDurationMinutes: workflowInterview ? Number(workflowInterview.duration_minutes || 30) : undefined,
+    interviewLocation: workflowInterview?.location_text || undefined,
+    interviewMeetingUrl: workflowInterview?.meeting_url || undefined,
+    interviewEmployerMessage: workflowInterview?.employer_message || undefined,
     offerId: activeOffer?.id || undefined,
+    offerJobRole: activeOffer?.job_role || undefined,
+    offerSalary: activeOffer?.salary == null ? undefined : Number(activeOffer.salary),
+    offerEmploymentType: activeOffer?.employment_type || undefined,
+    offerJoiningDate: activeOffer?.joining_date || undefined,
+    offerNotes: activeOffer?.offer_notes || undefined,
+    offerDocumentPath: activeOffer?.offer_document_path || undefined,
+    offerExpiresAt: activeOffer?.expires_at || undefined,
   };
 }
 
@@ -768,9 +780,9 @@ export async function completeSeekerOnboarding(profile: UserProfile, selectedRol
   const { data, error } = await requireSupabase().rpc('complete_job_seeker_onboarding', {
     p_headline: selectedRoles[0] || profile.primaryRole || 'Beauty professional',
     p_bio: profile.bio || '',
-    p_city: '',
-    p_state: '',
-    p_experience_level: 'mid',
+    p_city: profile.city || '',
+    p_state: profile.state || '',
+    p_experience_level: 'fresher',
     p_total_experience_months: 0,
     p_expected_salary_min: null,
     p_expected_salary_max: null,
@@ -791,6 +803,7 @@ export interface EmployerOnboardingInput {
   state: string;
   postalCode?: string;
   businessType?: string;
+  description?: string;
   website?: string;
   instagram?: string;
 }
@@ -869,7 +882,7 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     client.from('public_job_salon_profiles').select('*'),
   ]);
 
-  const error = [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult]
+  const error = [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult, salonProfilesResult]
     .map((result: any) => result.error)
     .find(Boolean);
   if (error) throw error;
@@ -1144,51 +1157,26 @@ export async function submitCandidateProfile(input: CandidateProfileInput): Prom
 }
 
 /**
- * Persists the employer brand/location fields that `job_save_profile` does not
- * own: website + instagram on the salon profile row, and city/state on the
- * primary salon location row ("City, State" free text is split on the first
- * comma). Both tables grant active salon members direct writes (see the
- * `job_salon_profiles_member_update` and `job_salon_locations_member_write`
- * policies), so no RPC is needed. Business name and description live on the
- * platform `salons` table, which exposes no member write path — those edits
- * stay in local app state until a salon-update RPC ships (follow-up).
+ * Persists every editable employer profile field in one server transaction.
+ * The RPC derives the user and salon from auth.uid(); neither identity is sent
+ * by the browser, and the UI receives success only after all related rows save.
  */
-export async function updateEmployerSalonDetails(userId: string, profile: UserProfile): Promise<void> {
+export async function updateEmployerProfile(profile: UserProfile): Promise<void> {
   if (profile.role !== 'employer') return;
-  const client = requireSupabase();
-  const { data: membership, error: membershipError } = await client
-    .from('job_salon_members')
-    .select('salon_id')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .limit(1)
-    .maybeSingle();
-  if (membershipError) throw membershipError;
-  const salonId = (membership as { salon_id: string } | null)?.salon_id;
-  if (!salonId) return; // Pre-onboarding: no salon row exists to update yet.
-
-  const { error: brandError } = await client
-    .from('job_salon_profiles')
-    .update({
-      website_url: profile.website?.trim() || null,
-      instagram_url: profile.instagram?.trim() || null,
-    })
-    .eq('salon_id', salonId);
-  if (brandError) throw brandError;
-
-  const location = profile.location?.trim();
-  if (location) {
-    const [city, ...rest] = location.split(',').map((part) => part.trim()).filter(Boolean);
-    if (city) {
-      const state = rest.join(', ');
-      const { error: locationError } = await client
-        .from('job_salon_locations')
-        .update(state ? { city, state } : { city })
-        .eq('salon_id', salonId)
-        .eq('is_primary', true);
-      if (locationError) throw locationError;
-    }
-  }
+  const location = profile.location?.trim() || '';
+  const [city = '', ...stateParts] = location.split(',').map((part) => part.trim()).filter(Boolean);
+  const { error } = await requireSupabase().rpc('job_update_employer_profile', {
+    p_business_name: profile.businessName?.trim() || '',
+    p_contact_name: (profile.contactPerson || profile.name).trim(),
+    p_phone: profile.phone?.trim() || null,
+    p_avatar_path: profile.avatarPath || profile.avatarUrl || null,
+    p_description: profile.bio?.trim() || null,
+    p_website_url: profile.website?.trim() || null,
+    p_instagram_url: profile.instagram?.trim().replace(/^@+/, '') || null,
+    p_city: city || null,
+    p_state: stateParts.join(', ') || null,
+  });
+  if (error) throw error;
 }
 
 export async function setBookmark(userId: string, jobId: string, bookmarked: boolean) {
@@ -1272,12 +1260,20 @@ export async function createJob(_userId: string, job: JobPosting): Promise<JobPo
   if (error) throw error;
   const saved = Array.isArray(data) ? data[0] : data;
   if (!saved?.id) throw new Error('The job could not be confirmed after saving. Please retry.');
-  const { data: salonData } = await client
+  const { data: salonData, error: salonError } = await client
     .from('public_job_salon_profiles')
     .select('*')
     .eq('id', saved.salon_id)
     .maybeSingle();
+  if (salonError) throw salonError;
   return mapJob({ ...saved, salon: salonData });
+}
+
+export async function deleteEmployerJob(jobId: string): Promise<void> {
+  const { error } = await requireSupabase().rpc('delete_employer_job', {
+    target_job_id: jobId,
+  });
+  if (error) throw error;
 }
 
 export async function updateJob(job: JobPosting): Promise<JobPosting> {
@@ -1315,11 +1311,12 @@ export async function updateJob(job: JobPosting): Promise<JobPosting> {
   if (error) throw error;
   const saved = Array.isArray(data) ? data[0] : data;
   if (!saved?.id) throw new Error('The updated job could not be confirmed. Please retry.');
-  const { data: salonData } = await client
+  const { data: salonData, error: salonError } = await client
     .from('public_job_salon_profiles')
     .select('*')
     .eq('id', saved.salon_id)
     .maybeSingle();
+  if (salonError) throw salonError;
   return mapJob({ ...saved, salon: salonData });
 }
 
@@ -1330,8 +1327,17 @@ function numericValue(value?: string) {
 }
 function dateValue(value?: string) {
   if (!value) return null;
-  const match = value.match(/^\d{4}-\d{2}-\d{2}$/);
-  return match ? value : null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const noticeDays: Record<string, number> = {
+    immediate: 0,
+    '15days': 15,
+    '1month': 30,
+    '2months': 60,
+  };
+  if (!(value in noticeDays)) return null;
+  const available = new Date();
+  available.setDate(available.getDate() + noticeDays[value]);
+  return available.toISOString().slice(0, 10);
 }
 
 export async function createApplication(
@@ -1351,7 +1357,9 @@ export async function createApplication(
     p_available_from: dateValue(availability),
   });
   if (error) throw error;
-  return (data as any).id as string;
+  const saved = Array.isArray(data) ? data[0] : data;
+  if (!saved?.id) throw new Error('The application could not be confirmed after saving. Please retry.');
+  return saved.id as string;
 }
 
 /** Walks an application to `shortlisted` (via viewed) so an interview can be requested. */
@@ -1479,6 +1487,10 @@ const backendErrorMessages: Record<string, string> = {
   PROFILE_NOT_FOUND: 'Your profile could not be found. Please sign in again.',
   JOB_EXPIRED: 'This posting has expired and is no longer accepting applications.',
   FOREIGN_RESUME: 'Choose a resume that belongs to your profile.',
+  RESUME_NOT_FOUND: 'That resume is no longer available. Refresh your resumes and try again.',
+  IMMUTABLE_JOB_OWNERSHIP: 'A job cannot be reassigned to another owner or salon.',
+  IMMUTABLE_APPLICATION_OWNERSHIP: 'An application cannot be reassigned to another candidate or job.',
+  INVALID_JOB_TRANSITION: 'That action is not available for the job in its current state.',
   PROFILE_INCOMPLETE: 'Please complete your candidate profile before applying.',
   INVALID_INTERVIEW_TRANSITION: 'That interview can no longer be changed at this stage.',
   SALON_NOT_FOUND: 'That salon could not be found. Pick it from the search results.',
@@ -1775,20 +1787,19 @@ export async function uploadResume(file: File): Promise<ResumeFile> {
   if (userError) throw userError;
   const userId = userData.user?.id;
   if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
-  const candidateId = await ownCandidateId();
   const storagePath = await uploadResumeObject(userId, file);
   try {
-    await client.from('job_candidate_resumes').update({ is_primary: false }).eq('candidate_id', candidateId);
-    const { data, error } = await client.from('job_candidate_resumes').insert({
-      candidate_id: candidateId,
-      storage_path: storagePath,
-      original_filename: file.name,
-      mime_type: file.type,
-      file_size: file.size,
-      is_primary: true,
-    }).select('*').single();
+    const { data, error } = await client.rpc('job_create_candidate_resume', {
+      p_storage_path: storagePath,
+      p_original_filename: file.name,
+      p_mime_type: file.type,
+      p_file_size: file.size,
+      p_is_primary: true,
+    });
     if (error) throw error;
-    return mapResume(data);
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved?.id) throw new Error('The resume could not be confirmed after saving. Please retry.');
+    return mapResume(saved);
   } catch (error) {
     // The row write failed after the object landed: remove the orphan.
     await deleteMediaObject(MEDIA_BUCKETS.resumes, storagePath);
@@ -1807,13 +1818,9 @@ export async function listResumes(): Promise<ResumeFile[]> {
 }
 
 export async function setPrimaryResume(resumeId: string): Promise<void> {
-  const client = requireSupabase();
-  const candidateId = await ownCandidateId();
-  const { error: clearError } = await client
-    .from('job_candidate_resumes').update({ is_primary: false }).eq('candidate_id', candidateId);
-  if (clearError) throw clearError;
-  const { error } = await client
-    .from('job_candidate_resumes').update({ is_primary: true }).eq('id', resumeId).eq('candidate_id', candidateId);
+  const { error } = await requireSupabase().rpc('job_set_primary_resume', {
+    target_resume_id: resumeId,
+  });
   if (error) throw error;
 }
 
@@ -1832,6 +1839,13 @@ export async function deleteResume(resumeId: string): Promise<void> {
 /** Short-lived resume URL; Storage RLS permits only its owner or the application employer. */
 export async function getResumeDownloadUrl(storagePath: string): Promise<string> {
   const { data, error } = await requireSupabase().storage.from(MEDIA_BUCKETS.resumes).createSignedUrl(storagePath, 3600);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+/** Short-lived offer-document URL; Storage RLS permits the related candidate, authorized salon team, or admin. */
+export async function getOfferDocumentUrl(storagePath: string): Promise<string> {
+  const { data, error } = await requireSupabase().storage.from(MEDIA_BUCKETS.offers).createSignedUrl(storagePath, 3600);
   if (error) throw error;
   return data.signedUrl;
 }
@@ -1908,6 +1922,38 @@ export async function reportJobPosting(jobId: string, reason: string, details?: 
 }
 
 /** Files a persisted Trust & Safety report against a salon. Returns the report id. */
+export interface BlockedEmployerSummary {
+  id: string;
+  name: string;
+  location: string;
+  dateBlocked: string;
+}
+
+export async function listBlockedEmployers(): Promise<BlockedEmployerSummary[]> {
+  const { data, error } = await requireSupabase()
+    .from('job_blocked_employers')
+    .select('salon_id,created_at,salon:salons(name,city,state)')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return arrays<any>(data).map((row) => {
+    const salon = one<any>(row.salon) || {};
+    return {
+      id: row.salon_id,
+      name: salon.name || 'Employer',
+      location: [salon.city, salon.state].filter(Boolean).join(', ') || 'Location not available',
+      dateBlocked: new Date(row.created_at).toLocaleDateString(),
+    };
+  });
+}
+
+export async function unblockEmployer(salonId: string): Promise<void> {
+  const { error } = await requireSupabase()
+    .from('job_blocked_employers')
+    .delete()
+    .eq('salon_id', salonId);
+  if (error) throw error;
+}
+
 export async function reportSalon(salonId: string, reason: string, details?: string): Promise<string> {
   const { data, error } = await requireSupabase().rpc('report_employer', {
     target_salon_id: salonId,
@@ -2003,9 +2049,9 @@ export async function deletePortfolioItem(itemId: string): Promise<void> {
 }
 
 /** An employer's read-only view of an applicant's portfolio (RLS: applied candidates only). */
-export async function getApplicantPortfolio(candidateProfileId: string): Promise<PortfolioItem[]> {
+export async function getApplicantPortfolio(applicationId: string): Promise<PortfolioItem[]> {
   const { data, error } = await requireSupabase()
-    .from('job_portfolio_items').select('*').eq('candidate_id', candidateProfileId).order('sort_order');
+    .rpc('job_get_applicant_portfolio', { target_application_id: applicationId });
   if (error) throw error;
   const rows = arrays<any>(data);
   const resolved = await resolveStorageUrls(MEDIA_BUCKETS.profileMedia, rows.map((row) => row.image_path));

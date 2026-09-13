@@ -43,7 +43,7 @@ import {
 
 interface SeekerProfileTabProps {
   userProfile: UserProfile;
-  onUpdateProfile?: (updated: UserProfile) => void;
+  onUpdateProfile?: (updated: UserProfile) => Promise<void>;
   onSubmitProfile: (input: CandidateProfileInput) => Promise<CandidateProfileSubmission>;
   onLogout?: () => void;
   onNavigateTab?: (tab: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile') => void;

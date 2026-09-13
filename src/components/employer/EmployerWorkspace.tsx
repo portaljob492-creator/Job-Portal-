@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { JobPosting, Applicant, UserProfile, Conversation, ChatMessage, PortfolioItem } from '../../types';
-import { getApplicantPortfolio, getResumeDownloadUrl } from '../../services/backend';
+import { getApplicantPortfolio, getResumeDownloadUrl, mapBackendError } from '../../services/backend';
 import type { InterviewSchedulePayload } from '../../lib/interviewSchedule';
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
 import { MessagingCenter } from '../messaging/MessagingCenter';
@@ -64,8 +64,9 @@ interface EmployerWorkspaceProps {
   ) => void;
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
-  onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
-  onUpdateProfile?: (updated: UserProfile) => void;
+  onUpdateAvatar?: (newAvatarUrl: string | undefined) => Promise<void>;
+  onUpdateProfile?: (updated: UserProfile) => Promise<void>;
+  onDeleteJob?: (jobId: string) => Promise<void>;
   onJobAction?: (jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') => void;
   initialTab?: 'dashboard' | 'jobs' | 'candidates';
   initialJobId?: string;
@@ -91,6 +92,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   onStartConversation,
   onUpdateAvatar,
   onUpdateProfile,
+  onDeleteJob,
   onJobAction,
   initialTab,
   initialJobId,
@@ -106,12 +108,28 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   const [updatingApplicationId, setUpdatingApplicationId] = useState<string | null>(null);
   const [downloadingResumeId, setDownloadingResumeId] = useState<string | null>(null);
   const [applicationActionError, setApplicationActionError] = useState<string | null>(null);
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+  const [jobActionError, setJobActionError] = useState<string | null>(null);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
   const [viewingPortfolioApplicant, setViewingPortfolioApplicant] = useState<Applicant | null>(null);
   const [offeringApplicant, setOfferingApplicant] = useState<Applicant | null>(null);
   const [hiredApplicant, setHiredApplicant] = useState<Applicant | null>(null);
   const [hiredOfferDetails, setHiredOfferDetails] = useState<any>(null);
   const [showLogoutModal, setShowLogoutModal] = useState<boolean>(false);
+
+  const handleDeleteJob = async (job: JobPosting) => {
+    if (!onDeleteJob || deletingJobId) return;
+    if (!window.confirm(`Delete “${job.title}”? This is available only for draft, rejected, or archived jobs with no applications.`)) return;
+    setDeletingJobId(job.id);
+    setJobActionError(null);
+    try {
+      await onDeleteJob(job.id);
+    } catch (error) {
+      setJobActionError(mapBackendError(error, 'Unable to delete this job. Close it instead if candidates have applied.'));
+    } finally {
+      setDeletingJobId(null);
+    }
+  };
 
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
@@ -135,21 +153,29 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [applicantPortfolio, setApplicantPortfolio] = useState<PortfolioItem[]>([]);
   const [applicantPortfolioLoading, setApplicantPortfolioLoading] = useState<boolean>(false);
+  const [applicantPortfolioError, setApplicantPortfolioError] = useState<string | null>(null);
+  const [portfolioLoadAttempt, setPortfolioLoadAttempt] = useState(0);
 
   // The employer's read-only view of the applicant's real portfolio items.
   useEffect(() => {
-    if (!viewingPortfolioApplicant?.candidateProfileId) {
+    if (!viewingPortfolioApplicant) {
       setApplicantPortfolio([]);
       return;
     }
     let cancelled = false;
     setApplicantPortfolioLoading(true);
-    getApplicantPortfolio(viewingPortfolioApplicant.candidateProfileId)
+    setApplicantPortfolioError(null);
+    getApplicantPortfolio(viewingPortfolioApplicant.id)
       .then((items) => { if (!cancelled) setApplicantPortfolio(items); })
-      .catch(() => { if (!cancelled) setApplicantPortfolio([]); })
+      .catch((error) => {
+        if (!cancelled) {
+          setApplicantPortfolio([]);
+          setApplicantPortfolioError(mapBackendError(error, 'Unable to load this applicant portfolio. Please retry.'));
+        }
+      })
       .finally(() => { if (!cancelled) setApplicantPortfolioLoading(false); });
     return () => { cancelled = true; };
-  }, [viewingPortfolioApplicant]);
+  }, [portfolioLoadAttempt, viewingPortfolioApplicant]);
 
   const applicationPool = candidateJobFilter
     ? applicants.filter((applicant) => applicant.appliedJobId === candidateJobFilter)
@@ -510,6 +536,11 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                 </button>
               </div>
   
+              {jobActionError && (
+                <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                  {jobActionError}
+                </p>
+              )}
               <div className="flex flex-col gap-4">
                 {jobs.map((job) => {
                   const closed = ['closed', 'expired', 'archived'].includes(job.approvalStatus || '');
@@ -518,6 +549,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                   const jobApplicants = applicants.filter((applicant) => applicant.appliedJobId === job.id);
                   const totalApplications = Math.max(jobApplicants.length, job.activeApplicantsCount || 0);
                   const newApplications = jobApplicants.filter((applicant) => applicant.status === 'New').length;
+                  const deletable = ['draft', 'rejected', 'archived'].includes(job.approvalStatus || '') && totalApplications === 0;
 
                   return (
                     <article
@@ -551,6 +583,16 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                           >
                             {closed ? 'Job Closed' : 'Close Job'}
                           </button>
+                          {deletable && (
+                            <button
+                              type="button"
+                              disabled={deletingJobId === job.id}
+                              onClick={() => void handleDeleteJob(job)}
+                              className="rounded-full border border-rose-200 bg-white px-4 py-2 text-[13px] font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {deletingJobId === job.id ? 'Deleting…' : 'Delete Job'}
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -786,7 +828,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
 
           {/* TAB: ANALYTICS */}
           {activeTab === 'analytics' && (
-            <RegionalSalaryAnalytics jobs={jobs} defaultRegion={userProfile.location || 'Beverly Hills, CA'} />
+            <RegionalSalaryAnalytics jobs={jobs} defaultRegion={userProfile.location} />
           )}
 
           {/* TAB: PROFILE */}
@@ -883,8 +925,11 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       {showImageUploader && (
         <ProfileImageUploader
           currentAvatar={userProfile.avatarUrl}
+          currentAvatarPath={userProfile.avatarPath}
           userName={userProfile.name}
-          onSaveAvatar={(newUrl) => onUpdateAvatar?.(newUrl)}
+          onSaveAvatar={(newUrl) => onUpdateAvatar
+            ? onUpdateAvatar(newUrl)
+            : Promise.reject(new Error('Profile photo saving is unavailable.'))}
           onClose={() => setShowImageUploader(false)}
         />
       )}
@@ -895,11 +940,17 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           <div className="bg-white rounded-3xl max-w-4xl w-full p-5 md:p-8 border border-[#e0bec6] shadow-2xl space-y-8 my-8 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-4 border-b border-[#e0bec6]/50">
               <div className="flex items-center gap-4">
-                <img
-                  src={viewingPortfolioApplicant.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
-                  alt={viewingPortfolioApplicant.name}
-                  className="w-14 h-14 rounded-full object-cover ring-2 ring-[#ffd9e2]"
-                />
+                {viewingPortfolioApplicant.avatarUrl ? (
+                  <img
+                    src={viewingPortfolioApplicant.avatarUrl}
+                    alt={viewingPortfolioApplicant.name}
+                    className="w-14 h-14 rounded-full object-cover ring-2 ring-[#ffd9e2]"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#ffd9e2] font-bold text-[#8e004b] ring-2 ring-[#ffd9e2]">
+                    {viewingPortfolioApplicant.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div>
                   <h3 className="text-xl font-bold text-[#1c1b1b]">
                     {viewingPortfolioApplicant.name}&apos;s Portfolio
@@ -920,6 +971,11 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
 
             {applicantPortfolioLoading ? (
               <p className="text-center text-[13px] text-[#594047] py-10">Loading {viewingPortfolioApplicant.name.split(' ')[0]}&apos;s portfolio…</p>
+            ) : applicantPortfolioError ? (
+              <div className="py-10 text-center">
+                <p role="alert" className="text-[13px] font-semibold text-rose-700">{applicantPortfolioError}</p>
+                <button type="button" onClick={() => setPortfolioLoadAttempt((value) => value + 1)} className="mt-3 text-xs font-bold text-[#8e004b] hover:underline">Retry</button>
+              </div>
             ) : applicantPortfolio.length === 0 ? (
               <p className="text-center text-[13px] text-[#594047] py-10">
                 {viewingPortfolioApplicant.name.split(' ')[0]} hasn&apos;t added portfolio work yet.
