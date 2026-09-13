@@ -72,7 +72,20 @@ Migrations are under `supabase/migrations/`:
 20260913000000_jobs_backend_completion.sql
 20260913000100_jobs_schema_integrity.sql
 20260913000200_jobs_rls_policy_hardening.sql
+20260913000300_jobs_query_performance.sql
 ```
+
+`20260913000300_jobs_query_performance.sql` makes the hot read paths answer
+"which salons may this user act for?" once per query instead of once per row.
+The membership helpers are `security definer`, so calling them inside a policy
+(`... or job_can_manage_application(id) or ...`) re-ran a four-table lookup for
+every row a scan touched. Measured on a replayed database with 50k postings,
+100k applications, 30k conversations and 300k messages: the employer dashboard
+went from 2565ms to 121ms, the employer application list from 7792ms to 98ms,
+`get_job_applicant_cards()` from 2491ms to 111ms and
+`get_job_conversation_summaries()` from 621ms to 77ms. One index was added (the
+admin approval queue); the four indexes that were tried and measured as unused
+are listed in the migration so they are not added again by guesswork.
 
 `20260913000200_jobs_rls_policy_hardening.sql` closes the tenant-isolation gap
 the policy audit found: `job_conversations_insert_participant` compared two
@@ -177,6 +190,11 @@ shared Nexora tables) and then drives the real workflows as the `authenticated`
 role: create job → admin approval → apply → shortlist → interview → offer →
 hire, plus cross-user access attempts, storage buckets/policies and the realtime
 publication. It is the fastest way to prove a backend change before deploying.
+
+`npm run test:db` also pins the query-performance guarantees: the set-returning
+membership helper exists and is callable from inside policies, no policy or
+hot-path RPC falls back to a per-row membership call, the approval-queue index
+is present, and anonymous visitors can still read the approved listings.
 
 `npm run test:contract` proves the app and the SQL still agree: every `.rpc()`
 call the frontend makes must exist in the migrations with matching argument

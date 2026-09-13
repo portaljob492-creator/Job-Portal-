@@ -206,7 +206,7 @@ const anonExec = await db.query(`
   select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='public' and p.proname like 'job%'
     and has_function_privilege('anon', p.oid, 'EXECUTE')
-    and p.proname not in ('job_email_portal_role','job_is_admin','job_is_active_salon_member')
+    and p.proname not in ('job_email_portal_role','job_is_admin','job_is_active_salon_member','job_my_active_salon_ids')
 `);
 check('no unexpected anon-executable RPC', anonExec.rows.length === 0,
   anonExec.rows.map((r) => r.proname).join(', '));
@@ -822,6 +822,66 @@ for (const policy of allPolicies.rows) {
   }
 }
 check('no policy contains a tautological self-comparison', tautologies.length === 0, tautologies.join(', '));
+
+// ---------------------------------------------------------------------------
+// 9. Query performance: the hot paths answer membership once per query
+// ---------------------------------------------------------------------------
+const salonHelper = (await db.query(`
+  select p.prosecdef as definer, p.provolatile as volatility, p.proconfig as config,
+         has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_ok,
+         has_function_privilege('anon', p.oid, 'EXECUTE') as anon_ok
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname='public' and p.proname='job_my_active_salon_ids'`)).rows[0];
+check('set-based membership helper exists', Boolean(salonHelper));
+check('membership helper is security definer with an empty search_path',
+  salonHelper.definer === true
+  && (salonHelper.config ?? []).some((entry) => entry.startsWith('search_path=')),
+  JSON.stringify(salonHelper.config));
+check('membership helper is callable by authenticated and anon (needed inside policies)',
+  salonHelper.auth_ok === true && salonHelper.anon_ok === true);
+
+// The per-row helpers must no longer appear in the hot policies: one call per
+// candidate row was the 7.8s -> 80ms difference on the employer application list.
+const perRowPolicies = (await db.query(`
+  select tablename, policyname from pg_policies
+   where schemaname='public'
+     and (coalesce(qual,'') || coalesce(with_check,'')) like '%job_can_manage_application%'`)).rows;
+check('no policy calls the per-row application helper any more',
+  perRowPolicies.length === 0, perRowPolicies.map((r) => `${r.tablename}.${r.policyname}`).join(', '));
+
+const rewritten = ['job_posts_read', 'job_applications_read_related', 'job_interviews_read_related',
+  'job_offers_read_related', 'job_application_history_read_related'];
+const stillPerRow = (await db.query(`
+  select policyname from pg_policies
+   where schemaname='public' and policyname = any(array[${rewritten.map((n) => `'${n}'`).join(',')}])
+     and (coalesce(qual,'') || coalesce(with_check,'')) like '%job_is_active_salon_member%'`)).rows;
+check('rewritten hot policies filter by salon set, not per row',
+  stillPerRow.length === 0, stillPerRow.map((r) => r.policyname).join(', '));
+
+const applicantCardsDef = (await db.query(`
+  select pg_get_functiondef(oid) as def from pg_proc where proname='get_job_applicant_cards'`)).rows[0].def;
+check('applicant list RPC filters by salon set, not per row',
+  !/job_can_manage_application|job_is_active_salon_member/.test(applicantCardsDef)
+  && /job_my_active_salon_ids/.test(applicantCardsDef));
+
+check('admin approval queue has its partial index',
+  (await db.query(`select 1 from pg_indexes where schemaname='public' and indexname='job_posts_pending_approval_idx'`)).rows.length === 1);
+
+// The rewritten policies must still answer correctly, including for anonymous
+// visitors (whose role cannot execute anything it is not granted).
+await db.exec(`set role anon;`);
+const anonBrowse = await db.query(`select count(*)::int as n from public.public_job_listings`);
+await db.exec(`reset role;`);
+check('anon can still read the approved listings after the policy rewrite', anonBrowse.rows[0].n > 0,
+  `${anonBrowse.rows[0].n} rows`);
+const applicantCards = await rpc(employer, `select count(*)::int as n from public.get_job_applicant_cards()`);
+check('applicant list RPC still returns the salon owner their applicants', applicantCards.rows[0].n > 0,
+  `${applicantCards.rows[0].n} rows`);
+const strangerCards = await asUser(seeker, async () => {
+  try { return { rows: (await db.query(`select count(*)::int as n from public.get_job_applicant_cards()`)).rows }; }
+  catch (error) { return { error: error.message }; }
+});
+check('applicant list RPC still refuses a candidate', /ROLE_NOT_ALLOWED/.test(strangerCards.error ?? ''), 'not refused');
 
 // ---------------------------------------------------------------------------
 // Report

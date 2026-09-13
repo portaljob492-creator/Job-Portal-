@@ -159,6 +159,30 @@ const notificationsRls = sql.match(/foreach tbl in array array\['notifications',
 check('shared user tables are switched to RLS with own-row policies',
   Boolean(notificationsRls) && /_own_rows_select/.test(sql) && /_own_rows_delete/.test(sql));
 
+// Query performance: membership must be answered once per query as a set, not
+// once per row by a SECURITY DEFINER call inside a policy qual.
+check('set-based membership helper is declared',
+  /function public\.job_my_active_salon_ids\(\)/.test(sql) && /returns setof uuid/i.test(sql));
+// Migrations replay in order, so only the last definition of each policy is in
+// force; earlier ones are historical records.
+const effectivePolicies = new Map();
+for (const m of sql.matchAll(/create policy\s+([a-z_]+)\s+on\s+([a-z_.]+)([\s\S]*?);/g)) {
+  effectivePolicies.set(`${m[2]}.${m[1]}`, m[3]);
+}
+const perRowPolicies = [...effectivePolicies.entries()].filter(([, body]) => /job_can_manage_application/.test(body));
+check('no policy compares membership row by row', perRowPolicies.length === 0,
+  perRowPolicies.map(([name]) => name).join(', '));
+
+const applicantCardsAt = sql.lastIndexOf('function public.get_job_applicant_cards()\nreturns table');
+const applicantCardsEnd = sql.indexOf('$fn$;', applicantCardsAt);
+const latestApplicantCards = applicantCardsAt === -1 ? ''
+  : sql.slice(applicantCardsAt, applicantCardsEnd === -1 ? applicantCardsAt + 4000 : applicantCardsEnd);
+check('applicant list RPC filters by the salon set',
+  /job_my_active_salon_ids/.test(latestApplicantCards)
+  && !/job_is_active_salon_member/.test(latestApplicantCards));
+check('admin approval queue keeps its partial index',
+  /job_posts_pending_approval_idx[\s\S]*?where status = 'pending_approval'/.test(sql));
+
 // Writes into the marketplace go through RPCs: no client insert policy may
 // exist for membership, plan enablement or postings.
 for (const table of ['job_salon_members', 'job_salon_profiles', 'job_posts']) {
