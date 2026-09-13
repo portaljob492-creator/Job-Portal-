@@ -4,6 +4,7 @@ import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERS
 import { processNewJobForAlerts } from './utils/jobAlertMatcher';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import {
+  PortalRoleMismatchError,
   isActionableAuthScreenError,
   isPortalRoleMismatchError,
   isSessionInvalidError,
@@ -123,13 +124,20 @@ export default function App() {
     savedFilters: INITIAL_SAVED_FILTERS,
   });
 
-  const hydrateWorkspace = useCallback(async (userId: string, _expectedRole?: UserRole) => {
+  const hydrateWorkspace = useCallback(async (userId: string, expectedRole?: UserRole) => {
     if (!supabase) throw new Error('Supabase is not configured.');
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError) throw userError;
     if (!userData.user || userData.user.id !== userId) throw new Error('Your session is no longer valid.');
 
     const role = await getUserRole(userData.user);
+    if (expectedRole && role !== expectedRole) {
+      throw new PortalRoleMismatchError({
+        email: userData.user.email || '',
+        requestedRole: expectedRole,
+        existingRole: role,
+      });
+    }
     const workspace = await loadWorkspace(userData.user, role);
     setCurrentUserId(userId);
     setUserRole(role);

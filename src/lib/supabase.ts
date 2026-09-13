@@ -29,6 +29,51 @@ function isPlaceholderValue(value: string): boolean {
   return /^(your[_-].*|.*placeholder.*|<.*>|\{\{.*\}\}|changeme|replace[_-]me|todo|x{3,})$/i.test(value);
 }
 
+// `?? {}` keeps this module importable outside Vite (tests, scripts) while Vite
+// still statically replaces `import.meta.env` with the real values in the app.
+function resolveEnv(key: string): string | undefined {
+  try {
+    const metaVal = (import.meta as any)?.env?.[key];
+    if (typeof metaVal === 'string' && metaVal.trim()) {
+      return metaVal.trim();
+    }
+  } catch {}
+
+  if (typeof window !== 'undefined') {
+    const win = window as any;
+    const windowVal = win.__ENV__?.[key] || win.__NEXT_DATA__?.env?.[key];
+    if (typeof windowVal === 'string' && windowVal.trim()) {
+      return windowVal.trim();
+    }
+  }
+
+  if (typeof process !== 'undefined' && process?.env) {
+    const procVal = process.env[key] || process.env[key.replace(/^VITE_/, '')];
+    if (typeof procVal === 'string' && procVal.trim()) {
+      return procVal.trim();
+    }
+  }
+
+  return undefined;
+}
+
+export function isValidSupabaseAnonKey(key: string | undefined): boolean {
+  if (!key) return false;
+  const trimmed = key.trim();
+  if (
+    trimmed === 'YOUR_SUPABASE_ANON_OR_PUBLISHABLE_KEY' ||
+    trimmed === 'YOUR_SUPABASE_ANON_KEY' ||
+    trimmed === 'your-anon-key'
+  ) {
+    return false;
+  }
+  // New-style Supabase publishable keys are not JWTs but are equally usable
+  // as the client credential (the diagnostics below report them separately).
+  if (/^sb_publishable_[A-Za-z0-9_-]+$/.test(trimmed)) return true;
+  const parts = trimmed.split('.');
+  return parts.length === 3 && trimmed.startsWith('eyJ');
+}
+
 const rawSupabaseUrl = readEnvValue(env.VITE_SUPABASE_URL);
 const rawSupabaseAnonKey = readEnvValue(env.VITE_SUPABASE_ANON_KEY);
 
@@ -50,7 +95,10 @@ export interface NexoraRuntimeEnv {
 function readRuntimeEnv(): NexoraRuntimeEnv {
   try {
     if (typeof window === 'undefined') return {};
-    const injected = (window as unknown as { __NEXORA_RUNTIME_ENV__?: unknown }).__NEXORA_RUNTIME_ENV__;
+    const win = window as unknown as { __NEXORA_RUNTIME_ENV__?: unknown; __ENV__?: unknown };
+    // Primary: this repo's server injection (see server.ts). Secondary: the
+    // plain `window.__ENV__` injection some hosts provide instead.
+    const injected = win.__NEXORA_RUNTIME_ENV__ ?? win.__ENV__;
     if (!injected || typeof injected !== 'object') return {};
     return injected as NexoraRuntimeEnv;
   } catch {
@@ -113,6 +161,7 @@ export const blockingSupabaseEnv: readonly string[] = hasUsableAnonKey
   ? []
   : [SUPABASE_ANON_KEY_ENV_VAR];
 
+
 export function projectRefFromUrl(url: string): string {
   try {
     const [ref] = new URL(url).hostname.split('.');
@@ -129,15 +178,21 @@ export const supabaseProjectRef = projectRefFromUrl(supabaseUrl);
  * several Nexora apps on the same origin never read or overwrite each other's
  * tokens, and it is stable across deploys.
  */
+const rawStorageKey = resolveEnv('VITE_SUPABASE_STORAGE_KEY');
 export const supabaseStorageKey =
-  readEnvValue(env.VITE_SUPABASE_STORAGE_KEY) || `nexora.auth.${supabaseProjectRef}`;
+  rawStorageKey && !rawStorageKey.startsWith('eyJ')
+    ? rawStorageKey
+    : `nexora.auth.${supabaseProjectRef}`;
 
 /**
  * The app remains usable in demo mode when Supabase environment variables are
- * absent. Production data/auth methods explicitly fail instead of silently
- * pretending that a request succeeded.
+ * absent or uninitialized.
  */
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl &&
+  supabaseAnonKey &&
+  isValidSupabaseAnonKey(supabaseAnonKey)
+);
 
 export interface NexoraAuthClientOptions {
   storageKey: string;
@@ -565,3 +620,109 @@ if (typeof window !== 'undefined') {
     runSupabaseDiagnostics({ log: true, probeSession: true });
   }
 }
+
+// ---------------------------------------------------------------------------
+// Live configuration checks (client initialization + network probes against
+// the Supabase project). Complements the build-time diagnostics above.
+// ---------------------------------------------------------------------------
+
+export interface SupabaseLiveCheckResult {
+  ok: boolean;
+  configured: boolean;
+  url: string;
+  projectRef: string;
+  hasAnonKey: boolean;
+  validKeyFormat: boolean;
+  clientInitialized: boolean;
+  latencyMs?: number;
+  error?: string | null;
+  timestamp: string;
+}
+
+export interface SupabaseConfigDiagnostics {
+  url: string;
+  projectRef: string;
+  hasAnonKey: boolean;
+  validKeyFormat: boolean;
+  storageKey: string;
+  isConfigured: boolean;
+  clientInitialized: boolean;
+}
+
+export function getSupabaseConfigDiagnostics(): SupabaseConfigDiagnostics {
+  return {
+    url: supabaseUrl,
+    projectRef: supabaseProjectRef,
+    hasAnonKey: Boolean(supabaseAnonKey),
+    validKeyFormat: isValidSupabaseAnonKey(supabaseAnonKey),
+    storageKey: supabaseStorageKey,
+    isConfigured: isSupabaseConfigured,
+    clientInitialized: supabase !== null,
+  };
+}
+
+/**
+ * Performs a live check of VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+ * against Supabase client initialization and network endpoints.
+ */
+export async function checkSupabaseLive(
+  targetClient: SupabaseClient | null = supabase,
+): Promise<SupabaseLiveCheckResult> {
+  const result: SupabaseLiveCheckResult = {
+    ok: false,
+    configured: isSupabaseConfigured,
+    url: supabaseUrl,
+    projectRef: supabaseProjectRef,
+    hasAnonKey: Boolean(supabaseAnonKey),
+    validKeyFormat: isValidSupabaseAnonKey(supabaseAnonKey),
+    clientInitialized: targetClient !== null,
+    error: null,
+    timestamp: new Date().toISOString(),
+  };
+
+  if (!isSupabaseConfigured || !targetClient) {
+    result.error = !supabaseAnonKey
+      ? 'VITE_SUPABASE_ANON_KEY is missing or empty'
+      : !isValidSupabaseAnonKey(supabaseAnonKey)
+      ? 'VITE_SUPABASE_ANON_KEY is a placeholder or invalid JWT format'
+      : 'Supabase client failed to initialize';
+    return result;
+  }
+
+  const startTime = Date.now();
+  try {
+    // 1. Check Auth service connectivity via getSession
+    const { error: authError } = await targetClient.auth.getSession();
+    if (authError) {
+      result.latencyMs = Date.now() - startTime;
+      result.error = `Supabase auth service returned error: ${authError.message}`;
+      return result;
+    }
+
+    // 2. Perform a lightweight public table query
+    const { error: queryError } = await targetClient
+      .from('public_job_listings')
+      .select('id')
+      .limit(1);
+
+    result.latencyMs = Date.now() - startTime;
+
+    if (queryError) {
+      result.error = `Supabase query error: ${queryError.message}`;
+      return result;
+    }
+
+    result.ok = true;
+    return result;
+  } catch (err: any) {
+    result.latencyMs = Date.now() - startTime;
+    result.error = err?.message || 'Network error connecting to Supabase';
+    return result;
+  }
+}
+
+/**
+ * Async live check alias for isSupabaseConfigured
+ */
+export const isSupabaseConfiguredLive = checkSupabaseLive;
+export const verifySupabaseConfiguration = checkSupabaseLive;

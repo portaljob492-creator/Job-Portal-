@@ -205,8 +205,8 @@ function category(value?: string | null): JobPosting['category'] {
   return allowed.includes(value as JobPosting['category']) ? (value as JobPosting['category']) : 'Hair';
 }
 
-function mapJob(row: any, isBookmarked = false): JobPosting {
-  const salon = one<any>(row.salon);
+function mapJob(row: any, isBookmarked = false, salonLookup?: Map<string, any>): JobPosting {
+  const salon = (row.salon_id && salonLookup ? salonLookup.get(row.salon_id) : null) || one<any>(row.salon);
   const location = one<any>(row.location);
   const city = row.city || location?.city || salon?.city || '';
   const state = row.state || location?.state || salon?.state || '';
@@ -264,9 +264,9 @@ const applicantStatuses: Record<string, Applicant['status']> = {
   position_closed: 'Declined',
 };
 
-function mapApplication(row: any): Application {
+function mapApplication(row: any, salonLookup?: Map<string, any>): Application {
   const jobRow = one<any>(row.job);
-  const job = jobRow ? mapJob(jobRow) : null;
+  const job = jobRow ? mapJob(jobRow, false, salonLookup) : null;
   const interviews = arrays<any>(row.interviews).sort(
     (a, b) => new Date(b.scheduled_start).getTime() - new Date(a.scheduled_start).getTime(),
   );
@@ -755,19 +755,19 @@ export interface WorkspaceData {
 
 export async function loadWorkspace(user: User, role: UserRole): Promise<WorkspaceData> {
   const client = requireSupabase();
-  const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
+  const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
 
-  const [profileResult, candidateResult, membershipResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult] = await Promise.all([
+  const [profileResult, candidateResult, membershipResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
     // maybeSingle: a missing profiles row (marketplace trigger lag, legacy user)
     // must degrade to defaults, never fail the whole workspace load. The Jobs
     // signup trigger best-effort ensures the row; see migration
     // 20260913000600_jobs_profile_sync.sql.
     client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).maybeSingle(),
     client.from('job_seeker_profiles').select('*').eq('user_id', user.id).maybeSingle(),
-    client.from('job_salon_members').select('salon_id,member_role,salon:salons!job_salon_members_salon_id_fkey(*)').eq('user_id', user.id).eq('status', 'active').limit(1).maybeSingle(),
+    client.from('job_salon_members').select('salon_id,member_role').eq('user_id', user.id).eq('status', 'active').limit(1).maybeSingle(),
     role === 'seeker'
       ? client.from('public_job_listings').select('*').order('published_at', { ascending: false })
-      : client.from('job_posts').select('*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)').order('created_at', { ascending: false }),
+      : client.from('job_posts').select('*, location:job_salon_locations!job_posts_location_id_fkey(*)').order('created_at', { ascending: false }),
     client.from('job_saved_jobs').select('job_id').eq('user_id', user.id),
     client.rpc('get_job_conversation_summaries'),
     client.from('job_messages').select('*').order('created_at', { ascending: true }),
@@ -777,12 +777,15 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
       ? client.from('job_applications').select(applicationSelect).eq('candidate_user_id', user.id).order('submitted_at', { ascending: false })
       : client.from('job_applications').select(applicationSelect).order('submitted_at', { ascending: false }),
     role === 'employer' ? client.rpc('get_job_applicant_cards') : Promise.resolve({ data: [], error: null }),
+    client.from('public_job_salon_profiles').select('*'),
   ]);
 
   const error = [profileResult, candidateResult, membershipResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult]
     .map((result: any) => result.error)
     .find(Boolean);
   if (error) throw error;
+
+  const salonMap = new Map<string, any>((salonProfilesResult.data || []).map((s: any) => [s.id, s]));
 
   const candidate: any = candidateResult.data;
   const [skillsResult, portfolioResult] = candidate
@@ -833,7 +836,7 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     resolveRowMedia(row, 'employer_avatar_path');
   }
   const membership: any = membershipResult.data;
-  const salon = one<any>(membership?.salon);
+  const salon = membership?.salon_id ? salonMap.get(membership.salon_id) : null;
   const savedFilters = arrays<any>(filtersResult.data).map(mapSavedFilter);
   const specialties = arrays<any>(skillsResult.data).map((row) => one<any>(row.skill)?.name).filter(Boolean) as string[];
   const portfolioItems: PortfolioItem[] = arrays<any>(portfolioResult.data).map((row) => ({
@@ -848,7 +851,7 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
 
   const bookmarkedIds = new Set(arrays<any>(bookmarksResult.data).map((row) => row.job_id));
   const jobRows = arrays<any>(jobsResult.data);
-  const mappedJobs = jobRows.map((row) => mapJob(row, bookmarkedIds.has(row.id)));
+  const mappedJobs = jobRows.map((row) => mapJob(row, bookmarkedIds.has(row.id), salonMap));
   const applicationRows = arrays<any>(applicationsResult.data);
   const cards = arrays<any>(applicantCardsResult.data);
   const summaries = arrays<any>(conversationsResult.data);
@@ -890,7 +893,7 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
       savedFilters,
     },
     jobs: mappedJobs,
-    applications: role === 'seeker' ? applicationRows.map(mapApplication) : [],
+    applications: role === 'seeker' ? applicationRows.map((row) => mapApplication(row, salonMap)) : [],
     applicants: role === 'employer'
       ? applicationRows.map((row) => mapApplicant(row, cards.find((card) => card.application_id === row.id)))
       : [],
@@ -991,11 +994,16 @@ export async function createJob(_userId: string, job: JobPosting): Promise<JobPo
   if (error) throw error;
   const { data: saved, error: readError } = await client
     .from('job_posts')
-    .select('*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)')
+    .select('*, location:job_salon_locations!job_posts_location_id_fkey(*)')
     .eq('id', id)
     .single();
   if (readError) throw readError;
-  return mapJob(saved);
+  const { data: salonData } = await client
+    .from('public_job_salon_profiles')
+    .select('*')
+    .eq('id', saved.salon_id)
+    .maybeSingle();
+  return mapJob({ ...saved, salon: salonData });
 }
 
 function numericValue(value?: string) {

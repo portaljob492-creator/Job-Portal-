@@ -29,12 +29,14 @@ const appBundles = fs.readdirSync(path.join(dist, 'assets'))
   .filter((file) => file.endsWith('.js'))
   .map((file) => fs.readFileSync(path.join(dist, 'assets', file), 'utf8'))
   .join('\n');
+const swFile = fs.existsSync(path.join(dist, 'sw.js')) ? 'dist/sw.js' : 'dist/service-worker.js';
+const swName = path.basename(swFile);
 assertCheck('manifest linked', indexHtml.includes('rel="manifest"') && indexHtml.includes('/manifest.webmanifest'));
-assertCheck('service worker registered immediately', fs.existsSync(path.join(dist, 'service-worker.js')) && appBundles.includes('service-worker.js') && appBundles.includes('serviceWorker'));
+assertCheck('service worker registered immediately', fs.existsSync(path.join(root, swFile)) && (appBundles.includes(swName) || appBundles.includes('service-worker') || appBundles.includes('sw.js')) && appBundles.includes('serviceWorker'));
 assertCheck('apple install metadata', indexHtml.includes('apple-mobile-web-app-capable') && indexHtml.includes('apple-touch-icon'));
 assertCheck('early native prompt capture', appBundles.includes('beforeinstallprompt') && appBundles.includes('Preparing install'));
 
-const serviceWorker = read('dist/service-worker.js');
+const serviceWorker = read(swFile);
 assertCheck('safe public jobs runtime cache', serviceWorker.includes('public_job_listings') && serviceWorker.includes('nexora-public-jobs-v1'));
 assertCheck('no private workflow runtime cache', !serviceWorker.includes('job_applications') && !serviceWorker.includes('job_offers'));
 

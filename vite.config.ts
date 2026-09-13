@@ -1,18 +1,18 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
-import {VitePWA} from 'vite-plugin-pwa';
+import { defineConfig, loadEnv } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
-  const requestedBase = process.env.VITE_APP_BASE_PATH?.trim() || '/';
+  const viteEnv = loadEnv(mode, process.cwd(), '');
+  const requestedBase = process.env.VITE_APP_BASE_PATH?.trim() || viteEnv.VITE_APP_BASE_PATH?.trim() || '/';
   const appBase = `/${requestedBase.replace(/^\/+|\/+$/g, '')}${requestedBase === '/' ? '' : '/'}`;
   const asset = (value: string) => `${appBase}${value.replace(/^\//, '')}`;
 
   // Fail-fast visibility (a warning, not a build failure — demo mode without
   // Supabase is intentional): surface missing client env in the build log so a
   // misconfigured deploy is obvious before it ever reaches the browser.
-  const viteEnv = loadEnv(mode, process.cwd(), '');
   const buildSupabaseUrl = (viteEnv.VITE_SUPABASE_URL ?? '').trim();
   const buildSupabaseAnonKey = (viteEnv.VITE_SUPABASE_ANON_KEY ?? '').trim();
   const looksLikePlaceholder = (value: string): boolean =>
@@ -36,12 +36,36 @@ export default defineConfig(({ mode }) => {
     );
   }
 
+  // Pin the Supabase client env at build time (shell env wins over .env files,
+  // canonical project URL as the last-resort fallback). The runtime layer on
+  // express hosts can still override these after the fact.
+  const supabaseUrl = (
+    process.env.VITE_SUPABASE_URL ||
+    viteEnv.VITE_SUPABASE_URL ||
+    'https://qwaehqsmodekbgvnaavz.supabase.co'
+  ).trim();
+  const supabaseAnonKey = (
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    viteEnv.VITE_SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
+  const supabaseStorageKey = (
+    process.env.VITE_SUPABASE_STORAGE_KEY ||
+    viteEnv.VITE_SUPABASE_STORAGE_KEY ||
+    ''
+  ).trim();
+
   return {
     base: appBase,
     // Only `VITE_*` variables are exposed to the browser bundle via
     // `import.meta.env` (Vite default, stated explicitly so client env can't
     // silently stop working if the prefix is ever customized).
     envPrefix: 'VITE_',
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
+      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
+      'import.meta.env.VITE_SUPABASE_STORAGE_KEY': JSON.stringify(supabaseStorageKey),
+    },
     plugins: [
       react(),
       tailwindcss(),
