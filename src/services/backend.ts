@@ -257,7 +257,9 @@ function mapApplication(row: any): Application {
     (a, b) => new Date(b.sent_at || 0).getTime() - new Date(a.sent_at || 0).getTime(),
   );
   const activeOffer = offers.find((item) => ['sent', 'accepted'].includes(String(item.status)));
-  const latestInterview = offers.length > 0 && !activeOffer ? undefined : openInterview ?? interviews[0];
+  // Prefer an interview that is still actionable; otherwise expose the newest
+  // one so the candidate screens can still show it.
+  const workflowInterview = openInterview ?? interviews[0];
   return {
     id: row.id,
     jobId: row.job_id,
@@ -273,7 +275,7 @@ function mapApplication(row: any): Application {
       : undefined,
     expectedSalary: row.expected_salary == null ? undefined : `₹${Number(row.expected_salary).toLocaleString('en-IN')}`,
     availability: row.available_from || undefined,
-    interviewId: latestInterview?.id || undefined,
+    interviewId: workflowInterview?.id || undefined,
     offerId: activeOffer?.id || undefined,
   };
 }
