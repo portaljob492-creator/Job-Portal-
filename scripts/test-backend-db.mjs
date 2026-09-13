@@ -647,6 +647,145 @@ check('deleting an account removes the rows it owns',
   Object.values(retiredRows.rows[0]).every((n) => n === 0), JSON.stringify(retiredRows.rows[0]));
 
 // ---------------------------------------------------------------------------
+// 8. Tenant isolation: one salon can never reach into another salon's data
+// ---------------------------------------------------------------------------
+const employerB = uid(5), candidateB = uid(6);
+await db.exec(`
+  insert into auth.users(id,email,raw_user_meta_data) values
+    ('${employerB}','employerb@example.com','{"app_context":"jobs","job_role":"employer"}'),
+    ('${candidateB}','candidateb@example.com','{"app_context":"jobs","job_role":"seeker"}');
+  insert into public.profiles(id,full_name,is_active) values
+    ('${employerB}','Employer B',true),('${candidateB}','Candidate B',true);
+`);
+await rpc(employerB, `select public.job_register_role('employer')`);
+await rpc(candidateB, `select public.job_register_role('job_seeker')`);
+const salonB = (await rpc(employerB, `select public.complete_job_employer_onboarding(
+  'Second Salon','Owner B','2 Side St','Jaipur','Rajasthan',null,'salon',null,null) as id`)).rows[0].id;
+const jobB = (await rpc(employerB, `select public.create_job_post(
+  '${salonB}', null, 'Second Salon Stylist', 'Hair',
+  'We are hiring a stylist for our second Jaipur salon location.', 'full_time') as id`)).rows[0].id;
+await rpc(admin, `select public.approve_job('${jobB}')`);
+// Salon B gets an application of its own, so its owner satisfies the predicate
+// the broken policy version left behind.
+await rpc(seeker, `select public.submit_job_application('${jobB}')`);
+
+const conversationInsert = (userId, job, candidate, employer) =>
+  asUser(userId, async () => {
+    try {
+      await db.query(`insert into public.job_conversations(job_id,candidate_user_id,employer_user_id,status)
+        values ('${job}','${candidate}','${employer}','inquiry')`);
+      return 'inserted';
+    } catch (error) {
+      return error.message;
+    }
+  });
+
+// REGRESSION: the salon B owner must not be able to open a thread about salon A's job.
+const crossSalon = await conversationInsert(employerB, job, seeker, employerB);
+check('salon B cannot create a conversation on salon A job', crossSalon !== 'inserted', crossSalon);
+
+// REGRESSION: a salon member must not be able to open a thread with a candidate
+// who never applied to that job.
+const unrelatedCandidate = await conversationInsert(employerB, jobB, candidateB, employerB);
+check('salon member cannot open a conversation with a candidate who never applied',
+  unrelatedCandidate !== 'inserted', unrelatedCandidate);
+
+// Positive control: the rightful pair still works.
+const ownApplication = await conversationInsert(employerB, jobB, seeker, employerB);
+check('salon member can open a conversation with an applicant', ownApplication === 'inserted', ownApplication);
+
+// Candidate inquiry: allowed on a live job, refused once the job is not listable.
+const inquiry = await conversationInsert(seeker, job, seeker, employer);
+check('candidate can start an inquiry about a live job', inquiry === 'inserted', inquiry);
+const pendingJobForInquiry = (await rpc(employer, `select public.create_job_post(
+  '${salonId}', null, 'Unapproved Role', 'Hair',
+  'This posting is still waiting for the administrator to approve it.', 'full_time') as id`)).rows[0].id;
+const pendingInquiry = await conversationInsert(seeker, pendingJobForInquiry, seeker, employer);
+check('candidate cannot start an inquiry about a job that is not listable',
+  pendingInquiry !== 'inserted', pendingInquiry);
+
+// Cross-tenant reads: salon B must not see salon A's job rows or applications.
+// An approved posting is public by design, but a pending one must not be.
+const publicJob = await asUser(candidateB, () =>
+  db.query(`select count(*)::int as n from public.job_posts where id='${job}'`));
+check('any signed-in user can read an approved job posting', publicJob.rows[0].n === 1, `${publicJob.rows[0].n} rows`);
+const crossSalonJobs = await asUser(employerB, () =>
+  db.query(`select count(*)::int as n from public.job_posts where id='${pendingJobForInquiry}'`));
+check('salon B cannot read salon A unapproved posting', crossSalonJobs.rows[0].n === 0, `${crossSalonJobs.rows[0].n} rows`);
+const crossSalonApps = await asUser(employerB, () =>
+  db.query(`select count(*)::int as n from public.job_applications where job_id='${job}'`));
+check('salon B cannot read applications addressed to salon A', crossSalonApps.rows[0].n === 0,
+  `${crossSalonApps.rows[0].n} rows`);
+const crossSalonCandidates = await asUser(candidateB, () =>
+  db.query(`select count(*)::int as n from public.job_applications where candidate_user_id='${seeker}'`));
+check('one candidate cannot read another candidate applications', crossSalonCandidates.rows[0].n === 0,
+  `${crossSalonCandidates.rows[0].n} rows`);
+
+// Anonymous visitors never see skills of a job that is still awaiting approval.
+await db.exec(`set role anon;`);
+const anonSkills = await db.query(`select count(*)::int as n from public.job_post_skills where job_id='${pendingJobForInquiry}'`);
+await db.exec(`reset role;`);
+check('anon cannot read skills of an unapproved job', anonSkills.rows[0].n === 0, `${anonSkills.rows[0].n} rows`);
+
+// A forged salon row must be able to reach nothing: no client insert path into
+// membership, plan enablement or postings. All three are written by RPCs only.
+const insertPolicyCount = async (table) => (await db.query(`
+  select count(*)::int as n from pg_policies
+   where schemaname='public' and tablename='${table}' and cmd in ('INSERT','ALL')`)).rows[0].n;
+for (const table of ['job_salon_members', 'job_salon_profiles', 'job_posts']) {
+  check(`no client insert policy on ${table}`, (await insertPolicyCount(table)) === 0, `${await insertPolicyCount(table)} policies`);
+}
+const forgedMembership = await asUser(employerB, async () => {
+  try {
+    await db.query(`insert into public.job_salon_members(salon_id,user_id,member_role,status)
+      values ('${salonId}','${employerB}','owner','active')`);
+    return 'inserted';
+  } catch (error) { return error.message; }
+});
+check('salon B cannot forge membership of salon A', forgedMembership !== 'inserted', forgedMembership);
+const forgedEnable = await asUser(employerB, async () => {
+  try {
+    const result = await db.query(`update public.job_salon_profiles set jobs_enabled = true where salon_id='${salonId}'`);
+    return result.affectedRows === 0 ? 'no rows updated' : 'updated';
+  } catch (error) { return error.message; }
+});
+check('salon B cannot enable job listings for salon A', forgedEnable === 'no rows updated', forgedEnable);
+const forgedPost = await asUser(employerB, async () => {
+  try {
+    await db.query(`insert into public.job_posts(salon_id,created_by,title,description,employment_type,status)
+      values ('${salonId}','${employerB}','Forged','A forged posting written straight through PostgREST.','full_time','approved')`);
+    return 'inserted';
+  } catch (error) { return error.message; }
+});
+check('salon B cannot publish a posting for salon A directly', forgedPost !== 'inserted', forgedPost);
+
+// Shared tables that used to ship with RLS switched off must now be closed.
+for (const table of ['notifications', 'push_subscriptions']) {
+  const state = (await db.query(`
+    select c.relrowsecurity as rls,
+           (select count(*)::int from pg_policies p where p.schemaname='public' and p.tablename=c.relname) as policies
+      from pg_class c join pg_namespace n on n.oid=c.relnamespace
+     where n.nspname='public' and c.relname='${table}'`)).rows[0];
+  check(`${table} has RLS enabled with own-row policies`, state.rls === true && state.policies >= 4,
+    `rls=${state.rls} policies=${state.policies}`);
+}
+
+// Generic guard against the shadowing bug that produced this whole section: a
+// policy that compares an identifier with itself is always true.
+const tautologies = [];
+const allPolicies = await db.query(`
+  select tablename, policyname, coalesce(qual,'') as qual, coalesce(with_check,'') as with_check
+    from pg_policies where schemaname='public'`);
+for (const policy of allPolicies.rows) {
+  for (const expr of [policy.qual, policy.with_check]) {
+    for (const m of expr.matchAll(/([a-z_]+(?:\.[a-z_]+)?)\s*=\s*([a-z_]+(?:\.[a-z_]+)?)(?=[)\s]|$)/g)) {
+      if (m[1] === m[2]) tautologies.push(`${policy.tablename}.${policy.policyname}: ${m[1]} = ${m[2]}`);
+    }
+  }
+}
+check('no policy contains a tautological self-comparison', tautologies.length === 0, tautologies.join(', '));
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 const failed = results.filter((r) => !r.ok);

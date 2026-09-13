@@ -138,6 +138,35 @@ check('realtime publication covers the live tables',
 check('hot-path indexes added for the audit findings',
   /job_applications_candidate_profile_idx/.test(sql) && /job_one_active_offer_per_application/.test(sql));
 
+// Tenant isolation: the conversation insert policy must bind both columns of the
+// row being inserted. An unqualified name inside the policy's subquery resolves
+// to the subquery's own table, which silently turns the check into a tautology.
+// Migrations replay in order, so the last definition is the one in force.
+const conversationPolicies = [...sql.matchAll(
+  /create policy job_conversations_insert_participant[\s\S]*?;\n/g,
+)];
+const conversationPolicySql = conversationPolicies.length
+  ? conversationPolicies[conversationPolicies.length - 1][0] : '';
+check('conversation insert policy binds the inserted row explicitly',
+  /public\.job_conversations\.job_id/.test(conversationPolicySql)
+  && /public\.job_conversations\.candidate_user_id/.test(conversationPolicySql),
+  'policy missing qualified references');
+check('conversation insert policy no longer compares columns of the inner table',
+  !/where\s+a\.job_id\s*=\s*job_id/i.test(conversationPolicySql));
+
+// The two tables that ship with RLS switched off must be closed by a migration.
+const notificationsRls = sql.match(/foreach tbl in array array\['notifications', 'push_subscriptions'\]/);
+check('shared user tables are switched to RLS with own-row policies',
+  Boolean(notificationsRls) && /_own_rows_select/.test(sql) && /_own_rows_delete/.test(sql));
+
+// Writes into the marketplace go through RPCs: no client insert policy may
+// exist for membership, plan enablement or postings.
+for (const table of ['job_salon_members', 'job_salon_profiles', 'job_posts']) {
+  const policyBlocks = [...sql.matchAll(new RegExp(`create policy [a-z_]+ on public\\.${table}\\b[\\s\\S]*?;`, 'g'))];
+  const insertPolicies = policyBlocks.filter((block) => /for insert|for all/i.test(block[0]));
+  check(`no client insert policy on ${table}`, insertPolicies.length === 0, `${insertPolicies.length} found`);
+}
+
 // ---------------------------------------------------------------------------
 // 4. Schema integrity guarantees
 // ---------------------------------------------------------------------------

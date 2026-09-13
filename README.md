@@ -71,7 +71,19 @@ Migrations are under `supabase/migrations/`:
 20260810090000_jobs_location_sync.sql
 20260913000000_jobs_backend_completion.sql
 20260913000100_jobs_schema_integrity.sql
+20260913000200_jobs_rls_policy_hardening.sql
 ```
+
+`20260913000200_jobs_rls_policy_hardening.sql` closes the tenant-isolation gap
+the policy audit found: `job_conversations_insert_participant` compared two
+columns of the *inner* table with each other (`a.job_id = a.job_id`), so any
+salon member could open a conversation about another salon's job, with a
+candidate who never applied. The policy now binds both columns of the inserted
+row, and the two helpers it needs run as `security definer` — a plain subquery
+on `job_salon_members` is row-filtered by its own policy, which had silently
+made candidate inquiries impossible. The same migration switches the shared
+`notifications` / `push_subscriptions` tables (which shipped with RLS disabled)
+to own-row policies.
 
 `20260913000100_jobs_schema_integrity.sql` completes the relational audit: one
 employment-type vocabulary for posts/offers/saved searches, the application
