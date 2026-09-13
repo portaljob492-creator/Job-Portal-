@@ -250,6 +250,20 @@ check('Edit Job is persisted through an actor-owned server RPC',
   read('src/services/backend.ts').includes("rpc('update_employer_job'")
   && /existing\.created_by<>actor/.test(finalFunctionBody.update_employer_job || '')
   && /job_is_active_salon_member/.test(finalFunctionBody.update_employer_job || ''));
+check('Applications Received cards expose all requested candidate details',
+  ['Applications Received', 'Candidate Name', 'Profile Image', 'Mobile / Email', 'Experience', 'Skills',
+    'Preferred Location', 'Resume Download', 'Application Status', 'Applied Date']
+    .every((label) => employerWorkspace.includes(label)));
+check('Applications Received exposes every requested employer action',
+  ['Mark Under Review', 'Shortlist', 'Reject', 'Hire', 'WhatsApp Candidate', 'Call Candidate']
+    .every((label) => employerWorkspace.includes(label)));
+check('employer application status UI awaits secured Supabase persistence',
+  /await onUpdateApplicantStatus\(applicant\.id, status\)/.test(employerWorkspace)
+  && /if \(currentUserId\) await updateApplicationStatus/.test(read('src/App.tsx')));
+check('employer applications RPC is actor-scoped and returns selected resume metadata',
+  read('src/services/backend.ts').includes("rpc('get_employer_job_applications'")
+  && /j\.created_by=actor/.test(finalFunctionBody.get_employer_job_applications || '')
+  && /resume_storage_path/.test(sql));
 check('My Applications renders the requested job and application fields',
   ['My Applications', 'Salary Range', 'Job Type', 'Applied Date', 'View Job', 'Withdraw Application']
     .every((label) => seekerWorkspace.includes(label)));

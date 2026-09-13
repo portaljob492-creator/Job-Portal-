@@ -121,6 +121,9 @@ export interface Applicant {
   skills?: string[];
   /** Seeker-profile id behind this application (portfolio/resume reads). */
   candidateProfileId?: string;
+  /** Resume selected for this application; the path is exchanged for a short-lived URL on demand. */
+  resumeFileName?: string;
+  resumeStoragePath?: string;
   /** Interview rows for this application, newest first. */
   interviews?: EmployerInterview[];
 }

@@ -369,29 +369,30 @@ function mapEmployerInterview(row: any): EmployerInterview {
   };
 }
 
-function mapApplicant(row: any, card?: any): Applicant {
-  const jobRow = one<any>(row.job);
+function mapApplicant(row: any): Applicant {
   const interviews = arrays<any>(row.interviews)
     .sort((a, b) => new Date(b.scheduled_start).getTime() - new Date(a.scheduled_start).getTime())
     .map(mapEmployerInterview);
   return {
-    id: row.id,
-    name: card?.full_name || 'Applicant',
+    id: row.application_id,
+    name: row.candidate_name || 'Applicant',
     appliedJobId: row.job_id,
-    appliedJobTitle: jobRow?.title || 'Beauty position',
-    email: card?.email || '',
-    phone: card?.phone || '',
-    experienceYears: Math.floor(Number(card?.total_experience_months || 0) / 12),
+    appliedJobTitle: row.job_title || 'Beauty position',
+    email: row.email || '',
+    phone: row.phone || '',
+    experienceYears: Math.floor(Number(row.total_experience_months || 0) / 12),
     licenseNumber: '',
     status: applicantStatuses[row.status] || 'New',
     appliedDate: relativeDate(row.submitted_at),
     coverNote: row.cover_note || undefined,
     expectedSalary: row.expected_salary == null ? undefined : `₹${Number(row.expected_salary).toLocaleString('en-IN')}`,
     availability: row.available_from || undefined,
-    avatarUrl: card?.avatar_path || undefined,
-    location: [card?.city, card?.state].filter(Boolean).join(', ') || undefined,
-    skills: arrays<string>(card?.skills),
+    avatarUrl: row.avatar_path || undefined,
+    location: [row.preferred_city, row.preferred_state].filter(Boolean).join(', ') || undefined,
+    skills: arrays<string>(row.skills),
     candidateProfileId: row.candidate_profile_id || undefined,
+    resumeFileName: row.resume_filename || undefined,
+    resumeStoragePath: row.resume_storage_path || undefined,
     interviews,
   };
 }
@@ -862,9 +863,9 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     client.from('job_notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
     role === 'seeker'
       ? client.from('job_applications').select(applicationSelect).eq('candidate_user_id', user.id).order('submitted_at', { ascending: false })
-      : client.from('job_applications').select(applicationSelect).order('submitted_at', { ascending: false }),
+      : Promise.resolve({ data: [], error: null }),
     role === 'seeker' ? client.rpc('get_my_job_application_listings') : Promise.resolve({ data: [], error: null }),
-    role === 'employer' ? client.rpc('get_job_applicant_cards') : Promise.resolve({ data: [], error: null }),
+    role === 'employer' ? client.rpc('get_employer_job_applications', { target_job_id: null }) : Promise.resolve({ data: [], error: null }),
     client.from('public_job_salon_profiles').select('*'),
   ]);
 
@@ -1053,9 +1054,7 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     applications: role === 'seeker'
       ? applicationRows.map((row) => mapApplication(row, salonMap, ownedApplicationListings.get(row.id)))
       : [],
-    applicants: role === 'employer'
-      ? applicationRows.map((row) => mapApplicant(row, cards.find((card) => card.application_id === row.id)))
-      : [],
+    applicants: role === 'employer' ? cards.map(mapApplicant) : [],
     conversations: summaries.map(mapConversation),
     messages: arrays<any>(messagesResult.data).map((row) => mapMessage(row, summaries)),
     alerts,
@@ -1830,7 +1829,7 @@ export async function deleteResume(resumeId: string): Promise<void> {
   await deleteMediaObject(MEDIA_BUCKETS.resumes, (data as { storage_path: string }).storage_path);
 }
 
-/** Short-lived download link for the seeker's own resume. */
+/** Short-lived resume URL; Storage RLS permits only its owner or the application employer. */
 export async function getResumeDownloadUrl(storagePath: string): Promise<string> {
   const { data, error } = await requireSupabase().storage.from(MEDIA_BUCKETS.resumes).createSignedUrl(storagePath, 3600);
   if (error) throw error;

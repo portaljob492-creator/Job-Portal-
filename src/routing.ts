@@ -7,6 +7,7 @@ export interface JobPortalRoute {
   protected: boolean;
   seekerTab?: SeekerTab;
   employerTab?: EmployerTab;
+  employerJobId?: string;
   openPostJob?: boolean;
   requiredRole?: UserRole;
 }
@@ -72,7 +73,12 @@ export function resolveJobPortalRoute(pathname = window.location.pathname): JobP
   // so /jobs/post-a-job never gets incorrectly forced into the seeker portal.
   if (relative.startsWith('/jobs/profile')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'profile' };
   if (relative.startsWith('/jobs/search')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
-  if (relative.startsWith('/jobs/my-applications') || relative.startsWith('/jobs/applications')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'applications' };
+  const employerApplicationsMatch = relative.match(/^\/jobs\/applications\/([^/]+)$/);
+  if (employerApplicationsMatch) return {
+    screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'candidates',
+    employerJobId: decodeURIComponent(employerApplicationsMatch[1]),
+  };
+  if (relative.startsWith('/jobs/my-applications') || relative === '/jobs/applications') return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'applications' };
   if (relative.startsWith('/jobs/post-a-job')) return { screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'jobs', openPostJob: true };
   if (relative.startsWith('/jobs/my-posts') || relative.startsWith('/jobs/posted-jobs')) return { screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'jobs' };
   if (relative.startsWith('/jobs/employer-applications')) return { screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'candidates' };
@@ -83,7 +89,7 @@ export function resolveJobPortalRoute(pathname = window.location.pathname): JobP
   return { screen: 'welcome', protected: false };
 }
 
-export function pathForScreen(screen: ScreenState, role: UserRole, seekerTab?: SeekerTab, employerTab?: EmployerTab, openPostJob = false) {
+export function pathForScreen(screen: ScreenState, role: UserRole, seekerTab?: SeekerTab, employerTab?: EmployerTab, openPostJob = false, employerJobId?: string) {
   if (screen === 'welcome') return jobPortalPath();
   if (screen === 'role_select') return jobPortalPath('signup');
   if (screen === 'seeker_signup') return jobPortalPath('signup/seeker');
@@ -103,6 +109,7 @@ export function pathForScreen(screen: ScreenState, role: UserRole, seekerTab?: S
     if (role === 'employer') {
       if (openPostJob) return jobPortalPath('jobs/post-a-job');
       if (employerTab === 'jobs') return jobPortalPath('jobs/my-posts');
+      if (employerTab === 'candidates' && employerJobId) return jobPortalPath(`jobs/applications/${encodeURIComponent(employerJobId)}`);
       if (employerTab === 'candidates') return jobPortalPath('jobs/employer-applications');
       return jobPortalPath('dashboard/employer');
     }

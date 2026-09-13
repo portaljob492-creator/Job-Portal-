@@ -1322,6 +1322,25 @@ const employerResume = await asUser(employer, () =>
   db.query(`select count(*)::int as n from storage.objects where bucket_id='job-resumes' and name='${seeker}/resume.pdf'`));
 check('the employer can read the resume attached to an application they own',
   employerResume.rows[0].n === 1, `${employerResume.rows[0].n} rows`);
+const employerApplicationCards = await rpc(employer, `select application_id,job_id,candidate_name,email,phone,
+  total_experience_months,skills,preferred_city,resume_storage_path,resume_filename,status,submitted_at
+  from public.get_employer_job_applications('${linkedJob}')`);
+check('job-specific employer applications return the candidate card and attached resume',
+  employerApplicationCards.rows.length === 1
+    && employerApplicationCards.rows[0].job_id === linkedJob
+    && employerApplicationCards.rows[0].resume_storage_path === `${seeker}/resume.pdf`
+    && employerApplicationCards.rows[0].resume_filename === 'resume.pdf'
+    && employerApplicationCards.rows[0].status === 'submitted'
+    && Boolean(employerApplicationCards.rows[0].submitted_at),
+  JSON.stringify(employerApplicationCards.rows));
+let foreignApplicationsError = '';
+try {
+  await rpc(employerB, `select * from public.get_employer_job_applications('${linkedJob}')`);
+} catch (error) {
+  foreignApplicationsError = error.message;
+}
+check('another employer cannot enumerate applications for a job they did not post',
+  /JOB_NOT_FOUND/.test(foreignApplicationsError), foreignApplicationsError || 'allowed');
 const strangerResume = await asUser(employerB, () =>
   db.query(`select count(*)::int as n from storage.objects where bucket_id='job-resumes' and name='${seeker}/resume.pdf'`));
 check('another salon cannot read that resume', strangerResume.rows[0].n === 0, `${strangerResume.rows[0].n} rows`);

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { JobPosting, Applicant, UserProfile, Conversation, ChatMessage, PortfolioItem } from '../../types';
-import { getApplicantPortfolio } from '../../services/backend';
+import { getApplicantPortfolio, getResumeDownloadUrl } from '../../services/backend';
 import type { InterviewSchedulePayload } from '../../lib/interviewSchedule';
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
 import { MessagingCenter } from '../messaging/MessagingCenter';
@@ -49,7 +49,7 @@ interface EmployerWorkspaceProps {
   userProfile: UserProfile;
   onAddJob: (newJob: JobPosting) => Promise<JobPosting>;
   onUpdateJob: (job: JobPosting) => Promise<JobPosting>;
-  onUpdateApplicantStatus: (applicantId: string, status: Applicant['status']) => void;
+  onUpdateApplicantStatus: (applicantId: string, status: Applicant['status']) => Promise<void>;
   /** Persists a real interview row from the scheduling form payload. */
   onScheduleInterview: (applicantId: string, payload: InterviewSchedulePayload) => Promise<void>;
   /** Moves an interview to a new start time. */
@@ -68,8 +68,9 @@ interface EmployerWorkspaceProps {
   onUpdateProfile?: (updated: UserProfile) => void;
   onJobAction?: (jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') => void;
   initialTab?: 'dashboard' | 'jobs' | 'candidates';
+  initialJobId?: string;
   openPostJobOnMount?: boolean;
-  onPostJobFlowExit?: (destination?: 'jobs' | 'candidates') => void;
+  onPostJobFlowExit?: (destination?: 'dashboard' | 'jobs' | 'candidates', jobId?: string) => void;
   onLogout: () => void;
 }
 
@@ -92,6 +93,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   onUpdateProfile,
   onJobAction,
   initialTab,
+  initialJobId,
   openPostJobOnMount,
   onPostJobFlowExit,
   onLogout,
@@ -100,7 +102,10 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
   const [editingJob, setEditingJob] = useState<JobPosting | null>(null);
-  const [candidateJobFilter, setCandidateJobFilter] = useState<string | null>(null);
+  const [candidateJobFilter, setCandidateJobFilter] = useState<string | null>(initialJobId || null);
+  const [updatingApplicationId, setUpdatingApplicationId] = useState<string | null>(null);
+  const [downloadingResumeId, setDownloadingResumeId] = useState<string | null>(null);
+  const [applicationActionError, setApplicationActionError] = useState<string | null>(null);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
   const [viewingPortfolioApplicant, setViewingPortfolioApplicant] = useState<Applicant | null>(null);
   const [offeringApplicant, setOfferingApplicant] = useState<Applicant | null>(null);
@@ -111,6 +116,10 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
+  useEffect(() => {
+    setCandidateJobFilter(initialJobId || null);
+    if (initialJobId) setActiveTab('candidates');
+  }, [initialJobId]);
   useEffect(() => {
     if (openPostJobOnMount) {
       setEditingJob(null);
@@ -153,6 +162,40 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     ? jobs.find((job) => job.id === candidateJobFilter)?.title
     : undefined;
 
+  const handleApplicationStatus = async (applicant: Applicant, status: Applicant['status']) => {
+    if (updatingApplicationId) return;
+    setUpdatingApplicationId(applicant.id);
+    setApplicationActionError(null);
+    try {
+      await onUpdateApplicantStatus(applicant.id, status);
+    } catch (error) {
+      setApplicationActionError(error instanceof Error ? error.message : 'Unable to update this application.');
+    } finally {
+      setUpdatingApplicationId(null);
+    }
+  };
+
+  const handleResumeDownload = async (applicant: Applicant) => {
+    if (!applicant.resumeStoragePath || downloadingResumeId) return;
+    setDownloadingResumeId(applicant.id);
+    setApplicationActionError(null);
+    try {
+      const url = await getResumeDownloadUrl(applicant.resumeStoragePath);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+      anchor.download = applicant.resumeFileName || 'candidate-resume';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch (error) {
+      setApplicationActionError(error instanceof Error ? error.message : 'Unable to download this resume.');
+    } finally {
+      setDownloadingResumeId(null);
+    }
+  };
+
   const handleScheduleConfirm = async (payload: InterviewSchedulePayload) => {
     if (!selectedApplicant || isScheduling) return;
     setIsScheduling(true);
@@ -178,7 +221,11 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     
     return (
       <button 
-        onClick={() => { if (tab === 'candidates') setCandidateJobFilter(null); setActiveTab(tab); }}
+        onClick={() => {
+          if (tab === 'dashboard' || tab === 'jobs' || tab === 'candidates') onPostJobFlowExit?.(tab);
+          if (tab === 'candidates') setCandidateJobFilter(null);
+          setActiveTab(tab);
+        }}
         className={`flex items-center gap-3 p-3 rounded-lg w-full text-left transition-all active:translate-x-1 duration-150 cursor-pointer ${
           isActive 
             ? 'bg-[#e2007c] text-white font-bold' 
@@ -196,7 +243,11 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     
     return (
       <button 
-        onClick={() => { if (tab === 'candidates') setCandidateJobFilter(null); setActiveTab(tab); }}
+        onClick={() => {
+          if (tab === 'dashboard' || tab === 'jobs' || tab === 'candidates') onPostJobFlowExit?.(tab);
+          if (tab === 'candidates') setCandidateJobFilter(null);
+          setActiveTab(tab);
+        }}
         className={`flex flex-col items-center justify-center px-2 py-1 active:scale-90 transition-transform cursor-pointer ${
           isActive
             ? 'bg-[#b90064] text-[#ffcbd9] rounded-full px-4'
@@ -525,7 +576,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                             setCandidateFilter('All');
                             setCandidateJobFilter(job.id);
                             setActiveTab('candidates');
-                            onPostJobFlowExit?.('candidates');
+                            onPostJobFlowExit?.('candidates', job.id);
                           }}
                           className="rounded-full bg-[#e2007c] px-5 py-2.5 text-[13px] font-bold text-white shadow-sm hover:bg-[#b50062]"
                         >
@@ -555,164 +606,151 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
             </div>
           )}
 
-          {/* TAB: CANDIDATES */}
+          {/* TAB: APPLICATIONS RECEIVED */}
           {activeTab === 'candidates' && (
-            <div className="flex flex-col w-full h-full pb-24 md:pb-0">
-              <div className="flex justify-between items-center mb-8 px-5 md:px-0">
+            <div className="flex h-full w-full flex-col pb-24 md:pb-0">
+              <div className="mb-6 flex flex-col gap-3 px-5 md:flex-row md:items-center md:justify-between md:px-0">
                 <div>
-                  <h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">Applications</h2>
-                  {filteredJobTitle && (
-                    <button type="button" onClick={() => setCandidateJobFilter(null)} className="mt-1 text-xs font-semibold text-[#594047] hover:text-[#8e004b]">
-                      Showing {filteredJobTitle} · Clear job filter
-                    </button>
-                  )}
+                  <h2 className="text-2xl font-semibold tracking-tight text-[#8e004b] md:text-[24px]">Applications Received</h2>
+                  <p className="mt-1 text-xs font-medium text-[#594047]">
+                    {filteredJobTitle ? `Candidates who applied for ${filteredJobTitle}` : 'Candidates who applied to your job posts'}
+                  </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full active:scale-95 flex items-center justify-center">
-                    <span className="material-symbols-outlined">search</span>
+                {candidateJobFilter && (
+                  <button
+                    type="button"
+                    onClick={() => { setCandidateJobFilter(null); onPostJobFlowExit?.('candidates'); }}
+                    className="self-start rounded-full border border-[#e0bec6] bg-white px-4 py-2 text-xs font-bold text-[#8e004b] hover:bg-[#f7f2f2]"
+                  >
+                    View All Applications
                   </button>
-                  <button className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full active:scale-95 flex items-center justify-center">
-                    <span className="material-symbols-outlined">filter_list</span>
-                  </button>
-                </div>
+                )}
               </div>
 
-              {/* Scrollable Tab Bar */}
-              <div className="overflow-x-auto hide-scrollbar -mx-5 px-5 md:mx-0 md:px-0 mb-8">
-                <div className="flex gap-2 min-w-max pb-1">
-                  {['All', 'New', 'Viewed', 'Shortlisted', 'Interview Scheduled', 'Hired'].map((st) => (
+              {applicationActionError && (
+                <div role="alert" className="mx-5 mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 md:mx-0">
+                  {applicationActionError}
+                </div>
+              )}
+
+              <div className="mb-6 overflow-x-auto px-5 hide-scrollbar md:px-0">
+                <div className="flex min-w-max gap-2 pb-1">
+                  {[
+                    ['All', 'All'],
+                    ['New', 'New'],
+                    ['Under Review', 'Viewed'],
+                    ['Shortlisted', 'Shortlisted'],
+                    ['Rejected', 'Declined'],
+                    ['Hired', 'Hired'],
+                  ].map(([label, value]) => (
                     <button
-                      key={st}
-                      onClick={() => setCandidateFilter(st)}
-                      className={`whitespace-nowrap px-4 py-1.5 rounded-full text-[13px] font-medium transition-all shadow-sm cursor-pointer ${
-                        candidateFilter === st
-                          ? 'bg-[#e2007c] text-white border border-transparent'
-                          : 'bg-[#f7f2f2] text-[#594047] border border-[#e0bec6] hover:bg-[#ece7e7]'
-                      }`}
+                      key={value}
+                      type="button"
+                      onClick={() => setCandidateFilter(value)}
+                      className={`whitespace-nowrap rounded-full border px-4 py-1.5 text-[13px] font-medium shadow-sm transition-all ${candidateFilter === value ? 'border-transparent bg-[#e2007c] text-white' : 'border-[#e0bec6] bg-[#f7f2f2] text-[#594047] hover:bg-[#ece7e7]'}`}
                     >
-                      {st} ({st === 'All' ? applicationPool.length : applicationPool.filter((applicant) => applicant.status === st).length})
+                      {label} ({value === 'All' ? applicationPool.length : applicationPool.filter((applicant) => applicant.status === value).length})
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Bento Grid Approach for Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 px-5 md:px-0">
-                {filteredApplicants.map((applicant) => (
-                  <article
-                    key={applicant.id}
-                    className="bg-white rounded-lg border border-[#e6e1e1] shadow-[0_4px_12px_rgba(90,63,71,0.05)] p-4 flex flex-col gap-4 hover:shadow-md transition-shadow relative group"
-                  >
-                    <div className="flex justify-between items-start">
-                      <div className="flex gap-3 items-center">
-                        {applicant.avatarUrl ? (
-                          <img
-                            className="w-12 h-12 rounded-full object-cover border border-[#e0bec6]"
-                            alt={applicant.name}
-                            src={applicant.avatarUrl}
-                          />
-                        ) : (
-                          <div className="w-12 h-12 rounded-full bg-[#e6e1e1] flex items-center justify-center border border-[#e0bec6] text-[#594047] font-semibold text-lg">
-                            {applicant.name.charAt(0)}
+              <div className="grid grid-cols-1 gap-4 px-5 md:grid-cols-2 md:px-0 xl:grid-cols-3">
+                {filteredApplicants.map((applicant) => {
+                  const busy = updatingApplicationId === applicant.id;
+                  const statusLabel = applicant.status === 'New' ? 'Applied'
+                    : applicant.status === 'Viewed' ? 'Under Review'
+                    : applicant.status === 'Declined' ? 'Rejected'
+                    : applicant.status;
+                  const phoneDigits = applicant.phone.replace(/\D/g, '');
+                  return (
+                    <article key={applicant.id} className="flex flex-col gap-4 rounded-xl border border-[#e6e1e1] bg-white p-5 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="sr-only">Profile Image</span>
+                          {applicant.avatarUrl ? (
+                            <img className="h-14 w-14 shrink-0 rounded-full border border-[#e0bec6] object-cover" alt={`${applicant.name} profile`} src={applicant.avatarUrl} />
+                          ) : (
+                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#e0bec6] bg-[#e6e1e1] text-lg font-bold text-[#594047]">{applicant.name.charAt(0)}</div>
+                          )}
+                          <div className="min-w-0">
+                            <span className="sr-only">Candidate Name</span>
+                            <h3 className="truncate text-lg font-bold text-[#1c1b1b]">{applicant.name}</h3>
+                            <p className="truncate text-xs font-medium text-[#594047]">{applicant.appliedJobTitle}</p>
                           </div>
-                        )}
-                        <div>
-                          <h2 className="text-[18px] font-semibold text-[#1c1b1b] leading-tight">{applicant.name}</h2>
-                          <p className="text-[#594047] text-[13px] font-medium">{applicant.appliedJobTitle}</p>
                         </div>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${statusLabel === 'Hired' ? 'bg-emerald-100 text-emerald-800' : statusLabel === 'Rejected' ? 'bg-rose-50 text-rose-700' : statusLabel === 'Shortlisted' ? 'bg-[#f2dde9] text-[#8e004b]' : 'bg-[#ffd9e2] text-[#3e001e]'}`}>{statusLabel}</span>
                       </div>
-                      
-                      {/* Status Badge */}
-                      <span className={`text-[13px] font-medium px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                        applicant.status === 'New' ? 'bg-[#ffdad6] text-[#93000a]' :
-                        applicant.status === 'Shortlisted' ? 'bg-[#f2dde9] text-[#51434c]' :
-                        applicant.status === 'Interview Scheduled' ? 'bg-[#ffcbd9] text-[#3e001e]' :
-                        applicant.status === 'Hired' ? 'bg-emerald-100 text-emerald-800' :
-                        'bg-[#e6e1e1] text-[#594047]' // default/viewed
-                      }`}>
-                        {applicant.status === 'New' && <span className="w-1.5 h-1.5 bg-[#ba1a1a] rounded-full"></span>}
-                        {applicant.status === 'Shortlisted' && <span className="material-symbols-outlined text-[14px]">star</span>}
-                        {applicant.status !== 'New' && applicant.status !== 'Shortlisted' && <span className="material-symbols-outlined text-[14px]">visibility</span>}
-                        {applicant.status}
-                      </span>
-                    </div>
 
-                    <div className="grid grid-cols-2 gap-2 py-2 border-y border-[#e6e1e1]">
-                      <div className="flex items-center gap-1.5 text-[#594047]">
-                        <span className="material-symbols-outlined text-[18px]">work_history</span>
-                        <span className="text-[13px] font-medium">{applicant.experienceYears} Years Exp.</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[#594047]">
-                        <span className="material-symbols-outlined text-[18px]">location_on</span>
-                        <span className="text-[13px] font-medium truncate">{applicant.location || 'Beverly Hills, CA'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[#594047] col-span-2">
-                        <span className="material-symbols-outlined text-[18px]">schedule</span>
-                        <span className="text-[13px] font-medium">Applied {applicant.appliedDate}</span>
-                      </div>
-                    </div>
+                      <dl className="space-y-3 border-y border-[#f1edec] py-4">
+                        <div>
+                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Mobile / Email</dt>
+                          <dd className="mt-1 space-y-1 text-sm font-semibold text-[#1c1b1b]">
+                            <a href={`tel:${applicant.phone}`} className="block truncate hover:text-[#8e004b] hover:underline">{applicant.phone || 'Mobile not provided'}</a>
+                            <a href={`mailto:${applicant.email}`} className="block truncate hover:text-[#8e004b] hover:underline">{applicant.email || 'Email not provided'}</a>
+                          </dd>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Experience</dt><dd className="mt-1 text-sm font-bold text-[#1c1b1b]">{applicant.experienceYears} years</dd></div>
+                          <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Applied Date</dt><dd className="mt-1 text-sm font-bold text-[#1c1b1b]">{applicant.appliedDate}</dd></div>
+                        </div>
+                        <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Preferred Location</dt><dd className="mt-1 text-sm font-bold text-[#1c1b1b]">{applicant.location || 'Not specified'}</dd></div>
+                        <div>
+                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Skills</dt>
+                          <dd className="mt-2 flex flex-wrap gap-1.5">
+                            {(applicant.skills || []).length > 0 ? applicant.skills?.map((skill) => <span key={skill} className="rounded-full bg-[#f2dde9] px-2.5 py-1 text-xs font-semibold text-[#3e001e]">{skill}</span>) : <span className="text-sm text-[#594047]">Not specified</span>}
+                          </dd>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Application Status</dt><dd className="mt-1 text-sm font-bold text-[#8e004b]">{statusLabel}</dd></div>
+                          <div>
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Resume</dt>
+                            <dd className="mt-1">
+                              {applicant.resumeStoragePath ? (
+                                <button type="button" disabled={downloadingResumeId === applicant.id} onClick={() => void handleResumeDownload(applicant)} className="text-sm font-bold text-[#8e004b] hover:underline disabled:opacity-60">{downloadingResumeId === applicant.id ? 'Preparing…' : 'Resume Download'}</button>
+                              ) : <span className="text-sm text-[#594047]">Not uploaded</span>}
+                            </dd>
+                          </div>
+                        </div>
+                      </dl>
 
-                    <div className="flex flex-wrap gap-2">
-                      {(applicant.skills || ['Balayage', 'Styling']).map((skill, index) => (
-                        <span key={index} className="bg-[#f2dde9] text-[#241820] text-[13px] font-medium px-2 py-1 rounded-full">
-                          {skill}
-                        </span>
-                      ))}
-                    </div>
-
-                    <div className="mt-auto flex flex-col gap-2">
-                      <select
-                        value={applicant.status}
-                        onChange={(e) => {
-                          const next = e.target.value as Applicant['status'];
-                          if (next === 'Interview Scheduled') {
-                            // Interviews need a real date/time/location: open
-                            // the scheduling form instead of flipping status.
-                            setSelectedApplicant(applicant);
-                            setScheduleError(null);
-                            setShowScheduleModal(true);
-                            return;
-                          }
-                          onUpdateApplicantStatus(applicant.id, next);
-                        }}
-                        className="w-full text-[13px] font-semibold bg-[#f7f2f2] text-[#8e004b] rounded-full px-4 py-2 border border-[#e0bec6] outline-none cursor-pointer text-center appearance-none"
-                      >
-                        <option value="New">Status: New</option>
-                        <option value="Viewed">Status: Viewed</option>
-                        <option value="Shortlisted">Status: Shortlisted</option>
-                        <option value="Interview Scheduled">Status: Interviewing</option>
-                        <option value="Hired">Status: Hired</option>
-                        <option value="Declined">Status: Declined</option>
-                      </select>
-                      
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={() => setViewingPortfolioApplicant(applicant)}
-                          className={`flex-1 rounded-full py-3 text-[13px] font-semibold transition-colors active:scale-95 flex items-center justify-center gap-2 cursor-pointer ${
-                            applicant.status === 'New'
-                              ? 'bg-[#e2007c] text-white hover:bg-[#b50062]'
-                              : 'bg-[#ece7e7] text-[#1c1b1b] hover:bg-[#e6e1e1] border border-[#e0bec6]'
-                          }`}
-                        >
-                          View
-                          {applicant.status === 'New' && <span className="material-symbols-outlined text-[18px]">arrow_forward</span>}
-                        </button>
-                        {applicant.status === 'Interview Scheduled' && (
+                      <div>
+                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Employer Actions</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button type="button" disabled={busy || applicant.status !== 'New'} onClick={() => void handleApplicationStatus(applicant, 'Viewed')} className="rounded-full border border-[#e0bec6] px-3 py-2 text-xs font-bold text-[#8e004b] hover:bg-[#f7f2f2] disabled:opacity-50">Mark Under Review</button>
+                          <button type="button" disabled={busy || !['New', 'Viewed'].includes(applicant.status)} onClick={() => void handleApplicationStatus(applicant, 'Shortlisted')} className="rounded-full border border-[#e0bec6] px-3 py-2 text-xs font-bold text-[#8e004b] hover:bg-[#f7f2f2] disabled:opacity-50">Shortlist</button>
+                          <button type="button" disabled={busy || applicant.status === 'Declined' || applicant.status === 'Hired'} onClick={() => void handleApplicationStatus(applicant, 'Declined')} className="rounded-full border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Reject</button>
+                          <button type="button" title={applicant.status === 'Offer Extended' ? 'Mark candidate as hired after offer acceptance' : 'Hiring is available after the candidate accepts an offer'} disabled={busy || applicant.status !== 'Offer Extended'} onClick={() => void handleApplicationStatus(applicant, 'Hired')} className="rounded-full bg-[#e2007c] px-3 py-2 text-xs font-bold text-white hover:bg-[#b50062] disabled:opacity-50">{busy ? 'Updating…' : 'Hire'}</button>
+                        </div>
+                        {(applicant.status === 'Shortlisted' || applicant.status === 'Interview Scheduled') && (
                           <button
-                            onClick={() => setOfferingApplicant(applicant)}
-                            className="flex-1 rounded-full py-3 text-[13px] font-semibold text-white bg-[#8e004b] hover:bg-[#b90064] transition-colors active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-[#8e004b]/20"
+                            type="button"
+                            onClick={() => {
+                              if (applicant.status === 'Shortlisted') {
+                                setSelectedApplicant(applicant);
+                                setScheduleError(null);
+                                setShowScheduleModal(true);
+                              } else {
+                                setOfferingApplicant(applicant);
+                              }
+                            }}
+                            className="mt-2 w-full rounded-full border border-[#8e004b] px-3 py-2 text-xs font-bold text-[#8e004b] hover:bg-[#f2dde9]"
                           >
-                            Make Offer
+                            {applicant.status === 'Shortlisted' ? 'Schedule Interview' : 'Make Offer'}
                           </button>
                         )}
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          {phoneDigits ? <a href={`https://wa.me/${phoneDigits}`} target="_blank" rel="noreferrer" className="rounded-full border border-emerald-200 px-3 py-2 text-center text-xs font-bold text-emerald-700 hover:bg-emerald-50">WhatsApp Candidate</a> : <span className="rounded-full border border-[#e0bec6] px-3 py-2 text-center text-xs font-bold text-[#8c7077] opacity-60">WhatsApp Candidate</span>}
+                          {applicant.phone ? <a href={`tel:${applicant.phone}`} className="rounded-full border border-[#e0bec6] px-3 py-2 text-center text-xs font-bold text-[#8e004b] hover:bg-[#f7f2f2]">Call Candidate</a> : <span className="rounded-full border border-[#e0bec6] px-3 py-2 text-center text-xs font-bold text-[#8c7077] opacity-60">Call Candidate</span>}
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                ))}
-                
+                    </article>
+                  );
+                })}
+
                 {filteredApplicants.length === 0 && (
-                  <div className="col-span-1 md:col-span-2 lg:col-span-3 py-12 text-center border-2 border-dashed border-[#e0bec6] rounded-2xl">
-                    <p className="text-[#594047]">No candidates found.</p>
+                  <div className="col-span-full rounded-2xl border-2 border-dashed border-[#e0bec6] py-14 text-center">
+                    <p className="font-semibold text-[#594047]">No applications received for this job yet.</p>
                   </div>
                 )}
               </div>

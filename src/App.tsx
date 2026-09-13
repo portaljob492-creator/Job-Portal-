@@ -98,6 +98,7 @@ export default function App() {
   const [selectedApplicationForOffer, setSelectedApplicationForOffer] = useState<Application | null>(null);
   const [seekerInitialTab, setSeekerInitialTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile' | undefined>(initialRoute.seekerTab);
   const [employerInitialTab, setEmployerInitialTab] = useState<EmployerTab | undefined>(initialRoute.employerTab);
+  const [employerApplicationJobId, setEmployerApplicationJobId] = useState<string | undefined>(initialRoute.employerJobId);
   const [openEmployerPostJob, setOpenEmployerPostJob] = useState(Boolean(initialRoute.openPostJob));
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isBackendLoading, setIsBackendLoading] = useState(isSupabaseConfigured);
@@ -173,7 +174,10 @@ export default function App() {
       if (requested && (!requested.requiredRole || requested.requiredRole === role)) {
         if (requested.seekerTab && role === 'seeker') setSeekerInitialTab(requested.seekerTab);
         if (requested.employerTab && role === 'employer') setEmployerInitialTab(requested.employerTab);
-        if (role === 'employer') setOpenEmployerPostJob(Boolean(requested.openPostJob));
+        if (role === 'employer') {
+          setEmployerApplicationJobId(requested.employerJobId);
+          setOpenEmployerPostJob(Boolean(requested.openPostJob));
+        }
         setScreen(requested.screen === 'login' ? 'main_app' : requested.screen);
       } else {
         setScreen('main_app');
@@ -355,11 +359,11 @@ export default function App() {
 
   useEffect(() => {
     if (isBackendLoading) return;
-    const desiredPath = pathForScreen(screen, userRole, seekerInitialTab, employerInitialTab, openEmployerPostJob);
+    const desiredPath = pathForScreen(screen, userRole, seekerInitialTab, employerInitialTab, openEmployerPostJob, employerApplicationJobId);
     if (typeof window !== 'undefined' && window.location.pathname !== desiredPath) {
       window.history.replaceState({}, document.title, `${desiredPath}${window.location.search}`);
     }
-  }, [employerInitialTab, isBackendLoading, openEmployerPostJob, screen, seekerInitialTab, userRole]);
+  }, [employerApplicationJobId, employerInitialTab, isBackendLoading, openEmployerPostJob, screen, seekerInitialTab, userRole]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -371,6 +375,7 @@ export default function App() {
       }
       if (route.seekerTab) setSeekerInitialTab(route.seekerTab);
       if (route.employerTab) setEmployerInitialTab(route.employerTab);
+      setEmployerApplicationJobId(route.employerJobId);
       setOpenEmployerPostJob(Boolean(route.openPostJob));
       setScreen(route.screen);
     };
@@ -682,23 +687,25 @@ export default function App() {
     }
   };
 
-  const handleUpdateApplicantStatus = (applicantId: string, status: Applicant['status']) => {
-    setApplicants((prev) =>
-      prev.map((a) => (a.id === applicantId ? { ...a, status } : a))
-    );
-
-    // Also sync Seeker applications if matching
-    if (currentUserId) {
-      void updateApplicationStatus(applicantId, status).catch((error) =>
-        setBackendError(mapBackendError(error, 'Unable to update applicant status.')),
-      );
-    }
-
-    // Applicant ids ARE application ids; only the matching row is touched.
-    if (status === 'Shortlisted') {
-      setApplications((prev) =>
-        prev.map((app) => (app.id === applicantId ? { ...app, status: 'Under Review', applicationStatus: 'Shortlisted' } : app)),
-      );
+  const handleUpdateApplicantStatus = async (applicantId: string, status: Applicant['status']): Promise<void> => {
+    try {
+      // The card changes only after the secured Supabase workflow confirms the
+      // transition; failed writes never leave an optimistic status behind.
+      if (currentUserId) await updateApplicationStatus(applicantId, status);
+      setApplicants((prev) => prev.map((applicant) =>
+        applicant.id === applicantId ? { ...applicant, status } : applicant,
+      ));
+      if (status === 'Shortlisted') {
+        setApplications((prev) => prev.map((application) =>
+          application.id === applicantId
+            ? { ...application, status: 'Under Review', applicationStatus: 'Shortlisted' }
+            : application,
+        ));
+      }
+    } catch (error) {
+      const message = mapBackendError(error, 'Unable to update applicant status.');
+      setBackendError(message);
+      throw new Error(message);
     }
   };
 
@@ -1353,9 +1360,11 @@ export default function App() {
               onUpdateProfile={handleProfileUpdate}
               onJobAction={handleJobAction}
               initialTab={employerInitialTab}
+              initialJobId={employerApplicationJobId}
               openPostJobOnMount={openEmployerPostJob}
-              onPostJobFlowExit={(destination = 'jobs') => {
+              onPostJobFlowExit={(destination = 'jobs', jobId) => {
                 setOpenEmployerPostJob(false);
+                setEmployerApplicationJobId(jobId);
                 setEmployerInitialTab(destination);
               }}
               onLogout={handleLogout}
