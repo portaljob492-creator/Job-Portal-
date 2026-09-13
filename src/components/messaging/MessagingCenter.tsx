@@ -20,6 +20,20 @@ import {
 } from 'lucide-react';
 
 import { RequestInterviewScreen } from '../employer/RequestInterviewScreen';
+import { requireSupabase } from '../../lib/supabase';
+import {
+  MEDIA_BUCKETS,
+  isStoragePath,
+  pickDisplayUrl,
+  resolveStorageUrls,
+  uploadMessageAttachment,
+} from '../../lib/storageMedia';
+import { mapBackendError } from '../../services/backend';
+import {
+  formatInterviewDateTime,
+  interviewTypeLabel,
+  type InterviewSchedulePayload,
+} from '../../lib/interviewSchedule';
 
 interface MessagingCenterProps {
   currentRole: UserRole;
@@ -62,9 +76,30 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
   const [filterTab, setFilterTab] = useState<'all' | 'unread' | 'interviews'>('all');
   const [messageText, setMessageText] = useState('');
   const [attachedFile, setAttachedFile] = useState<{ name: string; url: string; type: 'image' | 'file' } | null>(null);
+  const [attachedBlob, setAttachedBlob] = useState<File | null>(null);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [interviewDate, setInterviewDate] = useState('2026-08-12');
-  const [interviewTime, setInterviewTime] = useState('14:00');
+
+  // Stored attachment paths resolve to signed URLs for display; legacy inline
+  // values render as-is.
+  const resolvedAttachmentsRef = useRef<Map<string, string>>(new Map());
+  const [, forceAttachmentTick] = useState(0);
+  useEffect(() => {
+    const missing = messages
+      .map((message) => message.attachment?.url)
+      .filter((value): value is string => !!value && isStoragePath(value) && !resolvedAttachmentsRef.current.has(value));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    resolveStorageUrls(MEDIA_BUCKETS.messageAttachments, missing).then((resolved) => {
+      if (cancelled || resolved.size === 0) return;
+      resolved.forEach((url, path) => resolvedAttachmentsRef.current.set(path, url));
+      forceAttachmentTick((tick) => tick + 1);
+    });
+    return () => { cancelled = true; };
+  }, [messages]);
+  const displayAttachmentUrl = (url: string): string =>
+    pickDisplayUrl(url, resolvedAttachmentsRef.current) || url;
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -101,13 +136,35 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
     return true;
   });
 
-  const handleSend = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if ((!messageText.trim() && !attachedFile) || !selectedConvId) return;
-
-    onSendMessage(selectedConvId, messageText.trim(), attachedFile || undefined);
-    setMessageText('');
+  const clearAttachment = () => {
+    if (attachedFile?.url.startsWith('blob:')) URL.revokeObjectURL(attachedFile.url);
     setAttachedFile(null);
+    setAttachedBlob(null);
+  };
+
+  const handleSend = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if ((!messageText.trim() && !attachedFile) || !selectedConvId || isSending) return;
+    setAttachError(null);
+    try {
+      let attachment = attachedFile || undefined;
+      if (attachedBlob) {
+        setIsSending(true);
+        const { data: userData, error: userError } = await requireSupabase().auth.getUser();
+        if (userError) throw userError;
+        const userId = userData.user?.id;
+        if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+        const path = await uploadMessageAttachment(userId, selectedConvId, attachedBlob);
+        attachment = { name: attachedBlob.name, url: path, type: attachedFile?.type ?? 'file' };
+      }
+      onSendMessage(selectedConvId, messageText.trim(), attachment);
+      setMessageText('');
+      clearAttachment();
+    } catch (error) {
+      setAttachError(mapBackendError(error, 'Unable to send your attachment.'));
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleQuickReply = (text: string) => {
@@ -117,31 +174,37 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-
+    setAttachError(null);
     const isImg = file.type.startsWith('image/');
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAttachedFile({
-        name: file.name,
-        url: reader.result as string,
-        type: isImg ? 'image' : 'file'
-      });
-    };
-    reader.readAsDataURL(file);
+    if (!isImg && file.type !== 'application/pdf') {
+      setAttachError('Attach an image or a PDF file.');
+      return;
+    }
+    if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+      setAttachError('Attachments must be 10MB or smaller.');
+      return;
+    }
+    if (attachedFile?.url.startsWith('blob:')) URL.revokeObjectURL(attachedFile.url);
+    setAttachedBlob(file);
+    setAttachedFile({
+      name: file.name,
+      url: isImg ? URL.createObjectURL(file) : '',
+      type: isImg ? 'image' : 'file'
+    });
   };
 
-  const handleSendInterviewInvite = () => {
+  const handleSendInterviewInvite = (payload: InterviewSchedulePayload) => {
     if (!selectedConvId) return;
-    const dateFormatted = new Date(`${interviewDate}T${interviewTime}`).toLocaleString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    });
-
-    const inviteText = `🗓️ Interview Invitation: We would love to schedule a model test / interview with you on ${dateFormatted}! Please reply to confirm this time.`;
+    const when = formatInterviewDateTime(payload.p_scheduled_start);
+    const where = payload.p_meeting_url || payload.p_location_text;
+    const inviteText =
+      `🗓️ Interview Invitation (${interviewTypeLabel(payload.p_interview_type)}): ` +
+      `We would love to meet you on ${when} (${payload.p_duration_minutes} min)` +
+      (where ? ` — ${where}` : '') +
+      (payload.p_employer_message ? `. ${payload.p_employer_message}` : '') +
+      ' Please reply to confirm this time.';
     onSendMessage(selectedConvId, inviteText);
     setShowScheduleModal(false);
   };
@@ -436,16 +499,23 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
                       {m.attachment && (
                         <div className="mt-2.5 pt-2 border-t border-white/20">
                           {m.attachment.type === 'image' ? (
-                            <img
-                              src={m.attachment.url}
-                              alt={m.attachment.name}
-                              className="max-h-48 rounded-xl object-cover border border-white/30"
-                            />
+                            <a href={displayAttachmentUrl(m.attachment.url)} target="_blank" rel="noreferrer">
+                              <img
+                                src={displayAttachmentUrl(m.attachment.url)}
+                                alt={m.attachment.name}
+                                className="max-h-48 rounded-xl object-cover border border-white/30"
+                              />
+                            </a>
                           ) : (
-                            <div className="flex items-center gap-2 bg-black/10 p-2 rounded-xl text-[11px]">
+                            <a
+                              href={displayAttachmentUrl(m.attachment.url)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-2 bg-black/10 p-2 rounded-xl text-[11px] hover:underline"
+                            >
                               <FileText className="w-4 h-4" />
                               <span className="truncate">{m.attachment.name}</span>
-                            </div>
+                            </a>
                           )}
                         </div>
                       )}
@@ -480,12 +550,17 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
                 <Paperclip className="w-3.5 h-3.5" /> Attached: {attachedFile.name}
               </span>
               <button
-                onClick={() => setAttachedFile(null)}
+                onClick={clearAttachment}
                 className="text-rose-600 hover:text-rose-800 font-bold text-xs"
               >
                 Remove
               </button>
             </div>
+          )}
+          {attachError && (
+            <p role="alert" className="px-4 py-1.5 bg-rose-50 border-t border-rose-200 text-[11px] font-semibold text-rose-700">
+              {attachError}
+            </p>
           )}
 
           {/* Message Input Box */}
@@ -504,6 +579,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
             <input
               ref={fileInputRef}
               type="file"
+              accept="image/*,.pdf"
               onChange={handleFileSelect}
               className="hidden"
             />
@@ -518,7 +594,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
 
             <button
               type="submit"
-              disabled={!messageText.trim() && !attachedFile}
+              disabled={(!messageText.trim() && !attachedFile) || isSending}
               className="p-2.5 bg-[#e2007c] hover:bg-[#b90064] disabled:opacity-40 text-white rounded-full shadow-md transition-all cursor-pointer shrink-0"
             >
               <Send className="w-4 h-4" />
@@ -539,7 +615,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
       {showScheduleModal && currentConv && (
         <RequestInterviewScreen
           applicantName={currentConv.seekerName}
-          applicantJobTitle={currentConv.appliedJobTitle}
+          applicantJobTitle={currentConv.appliedJobTitle || currentConv.jobTitle}
           onClose={() => setShowScheduleModal(false)}
           onConfirm={handleSendInterviewInvite}
         />

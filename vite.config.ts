@@ -1,16 +1,47 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, loadEnv} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
   const requestedBase = process.env.VITE_APP_BASE_PATH?.trim() || '/';
   const appBase = `/${requestedBase.replace(/^\/+|\/+$/g, '')}${requestedBase === '/' ? '' : '/'}`;
   const asset = (value: string) => `${appBase}${value.replace(/^\//, '')}`;
 
+  // Fail-fast visibility (a warning, not a build failure — demo mode without
+  // Supabase is intentional): surface missing client env in the build log so a
+  // misconfigured deploy is obvious before it ever reaches the browser.
+  const viteEnv = loadEnv(mode, process.cwd(), '');
+  const buildSupabaseUrl = (viteEnv.VITE_SUPABASE_URL ?? '').trim();
+  const buildSupabaseAnonKey = (viteEnv.VITE_SUPABASE_ANON_KEY ?? '').trim();
+  const looksLikePlaceholder = (value: string): boolean =>
+    /^(your[_-].*|.*placeholder.*|<.*>|\{\{.*\}\}|changeme|replace[_-]me|todo|x{3,})$/i.test(value);
+  if (!buildSupabaseUrl || looksLikePlaceholder(buildSupabaseUrl)) {
+    console.warn(
+      '[vite] VITE_SUPABASE_URL is missing or a placeholder — the client will use the canonical Nexora project URL fallback. ' +
+        '(Local: set it in .env; Vercel: Environment Variables, then redeploy.)',
+    );
+  }
+  if (!buildSupabaseAnonKey || looksLikePlaceholder(buildSupabaseAnonKey)) {
+    console.warn(
+      '[vite] VITE_SUPABASE_ANON_KEY is missing or a placeholder — this build will run in Supabase demo mode ' +
+        '(config banner, no auth/data). Set a real publishable key in .env or Vercel Environment Variables and rebuild. ' +
+        '(Express hosts can alternatively set SUPABASE_ANON_KEY in the server environment — injected at runtime, no rebuild needed.)',
+    );
+  } else {
+    console.log(
+      `[vite] Supabase client env ok — VITE_SUPABASE_ANON_KEY present (len ${buildSupabaseAnonKey.length}), ` +
+        `VITE_SUPABASE_URL ${buildSupabaseUrl ? 'present' : 'missing (canonical fallback)'}.`,
+    );
+  }
+
   return {
     base: appBase,
+    // Only `VITE_*` variables are exposed to the browser bundle via
+    // `import.meta.env` (Vite default, stated explicitly so client env can't
+    // silently stop working if the prefix is ever customized).
+    envPrefix: 'VITE_',
     plugins: [
       react(),
       tailwindcss(),
@@ -19,7 +50,9 @@ export default defineConfig(() => {
         srcDir: 'src',
         filename: 'service-worker.ts',
         registerType: 'autoUpdate',
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        injectManifest: {
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        },
         includeAssets: [
           'icons/favicon-64.png',
           'icons/apple-touch-icon.png',
@@ -48,46 +81,9 @@ export default defineConfig(() => {
             { src: asset('icons/icon-maskable-512.png'), sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           ],
         },
-        workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
-          navigateFallback: asset('index.html'),
-          cleanupOutdatedCaches: true,
-          clientsClaim: true,
-          skipWaiting: true,
-          runtimeCaching: [
-            {
-              urlPattern: ({ url, request }) =>
-                request.method === 'GET' &&
-                url.hostname.endsWith('.supabase.co') &&
-                url.pathname.includes('/rest/v1/public_job_listings'),
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'nexora-public-jobs-v1',
-                networkTimeoutSeconds: 5,
-                cacheableResponse: { statuses: [0, 200] },
-                expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 },
-              },
-            },
-            {
-              urlPattern: ({ request, url }) => request.destination === 'image' && url.origin !== self.location.origin,
-              handler: 'StaleWhileRevalidate',
-              options: {
-                cacheName: 'nexora-public-images-v1',
-                cacheableResponse: { statuses: [0, 200] },
-                expiration: { maxEntries: 80, maxAgeSeconds: 7 * 24 * 60 * 60 },
-              },
-            },
-            {
-              urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
-              handler: 'StaleWhileRevalidate',
-              options: {
-                cacheName: 'nexora-google-fonts-v1',
-                cacheableResponse: { statuses: [0, 200] },
-                expiration: { maxEntries: 20, maxAgeSeconds: 30 * 24 * 60 * 60 },
-              },
-            },
-          ],
-        },
+        // No `workbox` block: with the injectManifest strategy, precaching,
+        // navigation fallback and runtime caching are implemented in
+        // src/service-worker.ts (public content only — never authed data).
         devOptions: { enabled: false },
       }),
     ] as any,

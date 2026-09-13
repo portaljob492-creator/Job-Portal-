@@ -30,16 +30,16 @@ const appBundles = fs.readdirSync(path.join(dist, 'assets'))
   .map((file) => fs.readFileSync(path.join(dist, 'assets', file), 'utf8'))
   .join('\n');
 assertCheck('manifest linked', indexHtml.includes('rel="manifest"') && indexHtml.includes('/manifest.webmanifest'));
-assertCheck('service worker registered immediately', fs.existsSync(path.join(dist, 'sw.js')) && appBundles.includes('sw.js') && appBundles.includes('serviceWorker'));
+assertCheck('service worker registered immediately', fs.existsSync(path.join(dist, 'service-worker.js')) && appBundles.includes('service-worker.js') && appBundles.includes('serviceWorker'));
 assertCheck('apple install metadata', indexHtml.includes('apple-mobile-web-app-capable') && indexHtml.includes('apple-touch-icon'));
 assertCheck('early native prompt capture', appBundles.includes('beforeinstallprompt') && appBundles.includes('Preparing install'));
 
-const serviceWorker = read('dist/sw.js');
+const serviceWorker = read('dist/service-worker.js');
 assertCheck('safe public jobs runtime cache', serviceWorker.includes('public_job_listings') && serviceWorker.includes('nexora-public-jobs-v1'));
 assertCheck('no private workflow runtime cache', !serviceWorker.includes('job_applications') && !serviceWorker.includes('job_offers'));
 
 const vercel = JSON.parse(read('vercel.json'));
-const serviceWorkerHeaders = vercel.headers?.find((entry) => entry.source === '/sw.js');
+const serviceWorkerHeaders = vercel.headers?.find((entry) => entry.source === '/service-worker.js');
 assertCheck('service worker no-cache header', serviceWorkerHeaders?.headers?.some((header) => header.key === 'Cache-Control' && header.value.includes('must-revalidate')));
 assertCheck('service worker root scope header', serviceWorkerHeaders?.headers?.some((header) => header.key === 'Service-Worker-Allowed' && header.value === '/'));
 

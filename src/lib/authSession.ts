@@ -1,5 +1,6 @@
 import type { AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { logger } from './logger';
 import { isSessionInvalidError } from './authErrors';
 import { loginPath } from '../routing';
 
@@ -58,7 +59,7 @@ function notify(event: AuthChangeEvent | null) {
     try {
       handler(event, current.session, current);
     } catch (error) {
-      console.error('[auth] auth subscriber failed', error);
+      logger('auth').error('auth subscriber failed', error);
     }
   });
 }
@@ -103,9 +104,10 @@ export function markUserInitiatedSignOut(): void {
  * that token to the public email-role lookup makes GoTrue reject the lookup with
  * "User from sub claim in JWT does not exist" before sign-up is even attempted.
  *
- * Clear only this browser's session before sign-up. Supabase removes the local
- * tokens even when its logout endpoint reports that a deleted/revoked JWT user
- * is missing, and local scope avoids revoking unrelated sessions on devices.
+ * Clear only this browser's session before sign-up (sign-in calls this too, for
+ * the same reason). Supabase removes the local tokens even when its logout
+ * endpoint reports that a deleted/revoked JWT user is missing, and local scope
+ * avoids revoking unrelated sessions on other devices.
  */
 export async function clearSessionBeforeSignUp(client: SupabaseClient): Promise<boolean> {
   let hasStoredSession = false;

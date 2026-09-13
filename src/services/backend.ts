@@ -4,14 +4,29 @@ import type {
   Application,
   ChatMessage,
   Conversation,
+  EmployerInterview,
   JobAlertNotification,
   JobPosting,
   PortfolioItem,
+  ResumeFile,
   SavedFilter,
   UserProfile,
   UserRole,
 } from '../types';
 import { requireSupabase } from '../lib/supabase';
+import { toSafeMessage } from '../lib/logger';
+import type { InterviewSchedulePayload } from '../lib/interviewSchedule';
+import {
+  MEDIA_BUCKETS,
+  deleteMediaObject,
+  isDataUrl,
+  dataUrlToBlob,
+  pickDisplayUrl,
+  resolveStorageUrls,
+  uploadAvatar,
+  uploadPortfolioImage,
+  uploadResumeObject,
+} from '../lib/storageMedia';
 import { clearSessionBeforeSignUp, markUserInitiatedSignOut } from '../lib/authSession';
 import { normalizeEmail } from '../lib/email';
 import { isEmailNotConfirmedError } from '../lib/signUpOutcome';
@@ -287,8 +302,26 @@ function mapApplication(row: any): Application {
   };
 }
 
+function mapEmployerInterview(row: any): EmployerInterview {
+  return {
+    id: row.id,
+    applicationId: row.application_id,
+    interviewType: row.interview_type,
+    scheduledStart: row.scheduled_start,
+    durationMinutes: Number(row.duration_minutes || 30),
+    locationText: row.location_text || undefined,
+    meetingUrl: row.meeting_url || undefined,
+    employerMessage: row.employer_message || undefined,
+    candidateMessage: row.candidate_message || undefined,
+    status: row.status,
+  };
+}
+
 function mapApplicant(row: any, card?: any): Applicant {
   const jobRow = one<any>(row.job);
+  const interviews = arrays<any>(row.interviews)
+    .sort((a, b) => new Date(b.scheduled_start).getTime() - new Date(a.scheduled_start).getTime())
+    .map(mapEmployerInterview);
   return {
     id: row.id,
     name: card?.full_name || 'Applicant',
@@ -306,6 +339,8 @@ function mapApplicant(row: any, card?: any): Applicant {
     avatarUrl: card?.avatar_path || undefined,
     location: [card?.city, card?.state].filter(Boolean).join(', ') || undefined,
     skills: arrays<string>(card?.skills),
+    candidateProfileId: row.candidate_profile_id || undefined,
+    interviews,
   };
 }
 
@@ -455,6 +490,12 @@ export const authBackend = {
     const client = requireSupabase();
     const normalizedEmail = normalizeEmail(email);
     const requestedBackendRole = backendRole(requestedRole);
+
+    // Sign-in is an account-switch boundary just like sign-up: drop a stale
+    // cached session first so a JWT for a deleted user cannot poison the
+    // portal-role pre-check below ("User from sub claim in JWT does not
+    // exist"). The password grant then starts from a clean anonymous state.
+    await clearSessionBeforeSignUp(client);
 
     // Fail fast when the email is already permanently assigned to the other
     // portal: no session is created at all, so no tokens need clearing and the
@@ -716,7 +757,11 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
 
   const [profileResult, candidateResult, membershipResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult] = await Promise.all([
-    client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).single(),
+    // maybeSingle: a missing profiles row (marketplace trigger lag, legacy user)
+    // must degrade to defaults, never fail the whole workspace load. The Jobs
+    // signup trigger best-effort ensures the row; see migration
+    // 20260913000600_jobs_profile_sync.sql.
+    client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).maybeSingle(),
     client.from('job_seeker_profiles').select('*').eq('user_id', user.id).maybeSingle(),
     client.from('job_salon_members').select('salon_id,member_role,salon:salons!job_salon_members_salon_id_fkey(*)').eq('user_id', user.id).eq('status', 'active').limit(1).maybeSingle(),
     role === 'seeker'
@@ -748,7 +793,44 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   if (skillsResult.error) throw skillsResult.error;
   if (portfolioResult.error) throw portfolioResult.error;
 
-  const profileRow: any = profileResult.data;
+  const profileRow: any = profileResult.data ?? {};
+  // --- Sprint 1 media: legacy base64 -> Storage, then path -> signed URL. --
+  // The caller's own data-URL avatar/portfolio images move into the
+  // profile-media bucket (rows updated in place); every other media path
+  // resolves to a signed display URL in one batched request. All best-effort:
+  // failures keep the previous value so the workspace still loads.
+  const migratedAvatar = await migrateAvatarToStorageIfNeeded(
+    user.id,
+    profileRow.full_name || '',
+    profileRow.phone || null,
+    profileRow.avatar_path || null,
+  );
+  if (migratedAvatar) profileRow.avatar_path = migratedAvatar;
+  if (candidate) {
+    await migratePortfolioToStorageIfNeeded(user.id, candidate.id, arrays<any>(portfolioResult.data));
+  }
+  // Own portfolio rows intentionally stay as raw storage paths: the gallery
+  // resolves them for display and persists the same value back on edit, so a
+  // signed URL can never leak into a save.
+  const mediaResolved = await resolveWorkspaceMedia({
+    avatarPaths: [
+      profileRow.avatar_path,
+      ...arrays<any>(applicantCardsResult.data).map((card) => card?.avatar_path),
+      ...arrays<any>(conversationsResult.data).flatMap((row) => [row?.candidate_avatar_path, row?.employer_avatar_path]),
+    ],
+    portfolioPaths: [],
+  });
+  const resolveRowMedia = (row: any, key: string) => {
+    if (!row || typeof row !== 'object') return;
+    const display = pickDisplayUrl(row[key], mediaResolved);
+    if (display) row[key] = display;
+  };
+  resolveRowMedia(profileRow, 'avatar_path');
+  for (const row of arrays<any>(applicantCardsResult.data)) resolveRowMedia(row, 'avatar_path');
+  for (const row of arrays<any>(conversationsResult.data)) {
+    resolveRowMedia(row, 'candidate_avatar_path');
+    resolveRowMedia(row, 'employer_avatar_path');
+  }
   const membership: any = membershipResult.data;
   const salon = one<any>(membership?.salon);
   const savedFilters = arrays<any>(filtersResult.data).map(mapSavedFilter);
@@ -933,16 +1015,71 @@ export async function createApplication(
   expectedSalary?: string,
   availability?: string,
   _requestedId?: string,
+  resumeId?: string | null,
 ) {
   const { data, error } = await requireSupabase().rpc('submit_job_application', {
     target_job_id: job.id,
-    p_resume_id: null,
+    p_resume_id: resumeId || null,
     p_cover_note: coverNote || null,
     p_expected_salary: numericValue(expectedSalary),
     p_available_from: dateValue(availability),
   });
   if (error) throw error;
   return (data as any).id as string;
+}
+
+/** Walks an application to `shortlisted` (via viewed) so an interview can be requested. */
+async function ensureShortlisted(applicationId: string): Promise<void> {
+  const client = requireSupabase();
+  const { data: current, error: readError } = await client
+    .from('job_applications').select('status').eq('id', applicationId).single();
+  if (readError) throw readError;
+  let status = current.status as string;
+  if (status === 'submitted') {
+    const { error } = await client.rpc('mark_application_viewed', { target_application_id: applicationId });
+    if (error) throw error;
+    status = 'viewed';
+  }
+  if (status === 'viewed') {
+    const { error } = await client.rpc('shortlist_application', { target_application_id: applicationId });
+    if (error) throw error;
+    status = 'shortlisted';
+  }
+  if (status !== 'shortlisted') {
+    throw new Error('INVALID_APPLICATION_TRANSITION');
+  }
+}
+
+/**
+ * Employer schedules an interview from the request form. The payload carries
+ * the real date/time/duration/location the employer picked — never defaults.
+ */
+export async function scheduleInterview(
+  applicationId: string,
+  schedule: InterviewSchedulePayload,
+): Promise<EmployerInterview> {
+  await ensureShortlisted(applicationId);
+  const { data, error } = await requireSupabase().rpc('create_interview_request', {
+    target_application_id: applicationId,
+    ...schedule,
+  });
+  if (error) throw error;
+  return mapEmployerInterview(data);
+}
+
+/** Employer moves an interview to a new start time (candidate is notified by the RPC). */
+export async function rescheduleEmployerInterview(
+  interviewId: string,
+  newStartIso: string,
+  reason?: string,
+): Promise<EmployerInterview> {
+  const { data, error } = await requireSupabase().rpc('reschedule_interview', {
+    target_interview_id: interviewId,
+    p_new_start: newStartIso,
+    p_reason: reason || null,
+  });
+  if (error) throw error;
+  return mapEmployerInterview(data);
 }
 
 export async function updateApplicationStatus(applicationId: string, status: Applicant['status']) {
@@ -957,7 +1094,7 @@ export async function updateApplicationStatus(applicationId: string, status: App
     if (error) throw error;
     return;
   }
-  if (status === 'Shortlisted' || status === 'Interview Scheduled') {
+  if (status === 'Shortlisted') {
     if (currentStatus === 'submitted') {
       const { error } = await client.rpc('mark_application_viewed', { target_application_id: applicationId });
       if (error) throw error;
@@ -966,21 +1103,14 @@ export async function updateApplicationStatus(applicationId: string, status: App
     if (currentStatus === 'viewed') {
       const { error } = await client.rpc('shortlist_application', { target_application_id: applicationId });
       if (error) throw error;
-      currentStatus = 'shortlisted';
-    }
-    if (status === 'Interview Scheduled' && currentStatus === 'shortlisted') {
-      const { error } = await client.rpc('create_interview_request', {
-        target_application_id: applicationId,
-        p_interview_type: 'in_person',
-        p_scheduled_start: new Date(Date.now() + 3 * 86_400_000).toISOString(),
-        p_duration_minutes: 30,
-        p_location_text: 'Salon location',
-        p_meeting_url: null,
-        p_employer_message: 'We would like to invite you for an interview.',
-      });
-      if (error) throw error;
     }
     return;
+  }
+  if (status === 'Interview Scheduled') {
+    // Interviews are only ever created from the scheduling form (real date,
+    // time and location via scheduleInterview). A status flip alone cannot
+    // invent them — the old hardcoded payload is gone on purpose.
+    throw new Error('Use the interview form to schedule a date, time and location.');
   }
   if (status === 'Declined') {
     const { error } = await client.rpc('reject_application', { target_application_id: applicationId, p_reason: null });
@@ -1023,6 +1153,9 @@ const backendErrorMessages: Record<string, string> = {
   PROFILE_NOT_FOUND: 'Your profile could not be found. Please sign in again.',
   JOB_EXPIRED: 'This posting has expired and is no longer accepting applications.',
   FOREIGN_RESUME: 'Choose a resume that belongs to your profile.',
+  PROFILE_INCOMPLETE: 'Complete your profile (at least 50%) before applying to jobs.',
+  INVALID_INTERVIEW_TRANSITION: 'That interview can no longer be changed at this stage.',
+  SALON_NOT_FOUND: 'That salon could not be found. Pick it from the search results.',
 };
 
 const looksLikeRawSql = /violates|constraint|relation "|column "|pg_|sqlstate|permission denied for|syntax error/i;
@@ -1033,8 +1166,11 @@ export function mapBackendError(error: unknown, fallback = 'Something went wrong
   for (const [code, message] of Object.entries(backendErrorMessages)) {
     if (token.includes(code)) return message;
   }
+  // Standard-error information hiding: unknown text passes through only when
+  // it is short, sanitized (no secrets/JWTs/PII) and free of technical
+  // internals — otherwise the action-oriented fallback wins.
   if (!raw.trim() || looksLikeRawSql.test(raw)) return fallback;
-  return raw;
+  return toSafeMessage(raw, fallback);
 }
 
 /**
@@ -1270,4 +1406,366 @@ export async function markAllAlertsRead(userId: string) {
 export async function deleteAlert(alertId: string) {
   const { error } = await requireSupabase().from('job_notifications').delete().eq('id', alertId);
   if (error) throw error;
+}
+
+/* ------------------------------------------------------------------ */
+/* Resumes: Storage objects + job_candidate_resumes rows.               */
+/* ------------------------------------------------------------------ */
+
+function mapResume(row: any): ResumeFile {
+  return {
+    id: row.id,
+    fileName: row.original_filename,
+    mimeType: row.mime_type,
+    fileSize: Number(row.file_size || 0),
+    storagePath: row.storage_path,
+    isPrimary: Boolean(row.is_primary),
+    uploadedAt: row.uploaded_at,
+  };
+}
+
+async function ownCandidateId(): Promise<string> {
+  const { data: userData, error: userError } = await requireSupabase().auth.getUser();
+  if (userError) throw userError;
+  const userId = userData.user?.id;
+  if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+  const { data, error } = await requireSupabase()
+    .from('job_seeker_profiles').select('id').eq('user_id', userId).single();
+  if (error) throw error;
+  return (data as { id: string }).id;
+}
+
+/** Uploads a resume file to Storage and records it as the primary resume. */
+export async function uploadResume(file: File): Promise<ResumeFile> {
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  const userId = userData.user?.id;
+  if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+  const candidateId = await ownCandidateId();
+  const storagePath = await uploadResumeObject(userId, file);
+  try {
+    await client.from('job_candidate_resumes').update({ is_primary: false }).eq('candidate_id', candidateId);
+    const { data, error } = await client.from('job_candidate_resumes').insert({
+      candidate_id: candidateId,
+      storage_path: storagePath,
+      original_filename: file.name,
+      mime_type: file.type,
+      file_size: file.size,
+      is_primary: true,
+    }).select('*').single();
+    if (error) throw error;
+    return mapResume(data);
+  } catch (error) {
+    // The row write failed after the object landed: remove the orphan.
+    await deleteMediaObject(MEDIA_BUCKETS.resumes, storagePath);
+    throw error;
+  }
+}
+
+/** Newest-first resumes owned by the signed-in seeker. */
+export async function listResumes(): Promise<ResumeFile[]> {
+  const candidateId = await ownCandidateId();
+  const { data, error } = await requireSupabase()
+    .from('job_candidate_resumes').select('*').eq('candidate_id', candidateId)
+    .order('is_primary', { ascending: false }).order('uploaded_at', { ascending: false });
+  if (error) throw error;
+  return arrays<any>(data).map(mapResume);
+}
+
+export async function setPrimaryResume(resumeId: string): Promise<void> {
+  const client = requireSupabase();
+  const candidateId = await ownCandidateId();
+  const { error: clearError } = await client
+    .from('job_candidate_resumes').update({ is_primary: false }).eq('candidate_id', candidateId);
+  if (clearError) throw clearError;
+  const { error } = await client
+    .from('job_candidate_resumes').update({ is_primary: true }).eq('id', resumeId).eq('candidate_id', candidateId);
+  if (error) throw error;
+}
+
+export async function deleteResume(resumeId: string): Promise<void> {
+  const client = requireSupabase();
+  const candidateId = await ownCandidateId();
+  const { data, error: readError } = await client
+    .from('job_candidate_resumes').select('storage_path').eq('id', resumeId).eq('candidate_id', candidateId).single();
+  if (readError) throw readError;
+  const { error } = await client
+    .from('job_candidate_resumes').delete().eq('id', resumeId).eq('candidate_id', candidateId);
+  if (error) throw error;
+  await deleteMediaObject(MEDIA_BUCKETS.resumes, (data as { storage_path: string }).storage_path);
+}
+
+/** Short-lived download link for the seeker's own resume. */
+export async function getResumeDownloadUrl(storagePath: string): Promise<string> {
+  const { data, error } = await requireSupabase().storage.from(MEDIA_BUCKETS.resumes).createSignedUrl(storagePath, 3600);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+/* ------------------------------------------------------------------ */
+/* Trust & Safety: reports against real jobs and salons.                */
+/* ------------------------------------------------------------------ */
+
+export interface PublicJobHit {
+  id: string;
+  title: string;
+  salonId: string;
+  salonName: string;
+  city: string;
+  state: string;
+}
+
+export async function searchPublicJobs(query: string): Promise<PublicJobHit[]> {
+  const needle = query.trim();
+  if (needle.length < 2) return [];
+  const { data, error } = await requireSupabase()
+    .from('public_job_listings')
+    .select('id,title,salon_id,salon_name,city,state')
+    .or(`title.ilike.%${needle}%,salon_name.ilike.%${needle}%`)
+    .order('published_at', { ascending: false })
+    .limit(8);
+  if (error) throw error;
+  return arrays<any>(data).map((row) => ({
+    id: row.id,
+    title: row.title,
+    salonId: row.salon_id,
+    salonName: row.salon_name,
+    city: row.city || '',
+    state: row.state || '',
+  }));
+}
+
+export interface PublicSalonHit {
+  salonId: string;
+  salonName: string;
+  city: string;
+  state: string;
+}
+
+export async function searchPublicSalons(query: string): Promise<PublicSalonHit[]> {
+  const needle = query.trim();
+  if (needle.length < 2) return [];
+  const { data, error } = await requireSupabase()
+    .from('public_job_listings')
+    .select('salon_id,salon_name,city,state')
+    .ilike('salon_name', `%${needle}%`)
+    .limit(20);
+  if (error) throw error;
+  const seen = new Set<string>();
+  const hits: PublicSalonHit[] = [];
+  for (const row of arrays<any>(data)) {
+    if (seen.has(row.salon_id)) continue;
+    seen.add(row.salon_id);
+    hits.push({ salonId: row.salon_id, salonName: row.salon_name, city: row.city || '', state: row.state || '' });
+    if (hits.length >= 8) break;
+  }
+  return hits;
+}
+
+/** Files a persisted Trust & Safety report against a job posting. Returns the report id. */
+export async function reportJobPosting(jobId: string, reason: string, details?: string): Promise<string> {
+  const { data, error } = await requireSupabase().rpc('report_job', {
+    target_job_id: jobId,
+    p_reason: reason,
+    p_details: details?.trim() || null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Files a persisted Trust & Safety report against a salon. Returns the report id. */
+export async function reportSalon(salonId: string, reason: string, details?: string): Promise<string> {
+  const { data, error } = await requireSupabase().rpc('report_employer', {
+    target_salon_id: salonId,
+    p_reason: reason,
+    p_details: details?.trim() || null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Appends a follow-up message (optionally with an attachment path) to the caller's own ticket. */
+export async function addTicketMessage(ticketId: string, message: string, attachmentPath?: string): Promise<void> {
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  const userId = userData.user?.id;
+  if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+  const { error } = await client.from('job_support_messages').insert({
+    ticket_id: ticketId,
+    sender_user_id: userId,
+    message,
+    attachment_path: attachmentPath || null,
+  });
+  if (error) throw error;
+}
+
+/* ------------------------------------------------------------------ */
+/* Account: genuine password change + deletion request.                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Changes the signed-in user's password. The current password is verified by
+ * re-authenticating (a wrong one fails here, before anything is changed) and
+ * the new one is validated against the shared policy first.
+ */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const policyError = validateNewPassword(newPassword);
+  if (policyError) throw new Error(policyError);
+  if (currentPassword === newPassword) {
+    throw new Error('Choose a password you have not used on this account before.');
+  }
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  const email = userData.user?.email;
+  if (!email) throw new Error('Your session is no longer valid. Please sign in again.');
+  const { error: verifyError } = await client.auth.signInWithPassword({ email, password: currentPassword });
+  if (verifyError) {
+    throw new Error('Your current password is incorrect. Check it and try again.');
+  }
+  const { error: updateError } = await client.auth.updateUser({ password: newPassword });
+  if (updateError) throw mapAuthError(updateError);
+}
+
+/**
+ * Records an account-deletion request. The RPC hides the profile immediately
+ * and queues the purge; the client signs out afterwards with honest copy.
+ * Returns the request id.
+ */
+export async function requestAccountDeletion(reason?: string): Promise<string> {
+  const { data, error } = await requireSupabase().rpc('request_job_account_deletion', {
+    p_reason: reason?.trim() || null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Portfolio: CRUD against job_portfolio_items (owner-only by RLS).     */
+/* ------------------------------------------------------------------ */
+
+export async function savePortfolioItem(item: PortfolioItem): Promise<void> {
+  const candidateId = await ownCandidateId();
+  const row = {
+    id: item.id,
+    candidate_id: candidateId,
+    title: item.title,
+    category: item.category,
+    image_path: item.imageUrl,
+    description: item.description || null,
+    technique: item.technique || null,
+    item_date: /^\d{4}-\d{2}-\d{2}$/.test(item.date || '') ? item.date : null,
+  };
+  const { error } = await requireSupabase().from('job_portfolio_items').upsert(row, { onConflict: 'id' });
+  if (error) throw error;
+}
+
+export async function deletePortfolioItem(itemId: string): Promise<void> {
+  const candidateId = await ownCandidateId();
+  const { error } = await requireSupabase()
+    .from('job_portfolio_items').delete().eq('id', itemId).eq('candidate_id', candidateId);
+  if (error) throw error;
+}
+
+/** An employer's read-only view of an applicant's portfolio (RLS: applied candidates only). */
+export async function getApplicantPortfolio(candidateProfileId: string): Promise<PortfolioItem[]> {
+  const { data, error } = await requireSupabase()
+    .from('job_portfolio_items').select('*').eq('candidate_id', candidateProfileId).order('sort_order');
+  if (error) throw error;
+  const rows = arrays<any>(data);
+  const resolved = await resolveStorageUrls(MEDIA_BUCKETS.profileMedia, rows.map((row) => row.image_path));
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    category: row.category,
+    imageUrl: pickDisplayUrl(row.image_path, resolved) || row.image_path,
+    description: row.description || undefined,
+    technique: row.technique || undefined,
+    date: row.item_date || undefined,
+  }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Media resolution + legacy base64 migration for the workspace load.   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Moves a legacy data-URL avatar into Storage and returns the new path.
+ * Returns the input unchanged when it is already a path/URL or when the
+ * migration fails (the UI keeps working on the legacy value).
+ */
+export async function migrateAvatarToStorageIfNeeded(
+  userId: string,
+  fullName: string,
+  phone: string | null,
+  avatar: string | null | undefined,
+): Promise<string | null> {
+  if (!isDataUrl(avatar)) return avatar ?? null;
+  try {
+    const client = requireSupabase();
+    const blob = dataUrlToBlob(avatar);
+    const path = await uploadAvatar(userId, blob);
+    // job_save_profile overwrites the role-specific columns it is given, so
+    // the current values are passed straight back through: the migration must
+    // change the avatar and nothing else.
+    let headline: string | null = null;
+    let bio: string | null = null;
+    let displayName: string | null = null;
+    const { data: roleRow } = await client.from('job_user_roles').select('role').eq('user_id', userId).single();
+    if (roleRow?.role === 'job_seeker') {
+      const { data } = await client.from('job_seeker_profiles').select('headline,bio').eq('user_id', userId).single();
+      headline = data?.headline ?? null;
+      bio = data?.bio ?? null;
+    } else if (roleRow?.role === 'employer' || roleRow?.role === 'admin') {
+      const { data } = await client.from('job_employer_profiles').select('display_name').eq('user_id', userId).single();
+      displayName = data?.display_name ?? null;
+    }
+    const { error } = await client.rpc('job_save_profile', {
+      p_full_name: fullName && fullName.trim().length >= 2 ? fullName : 'User',
+      p_phone: phone || null,
+      p_avatar_path: path,
+      p_headline: headline,
+      p_bio: bio,
+      p_display_name: displayName,
+    });
+    if (error) throw error;
+    return path;
+  } catch {
+    return avatar;
+  }
+}
+
+/**
+ * Moves legacy data-URL portfolio images into Storage, updating each row in
+ * place. Best-effort per item: failures keep the legacy value.
+ */
+export async function migratePortfolioToStorageIfNeeded(
+  userId: string,
+  candidateId: string,
+  rows: any[],
+): Promise<void> {
+  const legacy = rows.filter((row) => isDataUrl(row.image_path));
+  if (legacy.length === 0) return;
+  const client = requireSupabase();
+  await Promise.all(legacy.map(async (row) => {
+    try {
+      const path = await uploadPortfolioImage(userId, dataUrlToBlob(row.image_path));
+      const { error } = await client
+        .from('job_portfolio_items').update({ image_path: path }).eq('id', row.id).eq('candidate_id', candidateId);
+      if (error) throw error;
+      row.image_path = path;
+    } catch {
+      // Keep the legacy data URL; the item still renders.
+    }
+  }));
+}
+
+/** Resolves every profile-media path in a workspace to signed display URLs. */
+export async function resolveWorkspaceMedia(input: {
+  avatarPaths: Array<string | null | undefined>;
+  portfolioPaths: Array<string | null | undefined>;
+}): Promise<Map<string, string>> {
+  return resolveStorageUrls(MEDIA_BUCKETS.profileMedia, [...input.avatarPaths, ...input.portfolioPaths]);
 }

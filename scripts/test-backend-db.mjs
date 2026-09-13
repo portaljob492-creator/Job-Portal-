@@ -216,7 +216,7 @@ check('no unexpected anon-executable RPC', anonExec.rows.length === 0,
   anonExec.rows.map((r) => r.proname).join(', '));
 
 const buckets = await db.query(`select id, public from storage.buckets order by id`);
-check('storage buckets created', buckets.rows.length === 7, `${buckets.rows.length} buckets`);
+check('storage buckets created', buckets.rows.length === 8, `${buckets.rows.length} buckets`);
 const pubBuckets = buckets.rows.filter((b) => b.public).map((b) => b.id);
 check('only salon-public-media is public', pubBuckets.length === 1 && pubBuckets[0] === 'salon-public-media',
   pubBuckets.join(', '));
@@ -258,9 +258,12 @@ await db.exec(`
     ('${employer}','employer@example.com','{"app_context":"jobs","job_role":"employer"}'),
     ('${admin}','admin@example.com','{"app_context":"jobs","job_role":"seeker"}'),
     ('${outsider}','outsider@example.com','{"app_context":"jobs","job_role":"seeker"}');
+  -- The signup trigger already ensures a profiles row per auth user; the seed
+  -- only fills in the display columns it owns.
   insert into public.profiles(id,full_name,is_active) values
     ('${seeker}','Seeker',true),('${employer}','Employer',true),
-    ('${admin}','Admin',true),('${outsider}','Outsider',true);
+    ('${admin}','Admin',true),('${outsider}','Outsider',true)
+  on conflict (id) do update set full_name=excluded.full_name, is_active=excluded.is_active;
   set app.job_trusted_role_change = 'yes';
   insert into public.job_user_roles(user_id, role, onboarding_completed)
   values ('${admin}','admin', true)
@@ -661,8 +664,10 @@ await db.exec(`
   insert into auth.users(id,email,raw_user_meta_data) values
     ('${employerB}','employerb@example.com','{"app_context":"jobs","job_role":"employer"}'),
     ('${candidateB}','candidateb@example.com','{"app_context":"jobs","job_role":"seeker"}');
+  -- As in section 2, the signup trigger already ensured these profiles rows.
   insert into public.profiles(id,full_name,is_active) values
-    ('${employerB}','Employer B',true),('${candidateB}','Candidate B',true);
+    ('${employerB}','Employer B',true),('${candidateB}','Candidate B',true)
+  on conflict (id) do update set full_name=excluded.full_name, is_active=excluded.is_active;
 `);
 await rpc(employerB, `select public.job_register_role('employer')`);
 await rpc(candidateB, `select public.job_register_role('job_seeker')`);

@@ -278,7 +278,9 @@ check('controlled status tables are all declared in the migrations',
 // ---------------------------------------------------------------------------
 const frontend = sourceFiles.map((file) => read(file)).join('\n');
 check('no service_role key in frontend code',
-  !/SUPABASE_SERVICE_ROLE|service_role_key|sb_secret_/i.test(frontend));
+  // Key-shaped matches only (20+ chars): the bare `sb_secret_` prefix also
+  // appears inside the log sanitizer patterns, which must not trip this.
+  !/SUPABASE_SERVICE_ROLE|service_role_key|sb_secret_[A-Za-z0-9_-]{20,}/i.test(frontend));
 check('no hardcoded JWT-shaped key in frontend code', !/eyJ[A-Za-z0-9_-]{20,}/.test(frontend));
 check('frontend reads the anon key from VITE_SUPABASE_ANON_KEY',
   /VITE_SUPABASE_ANON_KEY/.test(read('src/lib/supabase.ts')));

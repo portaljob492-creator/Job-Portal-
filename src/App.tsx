@@ -34,9 +34,11 @@ import {
   loadWorkspace,
   markAllAlertsRead,
   RecoverySessionLostError,
+  rescheduleEmployerInterview,
   respondToInterview,
   respondToJobOffer,
   saveProfile,
+  scheduleInterview,
   sendJobOffer,
   sendMessageRecord,
   setBookmark,
@@ -44,6 +46,9 @@ import {
   updateApplicationStatus,
   mapBackendError,
 } from './services/backend';
+import { MEDIA_BUCKETS, isStoragePath, resolveStorageUrls } from './lib/storageMedia';
+import type { InterviewSchedulePayload } from './lib/interviewSchedule';
+import { formatInterviewDateTime } from './lib/interviewSchedule';
 
 type SeekerWorkspaceTab = 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
 const normalizeSeekerTab = (tab: string): SeekerWorkspaceTab => tab === 'explore' ? 'feed' : tab as SeekerWorkspaceTab;
@@ -233,10 +238,13 @@ export default function App() {
         if (sessionInvalid) {
           // Invalid/expired session: clear the unusable tokens once and route to login.
           reportSessionError(error);
-        } else if (navigator.onLine) {
-          // A temporary offline launch must not destroy the persisted auth session.
+        } else if ((roleMismatch || unassignedRole) && navigator.onLine) {
+          // Only a wrong-portal or role-less session is cleared here — and only
+          // this device's tokens. Any other bootstrap failure (transient network
+          // or RPC error) leaves the persisted session untouched so a retry can
+          // still succeed, and an offline launch never destroys it.
           markUserInitiatedSignOut();
-          await supabase.auth.signOut();
+          await supabase.auth.signOut({ scope: 'local' });
         }
         if (active) {
           if (navigator.onLine) setCurrentUserId(null);
@@ -297,6 +305,11 @@ export default function App() {
         enteredPortalUserId.current = null;
         setCurrentUserId(null);
         setPasswordRecoveryState('idle');
+        if (authSnapshot.invalidated) {
+          // Explain the forced logout with fixed friendly copy (never the raw
+          // session error, which can name tokens, claims, or deleted users).
+          setBackendError('Your session expired. Please sign in again.');
+        }
         // An expired/revoked session returns to the login route; a deliberate
         // logout keeps the existing welcome behaviour — except when the sign-out
         // was triggered by a failed auth attempt (e.g. portal role rejection
@@ -517,7 +530,7 @@ export default function App() {
     }
   };
 
-  const handleApplyJob = (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string) => {
+  const handleApplyJob = (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string, resumeId?: string) => {
     const applicationId = currentUserId ? crypto.randomUUID() : `app-${Date.now()}`;
 
     // Add to Seeker applications
@@ -565,6 +578,7 @@ export default function App() {
         expectedSalary,
         availability,
         applicationId,
+        resumeId,
       ).catch((error) => {
         setApplications((prev) => prev.filter((application) => application.id !== applicationId));
         setApplicants((prev) => prev.filter((applicant) => applicant.id !== newApplicant.id));
@@ -635,22 +649,80 @@ export default function App() {
       );
     }
 
-    setApplications((prev) =>
-      prev.map((app) => {
-        if (status === 'Interview Scheduled') {
-          return {
-            ...app,
-            status: 'Interview Scheduled',
-            interviewDate: 'Tue, Aug 12 • 2:00 PM',
-            notes: 'Interview scheduled with hiring team.',
-          };
-        }
-        if (status === 'Shortlisted') {
-          return { ...app, status: 'Under Review' };
-        }
-        return app;
-      })
-    );
+    // Applicant ids ARE application ids; only the matching row is touched.
+    if (status === 'Shortlisted') {
+      setApplications((prev) =>
+        prev.map((app) => (app.id === applicantId ? { ...app, status: 'Under Review' } : app)),
+      );
+    }
+  };
+
+  /**
+   * Employer schedules an interview from the request form. The backend
+   * persists the real date/time/location; local state mirrors the returned
+   * row (status + interview list + matching application).
+   */
+  const handleScheduleInterview = async (applicantId: string, payload: InterviewSchedulePayload) => {
+    try {
+      const interview = await scheduleInterview(applicantId, payload);
+      setApplicants((prev) =>
+        prev.map((a) =>
+          a.id === applicantId
+            ? { ...a, status: 'Interview Scheduled', interviews: [interview, ...(a.interviews ?? [])] }
+            : a,
+        ),
+      );
+      setApplications((prev) =>
+        prev.map((app) =>
+          app.id === applicantId
+            ? {
+                ...app,
+                status: 'Interview Scheduled',
+                interviewDate: formatInterviewDateTime(interview.scheduledStart),
+                interviewId: interview.id,
+                notes: 'Interview scheduled with hiring team.',
+              }
+            : app,
+        ),
+      );
+    } catch (error) {
+      throw new Error(mapBackendError(error, 'Unable to schedule the interview.'));
+    }
+  };
+
+  /** Employer moves an interview; the patched row replaces the stored one. */
+  const handleRescheduleInterview = async (interviewId: string, newStartIso: string) => {
+    try {
+      const interview = await rescheduleEmployerInterview(interviewId, newStartIso);
+      setApplicants((prev) =>
+        prev.map((a) => ({
+          ...a,
+          interviews: (a.interviews ?? []).map((item) => (item.id === interviewId ? interview : item)),
+        })),
+      );
+    } catch (error) {
+      throw new Error(mapBackendError(error, 'Unable to reschedule the interview.'));
+    }
+  };
+
+  /** Employer marks a confirmed interview complete. */
+  const handleCompleteInterview = async (interviewId: string) => {
+    try {
+      const owner = applicants.find((a) => (a.interviews ?? []).some((item) => item.id === interviewId));
+      const interview = owner?.interviews?.find((item) => item.id === interviewId);
+      if (!owner || !interview) throw new Error('That interview is no longer available.');
+      await completeInterviewStage(owner.id, interviewId);
+      setApplicants((prev) =>
+        prev.map((a) => ({
+          ...a,
+          interviews: (a.interviews ?? []).map((item) =>
+            item.id === interviewId ? { ...item, status: 'completed' } : item,
+          ),
+        })),
+      );
+    } catch (error) {
+      throw new Error(mapBackendError(error, 'Unable to complete the interview.'));
+    }
   };
 
   /**
@@ -845,9 +917,20 @@ export default function App() {
   };
 
   const handleAvatarUpdate = (avatarUrl: string | undefined) => {
-    const updatedProfile = { ...userProfile, avatarUrl };
-    setUserProfile(updatedProfile);
+    // `avatarUrl` is a storage path for fresh uploads (persisted as-is), a
+    // remote URL for presets, or undefined when removed. State always holds
+    // the renderable URL, so paths resolve to a signed URL first.
+    if (avatarUrl && isStoragePath(avatarUrl)) {
+      const path = avatarUrl;
+      setUserProfile((prev) => ({ ...prev, avatarUrl: undefined }));
+      void resolveStorageUrls(MEDIA_BUCKETS.profileMedia, [path]).then((resolved) => {
+        setUserProfile((prev) => ({ ...prev, avatarUrl: resolved.get(path) }));
+      });
+    } else {
+      setUserProfile((prev) => ({ ...prev, avatarUrl }));
+    }
     if (currentUserId) {
+      const updatedProfile = { ...userProfile, avatarUrl };
       void saveProfile(currentUserId, updatedProfile).catch((error) =>
         setBackendError(mapBackendError(error, 'Unable to save profile photo.')),
       );
@@ -1163,6 +1246,9 @@ export default function App() {
               userProfile={userProfile}
               onAddJob={handleAddJob}
               onUpdateApplicantStatus={handleUpdateApplicantStatus}
+              onScheduleInterview={handleScheduleInterview}
+              onRescheduleInterview={handleRescheduleInterview}
+              onCompleteInterview={handleCompleteInterview}
               onSendOffer={handleSendOffer}
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}

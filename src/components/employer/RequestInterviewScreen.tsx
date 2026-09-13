@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Store, Video, Phone, MapPin, Link as LinkIcon, ChevronDown, Send } from 'lucide-react';
+import { ArrowLeft, Store, Video, Phone, MapPin, Link as LinkIcon, ChevronDown, Send, AlertTriangle } from 'lucide-react';
+import {
+  buildInterviewSchedule,
+  type InterviewFormType,
+  type InterviewSchedulePayload,
+} from '../../lib/interviewSchedule';
 
 interface RequestInterviewScreenProps {
   applicantName: string;
@@ -7,28 +12,53 @@ interface RequestInterviewScreenProps {
   applicantExp?: number;
   applicantAvatar?: string;
   onClose: () => void;
-  onConfirm: () => void;
+  /** Receives the validated scheduling payload (real date/time/location). */
+  onConfirm: (payload: InterviewSchedulePayload) => void;
+  isSubmitting?: boolean;
+  serverError?: string | null;
 }
 
-export const RequestInterviewScreen: React.FC<RequestInterviewScreenProps> = ({ 
+export const RequestInterviewScreen: React.FC<RequestInterviewScreenProps> = ({
   applicantName,
   applicantJobTitle,
   applicantExp,
   applicantAvatar,
-  onClose, 
-  onConfirm 
+  onClose,
+  onConfirm,
+  isSubmitting = false,
+  serverError = null,
 }) => {
-  const [interviewType, setInterviewType] = useState<'in-person' | 'video' | 'phone'>('in-person');
+  const [interviewType, setInterviewType] = useState<InterviewFormType>('in-person');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [duration, setDuration] = useState('');
   const [location, setLocation] = useState('');
   const [message, setMessage] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const today = new Date().toISOString().slice(0, 10);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onConfirm();
+    const result = buildInterviewSchedule({
+      interviewType,
+      date,
+      time,
+      durationMinutes: Number(duration),
+      location,
+      employerMessage: message,
+    });
+    // NOTE: `=== false`, not `!result.ok` — this repo runs without
+    // strictNullChecks, where negated discriminant narrowing does not apply.
+    if (result.ok === false) {
+      setFormError(result.error);
+      return;
+    }
+    setFormError(null);
+    onConfirm(result.payload);
   };
+
+  const errorToShow = formError || serverError;
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#fdf8f8] overflow-y-auto flex flex-col hide-scrollbar animate-in slide-in-from-bottom-4 duration-300">
@@ -150,10 +180,11 @@ export const RequestInterviewScreen: React.FC<RequestInterviewScreenProps> = ({
             <div className="space-y-2 flex flex-col">
               <label htmlFor="interviewDate" className="text-[13px] font-semibold text-[#1c1b1b]">Select Date</label>
               <div className="relative flex-1">
-                <input 
-                  type="date" 
+                <input
+                  type="date"
                   id="interviewDate"
                   value={date}
+                  min={today}
                   onChange={(e) => setDate(e.target.value)}
                   required 
                   className="w-full h-12 bg-white border border-[#e0bec6]/60 rounded-lg px-3 py-2 text-[#1c1b1b] focus:ring-2 focus:ring-[#8e004b] focus:border-[#8e004b] transition-colors outline-none cursor-text"
@@ -245,14 +276,21 @@ export const RequestInterviewScreen: React.FC<RequestInterviewScreenProps> = ({
 
       {/* Sticky Bottom CTA */}
       <div className="fixed bottom-0 w-full bg-white border-t border-[#e0bec6]/30 p-4 shadow-[0_-4px_12px_rgba(90,63,71,0.05)] z-50">
-        <div className="max-w-2xl mx-auto flex">
-          <button 
+        <div className="max-w-2xl mx-auto flex flex-col gap-2">
+          {errorToShow && (
+            <p role="alert" className="flex items-center gap-2 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              {errorToShow}
+            </p>
+          )}
+          <button
             type="submit"
             form="interview-form"
-            className="w-full h-12 bg-[#b50062] text-white rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 hover:bg-[#8e004b] transition-colors active:scale-95 shadow-md shadow-[#8e004b]/20 cursor-pointer"
+            disabled={isSubmitting}
+            className="w-full h-12 bg-[#b50062] text-white rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 hover:bg-[#8e004b] transition-colors active:scale-95 shadow-md shadow-[#8e004b]/20 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
           >
             <Send className="w-5 h-5" />
-            Send Interview Request
+            {isSubmitting ? 'Sending…' : 'Send Interview Request'}
           </button>
         </div>
       </div>
