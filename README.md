@@ -192,6 +192,10 @@ VITE_SUPABASE_STORAGE_KEY=nexora.auth.qwaehqsmodekbgvnaavz
 
 4. Deploy, then copy the final `https://*.vercel.app` domain into Supabase Auth URL Configuration before testing OAuth or recovery links.
 
+Vite inlines every `VITE_*` variable into the bundle at **build time**, so a deployment that was built before the variables existed keeps running with them missing. After adding or changing `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` you must **redeploy** (Deployments → ⋯ → Redeploy, without build cache) — saving the variables alone does not update an existing deployment. The same applies locally: `cp .env.example .env`, fill in the key, and restart `npm run dev`.
+
+Environment Variables must be enabled for the environment you actually serve. If the variables are scoped to Preview only, the Production deployment logs a console error and renders the "Supabase not configured" banner, because `import.meta.env.VITE_SUPABASE_ANON_KEY` is `undefined` in that build.
+
 ## Auth configuration
 
 The portal uses the universal Nexora Supabase auth setup: one shared client
