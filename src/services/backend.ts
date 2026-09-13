@@ -404,6 +404,31 @@ function mapSavedFilter(row: any): SavedFilter {
   };
 }
 
+/**
+ * Best-effort check for whether an account was created exclusively through an
+ * OAuth provider (Google / Apple) and therefore has no local password set.
+ *
+ * Supabase returns the same "Invalid login credentials" error for both
+ * "wrong password" and "no password at all", so the only reliable way to
+ * distinguish them is to inspect the user's auth identities.  The
+ * `job_account_has_password` RPC (a SECURITY DEFINER function that reads
+ * `auth.identities`) returns a boolean. If the RPC has not been deployed the
+ * check silently returns `false` so the login screen still works — it just
+ * falls back to the generic "wrong password" card instead of the dedicated
+ * OAuth-only card.
+ */
+async function checkOAuthOnlyAccount(email: string): Promise<boolean> {
+  try {
+    const { data, error } = await requireSupabase().rpc('job_account_has_password', { p_email: email });
+    if (error) return false;
+    // The RPC returns `true` when a password identity exists, `false` when the
+    // account is OAuth-only.
+    return data === false;
+  } catch {
+    return false;
+  }
+}
+
 export interface SignUpInput {
   role: UserRole;
   email: string;
@@ -532,10 +557,16 @@ export const authBackend = {
         // offer recovery actions (reset link / social continue) instead of a
         // sentence the user has to act on by themselves.
         if (existingRole === requestedBackendRole) {
+          // Try to detect whether this account was created via OAuth (no local
+          // password). The check is best-effort: if the RPC is not deployed the
+          // message still covers the case. The UI uses the `oauthOnly` hint to
+          // disable password login and show a dedicated OAuth sign-in card.
+          const oauthOnly = await checkOAuthOnlyAccount(normalizedEmail);
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
             role: requestedRole,
             reason: 'wrong_password',
+            oauthOnly,
           });
         }
         if (existingRole === 'unassigned') {

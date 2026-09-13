@@ -1100,6 +1100,7 @@ export default function App() {
           onSocialLogin={handleSocialLogin}
           onSignUp={() => setScreen('role_select')}
           onResendConfirmation={async (email) => { await authBackend.resendConfirmationEmail(email); }}
+          onSendResetLink={async (email) => { await authBackend.sendPasswordReset(email); }}
           initialEmail={loginEmail}
           onForgotPassword={(email) => {
             const trimmed = (email || '').trim().toLowerCase();
