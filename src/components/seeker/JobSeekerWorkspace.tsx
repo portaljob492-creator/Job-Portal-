@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { JobPosting, Application, UserProfile, Conversation, ChatMessage, PortfolioItem, SavedFilter, JobAlertNotification, CandidateProfileInput, CandidateProfileSubmission } from '../../types';
+import { JobPosting, Application, UserProfile, Conversation, ChatMessage, PortfolioItem, SavedFilter, JobAlertNotification, CandidateApplicationStatus, CandidateProfileInput, CandidateProfileSubmission } from '../../types';
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
 import { MessagingCenter } from '../messaging/MessagingCenter';
 import { PortfolioGallery } from '../profile/PortfolioGallery';
@@ -51,8 +51,28 @@ import {
   Mic,
   MicOff,
   User,
-  HelpCircle
+  HelpCircle,
+  AlertCircle
 } from 'lucide-react';
+
+const legacyCandidateStatus: Record<Application['status'], CandidateApplicationStatus> = {
+  Submitted: 'Applied',
+  'Under Review': 'Under Review',
+  'Interview Scheduled': 'Shortlisted',
+  'Offer Extended': 'Shortlisted',
+  Declined: 'Rejected',
+  Accepted: 'Hired',
+};
+
+const candidateStatusOf = (application: Application): CandidateApplicationStatus =>
+  application.applicationStatus || legacyCandidateStatus[application.status];
+
+const applicationDateOf = (application: Application): string => {
+  if (!application.submittedAt) return application.appliedDate;
+  const submitted = new Date(application.submittedAt);
+  if (Number.isNaN(submitted.getTime())) return application.appliedDate;
+  return submitted.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
 
 interface JobSeekerWorkspaceProps {
   jobs: JobPosting[];
@@ -63,6 +83,7 @@ interface JobSeekerWorkspaceProps {
   jobAlerts?: JobAlertNotification[];
   onToggleBookmark: (jobId: string) => void;
   onApplyJob: (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string, resumeId?: string) => Promise<void>;
+  onWithdrawApplication: (applicationId: string) => Promise<void>;
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
@@ -74,6 +95,7 @@ interface JobSeekerWorkspaceProps {
   onLogout: () => void;
   onStartApplyJob?: (job: JobPosting) => void;
   initialTab?: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
+  onTabChange?: (tab: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile') => void;
   onViewInvitation?: (application: Application) => void;
   onViewOffer?: (application: Application) => void;
   onNavigateScreen?: (screen: any) => void;
@@ -88,6 +110,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   jobAlerts = INITIAL_JOB_ALERTS,
   onToggleBookmark,
   onApplyJob,
+  onWithdrawApplication,
   onSendMessage,
   onStartConversation,
   onUpdateAvatar,
@@ -99,6 +122,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   onLogout,
   onStartApplyJob,
   initialTab,
+  onTabChange,
   onViewInvitation,
   onViewOffer,
   onNavigateScreen,
@@ -110,6 +134,11 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  const navigateToTab = (tab: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile') => {
+    setActiveTab(tab);
+    onTabChange?.(tab);
+  };
 
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
@@ -322,6 +351,8 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const [availability, setAvailability] = useState<string>('Immediate (2 weeks notice)');
   const [applySuccess, setApplySuccess] = useState<boolean>(false);
   const [isApplySubmitting, setIsApplySubmitting] = useState<boolean>(false);
+  const [withdrawingApplicationId, setWithdrawingApplicationId] = useState<string | null>(null);
+  const [applicationActionError, setApplicationActionError] = useState<string | null>(null);
 
   // Category & Filter Options
   const categories = ['All', 'Hair', 'Skincare', 'Nails', 'Lashes & Brows', 'Massage', 'Management'];
@@ -461,6 +492,22 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
       showToast(error instanceof Error ? error.message : 'Unable to submit application. Please retry.');
     } finally {
       setIsApplySubmitting(false);
+    }
+  };
+
+  const handleWithdrawApplication = async (application: Application) => {
+    const status = candidateStatusOf(application);
+    if (!['Applied', 'Under Review'].includes(status) || withdrawingApplicationId) return;
+    if (!window.confirm(`Withdraw your application for ${application.jobTitle}?`)) return;
+    setWithdrawingApplicationId(application.id);
+    setApplicationActionError(null);
+    try {
+      await onWithdrawApplication(application.id);
+      showToast('Application withdrawn successfully.');
+    } catch (error) {
+      setApplicationActionError(error instanceof Error ? error.message : 'Unable to withdraw this application. Please retry.');
+    } finally {
+      setWithdrawingApplicationId(null);
     }
   };
 
@@ -610,7 +657,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
         <div className="flex items-center justify-between border-b border-[#e0bec6]/40 pb-stack-default mb-section-gap overflow-x-auto gap-stack-sm">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setActiveTab('feed')}
+              onClick={() => navigateToTab('feed')}
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'feed'
                   ? 'bg-[#8e004b] text-white shadow-sm'
@@ -622,7 +669,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('applications')}
+              onClick={() => navigateToTab('applications')}
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'applications'
                   ? 'bg-[#8e004b] text-white shadow-sm'
@@ -639,7 +686,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('saved')}
+              onClick={() => navigateToTab('saved')}
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'saved'
                   ? 'bg-[#8e004b] text-white shadow-sm'
@@ -656,7 +703,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('messages')}
+              onClick={() => navigateToTab('messages')}
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'messages'
                   ? 'bg-[#8e004b] text-white shadow-sm'
@@ -673,7 +720,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('portfolio')}
+              onClick={() => navigateToTab('portfolio')}
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'portfolio'
                   ? 'bg-[#8e004b] text-white shadow-sm'
@@ -688,7 +735,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('profile')}
+              onClick={() => navigateToTab('profile')}
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'profile'
                   ? 'bg-[#8e004b] text-white shadow-sm'
@@ -793,7 +840,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                       <span>Saved Search Preferences ({savedFilters.length})</span>
                     </div>
                     <button
-                      onClick={() => setActiveTab('profile')}
+                      onClick={() => navigateToTab('profile')}
                       className="text-[11px] font-semibold text-[#8e004b] hover:text-[#e2007c] hover:underline cursor-pointer transition-colors"
                     >
                       Manage in Profile &rarr;
@@ -1238,125 +1285,172 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
         {/* TAB 2: MY APPLICATIONS */}
         {activeTab === 'applications' && (
           <div className="space-y-section-gap">
-            <div className="bg-white p-margin-side rounded-2xl border border-[#e0bec6]/40 shadow-xs flex items-center justify-between">
+            <div className="bg-white p-margin-side rounded-2xl border border-[#e0bec6]/40 shadow-xs flex items-center justify-between gap-4">
               <div>
-                <h2 className="text-xl font-bold text-[#1c1b1b]">Application Tracker</h2>
-                <p className="text-xs text-[#594047]">Track your active role applications and upcoming interviews.</p>
+                <h2 className="text-xl font-bold text-[#1c1b1b]">My Applications</h2>
+                <p className="text-xs text-[#594047]">See every job you applied for and track its latest hiring status.</p>
               </div>
-              <span className="px-3 py-1 bg-[#ffd9e2] text-[#8e004b] text-xs font-bold rounded-full">
-                {applications.length} Active
+              <span className="shrink-0 px-3 py-1 bg-[#ffd9e2] text-[#8e004b] text-xs font-bold rounded-full">
+                {applications.length} Total
               </span>
             </div>
+
+            {applicationActionError && (
+              <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{applicationActionError}</span>
+                <button type="button" onClick={() => setApplicationActionError(null)} className="ml-auto font-bold underline">Dismiss</button>
+              </div>
+            )}
 
             {applications.length === 0 ? (
               <div className="bg-white rounded-2xl p-12 text-center border border-[#e0bec6]/40">
                 <FileText className="w-12 h-12 text-[#8c7077] mx-auto mb-3 opacity-50" />
-                <h3 className="text-base font-bold text-[#1c1b1b] mb-1">No applications submitted yet</h3>
-                <p className="text-xs text-[#594047] mb-4">Explore luxury salon positions and submit your profile today!</p>
+                <h3 className="text-base font-bold text-[#1c1b1b] mb-1">You have not applied for any job yet.</h3>
                 <button
-                  onClick={() => setActiveTab('feed')}
-                  className="px-5 py-2 bg-[#e2007c] text-white text-xs font-bold rounded-full shadow-sm"
+                  type="button"
+                  onClick={() => navigateToTab('feed')}
+                  className="mt-4 px-5 py-2.5 bg-[#e2007c] text-white text-xs font-bold rounded-full shadow-sm hover:bg-[#b50062] transition-colors"
                 >
-                  Explore Open Roles
+                  Search Jobs
                 </button>
               </div>
             ) : (
               <div className="space-y-stack-default">
-                {applications.map((app) => (
-                  <div
-                    key={app.id}
-                    className="bg-white rounded-2xl p-margin-side border border-[#e0bec6]/50 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-stack-default"
-                  >
-                    <div className="flex items-start gap-stack-default">
-                      {app.salonLogo ? (
-                        <img
-                          src={app.salonLogo}
-                          alt={app.salonName}
-                          referrerPolicy="no-referrer"
-                          className="w-12 h-12 rounded-xl object-cover border border-[#e0bec6]"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 rounded-xl bg-[#ffd9e2] text-[#8e004b] font-bold flex items-center justify-center text-lg">
-                          {app.salonName.charAt(0)}
+                {applications.map((app) => {
+                  const linkedJob = app.job || jobs.find((job) => job.id === app.jobId);
+                  const candidateStatus = candidateStatusOf(app);
+                  const canWithdraw = candidateStatus === 'Applied' || candidateStatus === 'Under Review';
+                  const isWithdrawing = withdrawingApplicationId === app.id;
+                  const statusClass = candidateStatus === 'Hired'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : candidateStatus === 'Shortlisted'
+                      ? 'bg-[#ffd9e2] text-[#8e004b] border-[#ffb0c8]'
+                      : candidateStatus === 'Under Review'
+                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                        : candidateStatus === 'Rejected'
+                          ? 'bg-rose-100 text-rose-800 border-rose-300'
+                          : candidateStatus === 'Withdrawn'
+                            ? 'bg-slate-100 text-slate-700 border-slate-300'
+                            : 'bg-[#f1edec] text-[#594047] border-[#e0bec6]';
+                  return (
+                    <article
+                      key={app.id}
+                      className="bg-white rounded-2xl p-margin-side border border-[#e0bec6]/50 shadow-sm"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-stack-default">
+                        <div className="flex items-start gap-stack-default min-w-0">
+                          {app.salonLogo ? (
+                            <img
+                              src={app.salonLogo}
+                              alt={app.salonName}
+                              referrerPolicy="no-referrer"
+                              className="w-12 h-12 rounded-xl object-cover border border-[#e0bec6] shrink-0"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-xl bg-[#ffd9e2] text-[#8e004b] font-bold flex items-center justify-center text-lg shrink-0">
+                              {app.salonName.charAt(0)}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <h3 className="text-base font-bold text-[#1c1b1b]">{app.jobTitle}</h3>
+                            <p className="text-xs font-semibold text-[#8e004b] mt-0.5">{app.salonName}</p>
+                            <p className="text-xs text-[#594047] flex items-center gap-1 mt-1">
+                              <MapPin className="w-3.5 h-3.5 shrink-0" /> {app.location || 'Location not provided'}
+                            </p>
+                          </div>
+                        </div>
+                        <span aria-label={`Application Status: ${candidateStatus}`} className={`shrink-0 px-3 py-1 rounded-full text-xs font-bold border w-fit ${statusClass}`}>
+                          {candidateStatus}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 pt-4 border-t border-[#e0bec6]/30">
+                        <div className="rounded-xl bg-[#fdf8f8] px-3 py-2.5">
+                          <p className="text-[10px] uppercase tracking-wide font-bold text-[#8c7077]">Salary Range</p>
+                          <p className="text-xs font-bold text-[#1c1b1b] mt-1">{app.salaryRange || linkedJob?.salary || 'Not disclosed'}</p>
+                        </div>
+                        <div className="rounded-xl bg-[#fdf8f8] px-3 py-2.5">
+                          <p className="text-[10px] uppercase tracking-wide font-bold text-[#8c7077]">Job Type</p>
+                          <p className="text-xs font-bold text-[#1c1b1b] mt-1">{app.jobType || linkedJob?.jobType || 'Not specified'}</p>
+                        </div>
+                        <div className="rounded-xl bg-[#fdf8f8] px-3 py-2.5">
+                          <p className="text-[10px] uppercase tracking-wide font-bold text-[#8c7077]">Applied Date</p>
+                          <p className="text-xs font-bold text-[#1c1b1b] mt-1">{applicationDateOf(app)}</p>
+                        </div>
+                      </div>
+
+                      {app.notes && (
+                        <div className="mt-3 text-xs bg-[#fdf8f8] p-stack-sm rounded-lg border border-[#e0bec6]/30 text-[#1c1b1b]">
+                          <span className="font-semibold text-[#8e004b]">Update: </span>{app.notes}
                         </div>
                       )}
 
-                      <div>
-                        <span className="text-xs font-semibold text-[#8e004b] block">{app.salonName}</span>
-                        <h3 className="text-base font-bold text-[#1c1b1b] mb-1">{app.jobTitle}</h3>
-                        <p className="text-xs text-[#594047] flex items-center gap-1">
-                          <MapPin className="w-3 h-3" /> {app.location} • Applied {app.appliedDate}
-                        </p>
-
-                        {app.notes && (
-                          <div className="mt-stack-sm text-xs bg-[#fdf8f8] p-stack-sm rounded-lg border border-[#e0bec6]/30 text-[#1c1b1b]">
-                            <span className="font-semibold text-[#8e004b]">Note: </span>
-                            {app.notes}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col md:items-end gap-stack-sm pt-stack-sm md:pt-0 border-t md:border-t-0 border-[#e0bec6]/30">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-bold w-fit ${
-                          app.status === 'Interview Scheduled'
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : app.status === 'Under Review'
-                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                            : app.status === 'Offer Extended'
-                            ? 'bg-[#e2007c] text-white'
-                            : 'bg-[#f1edec] text-[#594047]'
-                        }`}
-                      >
-                        {app.status}
-                      </span>
-
                       {app.interviewDate && (
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg">
+                        <div className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-2 rounded-lg w-fit">
                           <Calendar className="w-3.5 h-3.5" />
                           <span>{app.interviewDate}</span>
                         </div>
                       )}
 
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        <button
+                          type="button"
+                          onClick={() => linkedJob ? setSelectedJob(linkedJob) : showToast('This job listing is no longer available.')}
+                          className="px-4 py-2 rounded-full text-xs font-bold bg-[#8e004b] text-white hover:bg-[#b90064] transition-colors flex items-center gap-1.5"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> View Job
+                        </button>
+
+                        {canWithdraw && (
+                          <button
+                            type="button"
+                            onClick={() => void handleWithdrawApplication(app)}
+                            disabled={Boolean(withdrawingApplicationId)}
+                            className="px-4 py-2 rounded-full text-xs font-bold border border-rose-300 text-rose-700 bg-white hover:bg-rose-50 transition-colors disabled:opacity-60 flex items-center gap-1.5"
+                          >
+                            <RotateCcw className={`w-3.5 h-3.5 ${isWithdrawing ? 'animate-spin' : ''}`} />
+                            {isWithdrawing ? 'Withdrawing…' : 'Withdraw Application'}
+                          </button>
+                        )}
+
                         {app.status === 'Interview Scheduled' && onViewInvitation && (
                           <button
+                            type="button"
                             onClick={() => onViewInvitation(app)}
-                            className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#8e004b] text-white hover:bg-[#b90064] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs mt-stack-sm"
+                            className="px-4 py-2 rounded-full text-xs font-bold bg-emerald-700 text-white hover:bg-emerald-800 transition-colors flex items-center gap-1.5"
                           >
-                            <Calendar className="w-3.5 h-3.5" />
-                            <span>View Invitation</span>
+                            <Calendar className="w-3.5 h-3.5" /> View Invitation
                           </button>
                         )}
 
                         {app.status === 'Offer Extended' && onViewOffer && (
                           <button
+                            type="button"
                             onClick={() => onViewOffer(app)}
-                            className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#e2007c] text-white hover:bg-[#b50062] transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs mt-stack-sm"
+                            className="px-4 py-2 rounded-full text-xs font-bold bg-[#e2007c] text-white hover:bg-[#b50062] transition-colors flex items-center gap-1.5"
                           >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>View Offer</span>
+                            <FileText className="w-3.5 h-3.5" /> View Offer
                           </button>
                         )}
 
-                        <button
-                          onClick={() => {
-                            if (onStartConversation) {
-                              const convId = onStartConversation(app.jobId, userProfile.name, app.salonName);
-                              setActiveConvId(convId);
-                              setActiveTab('messages');
-                            }
-                          }}
-                          className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#ffd9e2] text-[#8e004b] hover:bg-[#ffb0c8] transition-colors cursor-pointer flex items-center gap-stack-sm shadow-2xs mt-stack-sm"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          <span>Message Salon</span>
-                        </button>
+                        {onStartConversation && candidateStatus !== 'Withdrawn' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const conversationId = onStartConversation(app.jobId, userProfile.name, app.salonName);
+                              setActiveConvId(conversationId);
+                              navigateToTab('messages');
+                            }}
+                            className="px-4 py-2 rounded-full text-xs font-bold bg-[#ffd9e2] text-[#8e004b] hover:bg-[#ffb0c8] transition-colors flex items-center gap-1.5"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" /> Message Salon
+                          </button>
+                        )}
                       </div>
-                    </div>
-                  </div>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1446,7 +1540,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                 <h3 className="text-base font-bold text-[#1c1b1b] mb-1">No bookmarked positions</h3>
                 <p className="text-xs text-[#594047] mb-4">Click the bookmark icon on any job card to save it for later.</p>
                 <button
-                  onClick={() => setActiveTab('feed')}
+                  onClick={() => navigateToTab('feed')}
                   className="px-5 py-2 bg-[#8e004b] text-white text-xs font-bold rounded-full shadow-sm"
                 >
                   Browse Job Feed
@@ -1541,7 +1635,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             onUpdateProfile={onUpdateProfile}
             onSubmitProfile={onSubmitProfile}
             onLogout={onLogout}
-            onNavigateTab={(tab) => setActiveTab(tab)}
+            onNavigateTab={navigateToTab}
             onNavigateScreen={onNavigateScreen}
           />
         )}
@@ -1629,6 +1723,8 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                   Close
                 </button>
                 <button
+                  type="button"
+                  disabled={applications.some((application) => application.jobId === selectedJob.id) || Boolean(selectedJob.approvalStatus && selectedJob.approvalStatus !== 'approved')}
                   onClick={() => {
                     if (onStartApplyJob && selectedJob) {
                       onStartApplyJob(selectedJob);
@@ -1636,9 +1732,13 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                       setShowApplyModal(true);
                     }
                   }}
-                  className="flex-1 py-3 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] shadow-md transition-colors cursor-pointer"
+                  className="flex-1 py-3 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] disabled:bg-gray-400 disabled:cursor-not-allowed shadow-md transition-colors cursor-pointer"
                 >
-                  Apply Now
+                  {applications.some((application) => application.jobId === selectedJob.id)
+                    ? 'Already Applied'
+                    : selectedJob.approvalStatus && selectedJob.approvalStatus !== 'approved'
+                      ? 'Position Closed'
+                      : 'Apply Now'}
                 </button>
               </div>
             </div>
@@ -2038,10 +2138,10 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                             if (matchedJob) {
                               setSearchQuery(matchedJob.title);
                               setShowNotificationDrawer(false);
-                              setActiveTab('feed');
+                              navigateToTab('feed');
                             } else {
                               setShowNotificationDrawer(false);
-                              setActiveTab('feed');
+                              navigateToTab('feed');
                             }
                           }}
                           className="px-3 py-1 bg-[#8e004b] hover:bg-[#b90064] text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1"

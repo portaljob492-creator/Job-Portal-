@@ -357,6 +357,25 @@ const applications = await db.query(`select id, status from public.job_applicati
 check('REGRESSION: candidate can apply to an approved job', applications.rows.length === 1,
   applications.rows.length ? '' : applyResult);
 check('new application is submitted', applications.rows[0]?.status === 'submitted', applications.rows[0]?.status);
+const myApplicationListings = await rpc(seeker, `select application_id,
+  listing->>'title' as title, listing->>'salon_name' as salon_name,
+  listing->>'employment_type' as employment_type
+  from public.get_my_job_application_listings()`);
+check('My Applications returns safe listing details for the owning candidate',
+  myApplicationListings.rows.some((row) => row.application_id === applications.rows[0].id
+    && row.title === 'Senior Stylist' && row.salon_name === 'Probe Salon'
+    && row.employment_type === 'full_time'), JSON.stringify(myApplicationListings.rows));
+let employerApplicationListingsError = '';
+try {
+  await rpc(employer, `select * from public.get_my_job_application_listings()`);
+} catch (error) {
+  employerApplicationListingsError = error.message;
+}
+check('employers cannot call the candidate My Applications listing RPC',
+  /ROLE_NOT_ALLOWED/.test(employerApplicationListingsError), employerApplicationListingsError);
+const outsiderApplicationListings = await rpc(outsider, `select count(*)::int as n from public.get_my_job_application_listings()`);
+check('My Applications listing RPC never exposes another candidate applications',
+  outsiderApplicationListings.rows[0].n === 0, `${outsiderApplicationListings.rows[0].n} rows visible`);
 
 // Duplicate application is reported predictably.
 let duplicate = '';
@@ -1063,6 +1082,11 @@ const closedApplications = (await db.query(`
   select status, count(*)::int as n from public.job_applications where job_id='${closableJob}' group by status`)).rows;
 check('closing a posting closes every open application',
   closedApplications.some((row) => row.status === 'position_closed' && row.n === 1), JSON.stringify(closedApplications));
+const closedMyApplication = await rpc(seeker, `select listing->>'title' as title, listing->>'status' as job_status
+  from public.get_my_job_application_listings() where listing->>'id'='${closableJob}'`);
+check('My Applications retains job details after the listing leaves public search',
+  closedMyApplication.rows[0]?.title === 'Closable Role' && closedMyApplication.rows[0]?.job_status === 'closed',
+  JSON.stringify(closedMyApplication.rows));
 const closedNotifications = (await db.query(`
   select count(*)::int as n from public.job_notifications
    where type='position_closed' and user_id='${seeker}'

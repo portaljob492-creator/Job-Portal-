@@ -80,6 +80,7 @@ Migrations are under `supabase/migrations/`:
 20260913000800_jobs_signup_trigger_fk_guard.sql
 20260913000900_jobs_register_role_profile_ensure.sql
 20260913001000_jobs_module_completion.sql
+20260913001100_jobs_my_applications.sql
 ```
 
 `20260913001000_jobs_module_completion.sql` backs the eight-step candidate form
@@ -89,6 +90,11 @@ the explicit submission time, and returns the server-calculated Candidate ID,
 completion percentage and application-readiness result used by the confirmation
 screen. Existing owner/related-employer RLS remains in force for every table and
 private profile/resume Storage objects remain owner-scoped.
+
+`20260913001100_jobs_my_applications.sql` provides the candidate-owned listing
+projection used by `/jobs/my-applications`. It returns only safe display fields
+for applications linked to `auth.uid()`, so job details remain available after a
+listing is paused, closed, or expired without weakening public `job_posts` RLS.
 
 `20260913000500_jobs_integration_hardening.sql` closes the frontend/backend
 gaps the integration audit found. Candidate search gains full-text search: a

@@ -218,6 +218,21 @@ check('the employer dashboard exposes the lifecycle actions',
   /onJobAction/.test(read('src/components/employer/EmployerWorkspace.tsx'))
   && /'submit' \| 'pause' \| 'resume' \| 'close'/.test(read('src/services/backend.ts')));
 
+const seekerWorkspace = read('src/components/seeker/JobSeekerWorkspace.tsx');
+check('My Applications renders the requested job and application fields',
+  ['My Applications', 'Salary Range', 'Job Type', 'Applied Date', 'View Job', 'Withdraw Application']
+    .every((label) => seekerWorkspace.includes(label)));
+check('My Applications has the required empty state and search action',
+  seekerWorkspace.includes('You have not applied for any job yet.')
+  && seekerWorkspace.includes('Search Jobs'));
+check('application withdrawal is wired through the secured RPC',
+  seekerWorkspace.includes('onWithdrawApplication')
+  && read('src/services/backend.ts').includes("rpc('withdraw_application'")
+  && /function public\.withdraw_application\s*\(/.test(sql));
+check('candidate application statuses cover each requested hiring stage',
+  ['Applied', 'Under Review', 'Shortlisted', 'Rejected', 'Hired']
+    .every((status) => read('src/types.ts').includes(`'${status}'`)));
+
 // Candidate search must be reachable through the RPC and the search text must be
 // indexed, not scanned.
 check('candidate search uses full-text search',

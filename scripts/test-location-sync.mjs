@@ -107,7 +107,9 @@ assertCheck('/auth/login is not a protected route', resolveJobPortalRoute('/auth
 assertCheck('protected route still protected', resolveJobPortalRoute('/dashboard/seeker').protected === true);
 assertCheck('/jobs/profile opens the candidate profile', resolveJobPortalRoute('/jobs/profile').seekerTab === 'profile');
 assertCheck('/jobs/search opens job search', resolveJobPortalRoute('/jobs/search').seekerTab === 'feed');
-assertCheck('/jobs/applications opens submitted applications', resolveJobPortalRoute('/jobs/applications').seekerTab === 'applications');
+assertCheck('/jobs/applications alias opens submitted applications', resolveJobPortalRoute('/jobs/applications').seekerTab === 'applications');
+assertCheck('/jobs/my-applications opens submitted applications', resolveJobPortalRoute('/jobs/my-applications').seekerTab === 'applications');
+assertCheck('My Applications uses its canonical URL', pathForScreen('main_app', 'seeker', 'applications') === '/jobs/my-applications');
 assertCheck('/jobs/post-a-job opens the employer wizard', resolveJobPortalRoute('/jobs/post-a-job').requiredRole === 'employer' && resolveJobPortalRoute('/jobs/post-a-job').openPostJob === true);
 assertCheck('/jobs/posted-jobs opens employer jobs', resolveJobPortalRoute('/jobs/posted-jobs').employerTab === 'jobs');
 assertCheck('/jobs/employer-applications opens employer candidates', resolveJobPortalRoute('/jobs/employer-applications').requiredRole === 'employer' && resolveJobPortalRoute('/jobs/employer-applications').employerTab === 'candidates');

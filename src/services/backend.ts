@@ -2,6 +2,7 @@ import type { Provider, User } from '@supabase/supabase-js';
 import type {
   Applicant,
   Application,
+  CandidateApplicationStatus,
   CandidateProfileInput,
   CandidateProfileSubmission,
   ChatMessage,
@@ -251,6 +252,20 @@ const applicationStatuses: Record<string, Application['status']> = {
   withdrawn: 'Declined',
   position_closed: 'Declined',
 };
+const candidateApplicationStatuses: Record<string, CandidateApplicationStatus> = {
+  submitted: 'Applied',
+  viewed: 'Under Review',
+  shortlisted: 'Shortlisted',
+  interview_requested: 'Shortlisted',
+  interview_confirmed: 'Shortlisted',
+  interview_completed: 'Shortlisted',
+  offer_sent: 'Shortlisted',
+  offer_accepted: 'Hired',
+  hired: 'Hired',
+  rejected: 'Rejected',
+  withdrawn: 'Withdrawn',
+  position_closed: 'Rejected',
+};
 const applicantStatuses: Record<string, Applicant['status']> = {
   submitted: 'New',
   viewed: 'Viewed',
@@ -266,8 +281,10 @@ const applicantStatuses: Record<string, Applicant['status']> = {
   position_closed: 'Declined',
 };
 
-function mapApplication(row: any, salonLookup?: Map<string, any>): Application {
-  const jobRow = one<any>(row.job);
+function mapApplication(row: any, salonLookup?: Map<string, any>, ownedListing?: any): Application {
+  // ownedListing comes from a narrow, role-checked RPC and remains available
+  // after a job leaves public search; the normal embedded row is used otherwise.
+  const jobRow = ownedListing || one<any>(row.job);
   const job = jobRow ? mapJob(jobRow, false, salonLookup) : null;
   const interviews = arrays<any>(row.interviews).sort(
     (a, b) => new Date(b.scheduled_start).getTime() - new Date(a.scheduled_start).getTime(),
@@ -292,8 +309,13 @@ function mapApplication(row: any, salonLookup?: Map<string, any>): Application {
     salonName: job?.salonName || 'Salon',
     salonLogo: job?.salonLogo,
     location: job?.location || '',
+    salaryRange: job?.salary,
+    jobType: job?.jobType,
+    job: job || undefined,
     appliedDate: relativeDate(row.submitted_at),
+    submittedAt: row.submitted_at || undefined,
     status: applicationStatuses[row.status] || 'Submitted',
+    applicationStatus: candidateApplicationStatuses[row.status] || 'Applied',
     notes: row.employer_notes || undefined,
     interviewDate: interviews[0]?.scheduled_start
       ? new Date(interviews[0].scheduled_start).toLocaleString()
@@ -796,7 +818,7 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   if (membership?.salon_id) employerJobsQuery.eq('salon_id', membership.salon_id);
   else employerJobsQuery.eq('created_by', user.id);
 
-  const [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
+  const [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
     // maybeSingle: a missing profiles row (marketplace trigger lag, legacy user)
     // must degrade to defaults, never fail the whole workspace load. The Jobs
     // signup trigger best-effort ensures the row; see migration
@@ -814,11 +836,12 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     role === 'seeker'
       ? client.from('job_applications').select(applicationSelect).eq('candidate_user_id', user.id).order('submitted_at', { ascending: false })
       : client.from('job_applications').select(applicationSelect).order('submitted_at', { ascending: false }),
+    role === 'seeker' ? client.rpc('get_my_job_application_listings') : Promise.resolve({ data: [], error: null }),
     role === 'employer' ? client.rpc('get_job_applicant_cards') : Promise.resolve({ data: [], error: null }),
     client.from('public_job_salon_profiles').select('*'),
   ]);
 
-  const error = [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult]
+  const error = [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult]
     .map((result: any) => result.error)
     .find(Boolean);
   if (error) throw error;
@@ -931,6 +954,9 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const jobRows = arrays<any>(jobsResult.data);
   const mappedJobs = jobRows.map((row) => mapJob(row, bookmarkedIds.has(row.id), salonMap));
   const applicationRows = arrays<any>(applicationsResult.data);
+  const ownedApplicationListings = new Map<string, any>(
+    arrays<any>(applicationListingsResult.data).map((row) => [row.application_id, row.listing]),
+  );
   const cards = arrays<any>(applicantCardsResult.data);
   const summaries = arrays<any>(conversationsResult.data);
 
@@ -997,7 +1023,9 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
       savedFilters,
     },
     jobs: mappedJobs,
-    applications: role === 'seeker' ? applicationRows.map((row) => mapApplication(row, salonMap)) : [],
+    applications: role === 'seeker'
+      ? applicationRows.map((row) => mapApplication(row, salonMap, ownedApplicationListings.get(row.id)))
+      : [],
     applicants: role === 'employer'
       ? applicationRows.map((row) => mapApplicant(row, cards.find((card) => card.application_id === row.id)))
       : [],

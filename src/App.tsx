@@ -48,6 +48,7 @@ import {
   updateAlertRead,
   updateEmployerSalonDetails,
   updateApplicationStatus,
+  withdrawApplication,
   mapBackendError,
 } from './services/backend';
 import { MEDIA_BUCKETS, isStoragePath, resolveStorageUrls } from './lib/storageMedia';
@@ -569,8 +570,13 @@ export default function App() {
         salonName: job.salonName,
         salonLogo: job.salonLogo,
         location: job.location,
+        salaryRange: job.salary,
+        jobType: job.jobType,
+        job,
         appliedDate: 'Just now',
+        submittedAt: new Date().toISOString(),
         status: 'Submitted',
+        applicationStatus: 'Applied',
         notes: 'Application received and under review by salon team.',
         expectedSalary,
         availability,
@@ -578,6 +584,29 @@ export default function App() {
       setApplications((prev) => prev.some((item) => item.id === applicationId) ? prev : [newApp, ...prev]);
     } catch (error) {
       const message = mapBackendError(error, 'Unable to submit application. Your details are still here — please retry.');
+      setBackendError(message);
+      throw new Error(message);
+    }
+  };
+
+  const handleWithdrawApplication = async (applicationId: string): Promise<void> => {
+    if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
+    try {
+      await withdrawApplication(applicationId);
+      // Keep the row in My Applications so the candidate retains a complete
+      // history; only the withdrawal action disappears after server confirmation.
+      setApplications((current) => current.map((application) =>
+        application.id === applicationId
+          ? {
+              ...application,
+              status: 'Declined',
+              applicationStatus: 'Withdrawn',
+              notes: 'You withdrew this application.',
+            }
+          : application,
+      ));
+    } catch (error) {
+      const message = mapBackendError(error, 'Unable to withdraw this application. Please retry.');
       setBackendError(message);
       throw new Error(message);
     }
@@ -649,7 +678,7 @@ export default function App() {
     // Applicant ids ARE application ids; only the matching row is touched.
     if (status === 'Shortlisted') {
       setApplications((prev) =>
-        prev.map((app) => (app.id === applicantId ? { ...app, status: 'Under Review' } : app)),
+        prev.map((app) => (app.id === applicantId ? { ...app, status: 'Under Review', applicationStatus: 'Shortlisted' } : app)),
       );
     }
   };
@@ -675,6 +704,7 @@ export default function App() {
             ? {
                 ...app,
                 status: 'Interview Scheduled',
+                applicationStatus: 'Shortlisted',
                 interviewDate: formatInterviewDateTime(interview.scheduledStart),
                 interviewId: interview.id,
                 notes: 'Interview scheduled with hiring team.',
@@ -762,6 +792,7 @@ export default function App() {
           ? {
               ...app,
               status: action === 'accept' ? 'Interview Scheduled' : 'Under Review',
+              applicationStatus: 'Shortlisted',
               notes:
                 action === 'decline'
                   ? 'Declined current interview invitation. Awaiting further updates.'
@@ -788,6 +819,7 @@ export default function App() {
           ? {
               ...app,
               status: action === 'accept' ? 'Accepted' : 'Declined',
+              applicationStatus: action === 'accept' ? 'Hired' : 'Rejected',
               notes:
                 action === 'accept'
                   ? 'Offer accepted. Thank you!'
@@ -1241,6 +1273,7 @@ export default function App() {
               jobAlerts={jobAlerts}
               onToggleBookmark={handleToggleBookmark}
               onApplyJob={handleApplyJob}
+              onWithdrawApplication={handleWithdrawApplication}
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
               onUpdateAvatar={handleAvatarUpdate}
@@ -1264,6 +1297,7 @@ export default function App() {
                 setScreen('job_offer');
               }}
               initialTab={seekerInitialTab}
+              onTabChange={setSeekerInitialTab}
             />
           ) : (
             <EmployerWorkspace

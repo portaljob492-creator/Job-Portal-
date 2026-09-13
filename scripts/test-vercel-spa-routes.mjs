@@ -119,6 +119,7 @@ const SPA_ROUTES = [
   '/jobs/search',
   '/jobs/profile',
   '/jobs/applications',
+  '/jobs/my-applications',
   '/jobs/post-a-job',
   '/jobs/posted-jobs',
   '/jobs/employer-applications',

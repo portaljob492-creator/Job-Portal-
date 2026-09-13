@@ -72,7 +72,7 @@ export function resolveJobPortalRoute(pathname = window.location.pathname): JobP
   // so /jobs/post-a-job never gets incorrectly forced into the seeker portal.
   if (relative.startsWith('/jobs/profile')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'profile' };
   if (relative.startsWith('/jobs/search')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
-  if (relative.startsWith('/jobs/applications')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'applications' };
+  if (relative.startsWith('/jobs/my-applications') || relative.startsWith('/jobs/applications')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'applications' };
   if (relative.startsWith('/jobs/post-a-job')) return { screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'jobs', openPostJob: true };
   if (relative.startsWith('/jobs/posted-jobs')) return { screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'jobs' };
   if (relative.startsWith('/jobs/employer-applications')) return { screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'candidates' };
@@ -107,7 +107,7 @@ export function pathForScreen(screen: ScreenState, role: UserRole, seekerTab?: S
       return jobPortalPath('dashboard/employer');
     }
     const tabPaths: Record<SeekerTab, string> = {
-      feed: 'jobs/search', applications: 'jobs/applications', saved: 'saved', messages: 'messages', portfolio: 'portfolio', profile: 'jobs/profile',
+      feed: 'jobs/search', applications: 'jobs/my-applications', saved: 'saved', messages: 'messages', portfolio: 'portfolio', profile: 'jobs/profile',
     };
     return jobPortalPath(tabPaths[seekerTab || 'feed']);
   }

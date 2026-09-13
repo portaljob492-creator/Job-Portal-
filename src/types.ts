@@ -58,6 +58,8 @@ export interface JobPosting {
   workingHours?: string;
 }
 
+export type CandidateApplicationStatus = 'Applied' | 'Under Review' | 'Shortlisted' | 'Rejected' | 'Hired' | 'Withdrawn';
+
 export interface Application {
   id: string;
   jobId: string;
@@ -65,8 +67,15 @@ export interface Application {
   salonName: string;
   salonLogo?: string;
   location: string;
+  salaryRange?: string;
+  jobType?: JobPosting['jobType'];
+  /** Full listing snapshot keeps View Job usable if it is no longer in public search results. */
+  job?: JobPosting;
   appliedDate: string;
+  submittedAt?: string;
   status: 'Submitted' | 'Under Review' | 'Interview Scheduled' | 'Offer Extended' | 'Declined' | 'Accepted';
+  /** Candidate-facing hiring stage used by My Applications. */
+  applicationStatus?: CandidateApplicationStatus;
   notes?: string;
   interviewDate?: string;
   expectedSalary?: string;
