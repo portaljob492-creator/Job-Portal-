@@ -310,7 +310,7 @@ Build output must include `manifest.webmanifest`, `sw.js`, and the Workbox runti
 ## Vercel deployment
 
 1. In Vercel, choose **Add New → Project** and import `portaljob492-creator/Job-Portal-`.
-2. Keep **Framework Preset: Vite**. `vercel.json` already defines `npm ci`, `npm run build`, `dist`, and `/app/jobs` SPA rewrites.
+2. Keep **Framework Preset: Vite**. `vercel.json` already defines `npm ci`, `npm run build`, `dist`, and a catch-all SPA rewrite (`/(.*) → /index.html`) so every client-side route — `/login`, `/signup`, `/dashboard/*`, `/reset-password`, … — resolves to the app shell on direct hits and refreshes instead of Vercel's platform `404: NOT_FOUND`. Static files in `dist/` (hashed assets, icons, manifest, service worker) are matched by the filesystem **before** rewrites, so they keep being served as files. Guarded by `npm run test:vercel`.
 3. Add these Production, Preview, and Development variables:
 
 ```env
