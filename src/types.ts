@@ -40,6 +40,8 @@ export interface JobPosting {
   requirements: string[];
   benefits: string[];
   postedDate: string;
+  /** Authoritative timestamp used by Latest jobs sorting/filtering. */
+  publishedAt?: string;
   isBookmarked?: boolean;
   isFeatured?: boolean;
   activeApplicantsCount?: number;

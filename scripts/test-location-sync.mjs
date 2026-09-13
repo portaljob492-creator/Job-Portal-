@@ -106,7 +106,7 @@ assertCheck('universal /auth/login alias resolves to login', resolveJobPortalRou
 assertCheck('/auth/login is not a protected route', resolveJobPortalRoute('/auth/login').protected === false);
 assertCheck('protected route still protected', resolveJobPortalRoute('/dashboard/seeker').protected === true);
 assertCheck('/jobs/profile opens the candidate profile', resolveJobPortalRoute('/jobs/profile').seekerTab === 'profile');
-assertCheck('/jobs/search opens job search', resolveJobPortalRoute('/jobs/search').seekerTab === 'feed');
+assertCheck('/jobs/search opens protected candidate job search', resolveJobPortalRoute('/jobs/search').seekerTab === 'feed' && resolveJobPortalRoute('/jobs/search').protected === true && resolveJobPortalRoute('/jobs/search').requiredRole === 'seeker');
 assertCheck('/jobs/applications alias opens submitted applications', resolveJobPortalRoute('/jobs/applications').seekerTab === 'applications');
 assertCheck('/jobs/my-applications opens submitted applications', resolveJobPortalRoute('/jobs/my-applications').seekerTab === 'applications');
 assertCheck('My Applications uses its canonical URL', pathForScreen('main_app', 'seeker', 'applications') === '/jobs/my-applications');

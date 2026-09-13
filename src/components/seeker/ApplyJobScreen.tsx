@@ -368,9 +368,9 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
 
             {/* Typography Block */}
             <div className="text-center mb-6 w-full flex flex-col gap-2">
-              <h1 className="font-screen-title text-2xl text-on-surface font-bold">Application sent</h1>
+              <h1 className="font-screen-title text-2xl text-on-surface font-bold">Application submitted successfully.</h1>
               <p className="font-body-md text-sm text-on-surface-variant max-w-[280px] mx-auto">
-                Your application has been successfully sent to the employer.
+                The salon has received your candidate profile.
               </p>
             </div>
 
@@ -395,6 +395,17 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
               </div>
             </div>
 
+            <div className="w-full grid grid-cols-2 gap-3 mb-4">
+              <div className="rounded-lg bg-surface-container-lowest border border-outline-variant p-3">
+                <p className="text-[10px] uppercase tracking-wide font-bold text-outline">Applied Date</p>
+                <p className="text-xs font-bold text-on-surface mt-1">{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+              </div>
+              <div className="rounded-lg bg-surface-container-lowest border border-outline-variant p-3">
+                <p className="text-[10px] uppercase tracking-wide font-bold text-outline">Status</p>
+                <p className="text-xs font-bold text-emerald-700 mt-1">Applied</p>
+              </div>
+            </div>
+
             {/* Secondary Message */}
             <p className="font-label-sm text-xs text-tertiary text-center mb-8 px-4">
               The employer will review your profile and get in touch if you're a good fit.
@@ -408,7 +419,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                 type="button"
               >
                 <Sparkles className="w-4 h-4" />
-                Explore More Jobs
+                Continue Searching
               </button>
               <button
                 onClick={() => {
@@ -422,7 +433,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                 type="button"
               >
                 <FileText className="w-4 h-4" />
-                View Application
+                View My Applications
               </button>
             </div>
           </main>

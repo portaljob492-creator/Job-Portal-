@@ -52,7 +52,7 @@ const finalFunctionBody = {};
 // Bodies may be quoted with $$ or a tagged delimiter such as $fn$; the tag is
 // captured so the regex cannot stop at the wrong place.
 for (const match of sql.matchAll(/create or replace function public\.([a-z_]+)\s*\((.*?)\)\s*returns.*?\$([a-z_]*)\$(.*?)\$\3\$;/gis)) {
-  const [, name, params, body] = match;
+  const [, name, params, , body] = match;
   signatures[name] = signatures[name] || new Set();
   finalFunctionBody[name] = body;
   for (const arg of params.matchAll(/(?:^|,)\s*(p_[a-z_]+|target_[a-z_]+)\s+[a-z]/gi)) {
@@ -232,6 +232,25 @@ check('application withdrawal is wired through the secured RPC',
 check('candidate application statuses cover each requested hiring stage',
   ['Applied', 'Under Review', 'Shortlisted', 'Rejected', 'Hired']
     .every((status) => read('src/types.ts').includes(`'${status}'`)));
+check('job search exposes every requested filter',
+  ['Job Title', 'Category', 'City / Area', 'Salary Range', 'Experience', 'Employment Type', 'Nearby jobs', 'Latest jobs']
+    .every((label) => seekerWorkspace.includes(label)));
+check('job search cards expose required details and already-applied actions',
+  ['Experience Required', 'Job Type', 'Posted ', 'Apply Now', 'Already Applied', 'View Application']
+    .every((label) => seekerWorkspace.includes(label)));
+check('job search enforces the exact profile gate before submitting',
+  seekerWorkspace.includes('Please complete your candidate profile before applying.')
+  && seekerWorkspace.includes('onRequireLogin')
+  && seekerWorkspace.includes("await onApplyJob(job, '')"));
+check('job search success confirmation exposes the requested data and actions',
+  ['Application submitted successfully.', 'Job Title', 'Salon Name', 'Applied Date', 'View My Applications', 'Continue Searching']
+    .every((label) => seekerWorkspace.includes(label)));
+check('duplicate applications remain protected in both UI and database',
+  /applications\.some\(\(application\) => application\.jobId === job\.id\)/.test(seekerWorkspace)
+  && /unique \(job_id, candidate_user_id\)/.test(sql));
+check('application RPC independently enforces candidate profile completion',
+  /profile_completion\s*<\s*50/.test(finalFunctionBody.submit_job_application || '')
+  && /PROFILE_INCOMPLETE/.test(finalFunctionBody.submit_job_application || ''));
 
 // Candidate search must be reachable through the RPC and the search text must be
 // indexed, not scanned.

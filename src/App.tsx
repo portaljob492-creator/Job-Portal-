@@ -550,6 +550,7 @@ export default function App() {
 
   const handleApplyJob = async (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string, resumeId?: string): Promise<void> => {
     if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
+    setBackendError(null);
     try {
       // Confirmation is shown only after Supabase returns the persisted row id.
       // This avoids the old false-success state where an optimistic card was
@@ -585,6 +586,10 @@ export default function App() {
     } catch (error) {
       const message = mapBackendError(error, 'Unable to submit application. Your details are still here — please retry.');
       setBackendError(message);
+      if (message === 'Please complete your candidate profile before applying.') {
+        setSeekerInitialTab('profile');
+        setScreen('main_app');
+      }
       throw new Error(message);
     }
   };
@@ -1273,6 +1278,11 @@ export default function App() {
               jobAlerts={jobAlerts}
               onToggleBookmark={handleToggleBookmark}
               onApplyJob={handleApplyJob}
+              isAuthenticated={Boolean(currentUserId)}
+              onRequireLogin={() => {
+                pendingProtectedRoute.current = resolveJobPortalRoute('/jobs/search');
+                setScreen('login');
+              }}
               onWithdrawApplication={handleWithdrawApplication}
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
@@ -1285,6 +1295,16 @@ export default function App() {
               onNavigateScreen={(target) => setScreen(target)}
               onLogout={handleLogout}
               onStartApplyJob={(job) => {
+                if (!currentUserId) {
+                  pendingProtectedRoute.current = resolveJobPortalRoute('/jobs/search');
+                  setScreen('login');
+                  return;
+                }
+                if (!(userProfile.applicationReady ?? ((userProfile.profileCompletion || 0) >= 50))) {
+                  setBackendError('Please complete your candidate profile before applying.');
+                  setSeekerInitialTab('profile');
+                  return;
+                }
                 setSelectedJobForApply(job);
                 setScreen('apply_job');
               }}

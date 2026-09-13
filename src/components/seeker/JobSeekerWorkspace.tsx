@@ -83,6 +83,8 @@ interface JobSeekerWorkspaceProps {
   jobAlerts?: JobAlertNotification[];
   onToggleBookmark: (jobId: string) => void;
   onApplyJob: (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string, resumeId?: string) => Promise<void>;
+  isAuthenticated: boolean;
+  onRequireLogin: () => void;
   onWithdrawApplication: (applicationId: string) => Promise<void>;
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
@@ -110,6 +112,8 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   jobAlerts = INITIAL_JOB_ALERTS,
   onToggleBookmark,
   onApplyJob,
+  isAuthenticated,
+  onRequireLogin,
   onWithdrawApplication,
   onSendMessage,
   onStartConversation,
@@ -163,6 +167,9 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const [locationFilter, setLocationFilter] = useState<string>('All Locations');
   const [jobTypeFilter, setJobTypeFilter] = useState<string>('All Types');
   const [salaryFilter, setSalaryFilter] = useState<string>('All Salaries');
+  const [experienceFilter, setExperienceFilter] = useState<string>('Any Experience');
+  const [nearbyOnly, setNearbyOnly] = useState(false);
+  const [latestOnly, setLatestOnly] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string>('All Perks');
   const [sortBy, setSortBy] = useState<'relevant' | 'salary_high' | 'rating_high' | 'newest'>('relevant');
   const [showSavedAd, setShowSavedAd] = useState<boolean>(true);
@@ -351,13 +358,21 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const [availability, setAvailability] = useState<string>('Immediate (2 weeks notice)');
   const [applySuccess, setApplySuccess] = useState<boolean>(false);
   const [isApplySubmitting, setIsApplySubmitting] = useState<boolean>(false);
+  const [searchApplyingJobId, setSearchApplyingJobId] = useState<string | null>(null);
+  const [applicationConfirmation, setApplicationConfirmation] = useState<{ job: JobPosting; appliedDate: string } | null>(null);
+  const [profileGateMessage, setProfileGateMessage] = useState<string | null>(null);
   const [withdrawingApplicationId, setWithdrawingApplicationId] = useState<string | null>(null);
   const [applicationActionError, setApplicationActionError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (userProfile.applicationReady) setProfileGateMessage(null);
+  }, [userProfile.applicationReady]);
+
   // Category & Filter Options
   const categories = ['All', 'Hair', 'Skincare', 'Nails', 'Lashes & Brows', 'Massage', 'Management'];
-  const locations = ['All Locations', 'Beverly Hills, CA', 'Soho, New York, NY', 'Austin, TX', 'Miami, FL', 'Chicago, IL', 'Seattle, WA'];
-  const jobTypes = ['All Types', 'Full-time', 'Commission', 'Chair Rental', 'Part-time'];
+  const locations = ['All Locations', ...Array.from(new Set(jobs.map((job) => job.location).filter(Boolean)))];
+  const jobTypes = ['All Types', 'Full-time', 'Part-time', 'Freelance'];
+  const experienceOptions = ['Any Experience', 'Freshers', '1+ year', '3+ years', '5+ years'];
   const salaryRanges = [
     { label: 'All Salaries', value: 'All Salaries' },
     { label: '₹3 lakh+ / year', value: '₹3 lakh+' },
@@ -394,6 +409,47 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
     return maxVal;
   };
 
+  const minimumExperienceMonths = (job: JobPosting): number => {
+    if (job.experienceMinMonths != null) return job.experienceMinMonths;
+    const experienceText = job.requirements.find((requirement) => /experience|fresher/i.test(requirement)) || '';
+    if (/fresher|no experience/i.test(experienceText)) return 0;
+    const years = experienceText.match(/(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)/i);
+    const months = experienceText.match(/(\d+)\s*\+?\s*months?/i);
+    if (years) return Math.round(Number(years[1]) * 12);
+    if (months) return Number(months[1]);
+    return 0;
+  };
+
+  const experienceRequired = (job: JobPosting): string => {
+    const minimum = minimumExperienceMonths(job);
+    const maximum = job.experienceMaxMonths;
+    if ((job.freshersAllowed ?? false) && minimum === 0) return 'Freshers welcome';
+    if (minimum > 0 && maximum != null && maximum >= minimum) {
+      const minYears = minimum / 12;
+      const maxYears = maximum / 12;
+      return `${Number.isInteger(minYears) ? minYears : minYears.toFixed(1)}–${Number.isInteger(maxYears) ? maxYears : maxYears.toFixed(1)} years`;
+    }
+    if (minimum > 0) {
+      const years = minimum / 12;
+      return `${Number.isInteger(years) ? years : years.toFixed(1)}+ years`;
+    }
+    return job.requirements.find((requirement) => /experience|fresher/i.test(requirement)) || 'Not specified';
+  };
+
+  const jobPublishedTime = (job: JobPosting): number => {
+    if (job.publishedAt) {
+      const timestamp = new Date(job.publishedAt).getTime();
+      if (!Number.isNaN(timestamp)) return timestamp;
+    }
+    const posted = job.postedDate.toLowerCase();
+    if (/just now|minute|hour|today/.test(posted)) return Date.now();
+    const days = posted.match(/(\d+)\s*days?/);
+    if (days) return Date.now() - Number(days[1]) * 86_400_000;
+    return 0;
+  };
+
+  const candidateCity = (userProfile.city || userProfile.location?.split(',')[0] || '').trim().toLowerCase();
+
   // Filter Jobs
   const filteredJobs = jobs.filter((job) => {
     // 1. Salon Role / Category
@@ -411,11 +467,14 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
       job.tags.some((t) => t.toLowerCase().includes(q)) ||
       job.requirements.some((r) => r.toLowerCase().includes(q));
 
-    // 3. Location
-    const matchesLocation = locationFilter === 'All Locations' || job.location.includes(locationFilter);
+    // 3. City / area
+    const matchesLocation = locationFilter === 'All Locations'
+      || job.location.toLowerCase().includes(locationFilter.toLowerCase());
 
-    // 4. Position / Job Type
-    const matchesJobType = jobTypeFilter === 'All Types' || job.jobType === jobTypeFilter;
+    // 4. Full-time / Part-time / Freelance
+    const matchesJobType = jobTypeFilter === 'All Types'
+      || job.jobType === jobTypeFilter
+      || (jobTypeFilter === 'Freelance' && ['Commission', 'Chair Rental'].includes(job.jobType));
 
     // 5. Salary Range
     const annualSalary = parseAnnualSalary(job.salary);
@@ -425,12 +484,30 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
     else if (salaryFilter === '₹7.5 lakh+') matchesSalary = annualSalary >= 750000;
     else if (salaryFilter === '₹10 lakh+') matchesSalary = annualSalary >= 1000000;
 
-    // 6. Perks & Specialty Tag
+    // 6. Experience required
+    const minimumMonths = minimumExperienceMonths(job);
+    const matchesExperience = experienceFilter === 'Any Experience'
+      || (experienceFilter === 'Freshers' && ((job.freshersAllowed ?? false) || minimumMonths === 0))
+      || (experienceFilter === '1+ year' && minimumMonths >= 12)
+      || (experienceFilter === '3+ years' && minimumMonths >= 36)
+      || (experienceFilter === '5+ years' && minimumMonths >= 60);
+
+    // 7. Nearby uses the candidate profile city; no location is guessed.
+    const matchesNearby = !nearbyOnly
+      || Boolean(candidateCity && job.location.toLowerCase().includes(candidateCity));
+
+    // 8. Latest means posted within the last seven days.
+    const publishedTime = jobPublishedTime(job);
+    const matchesLatest = !latestOnly
+      || (publishedTime > 0 && Date.now() - publishedTime <= 7 * 86_400_000);
+
+    // Existing perk/specialty refinement remains available.
     const matchesTag =
       selectedTag === 'All Perks' ||
       job.tags.some((t) => t.toLowerCase().includes(selectedTag.toLowerCase()));
 
-    return matchesCategory && matchesSearch && matchesLocation && matchesJobType && matchesSalary && matchesTag;
+    return matchesCategory && matchesSearch && matchesLocation && matchesJobType
+      && matchesSalary && matchesExperience && matchesNearby && matchesLatest && matchesTag;
   });
 
   // Sort Jobs
@@ -441,8 +518,8 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
     if (sortBy === 'rating_high') {
       return b.rating - a.rating;
     }
-    if (sortBy === 'newest') {
-      return b.id.localeCompare(a.id);
+    if (sortBy === 'newest' || latestOnly) {
+      return jobPublishedTime(b) - jobPublishedTime(a);
     }
     // Default 'relevant': featured first
     if (a.isFeatured && !b.isFeatured) return -1;
@@ -458,6 +535,9 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
     locationFilter !== 'All Locations',
     jobTypeFilter !== 'All Types',
     salaryFilter !== 'All Salaries',
+    experienceFilter !== 'Any Experience',
+    nearbyOnly,
+    latestOnly,
     selectedTag !== 'All Perks',
     searchQuery.trim() !== ''
   ].filter(Boolean).length;
@@ -467,6 +547,9 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
     setLocationFilter('All Locations');
     setJobTypeFilter('All Types');
     setSalaryFilter('All Salaries');
+    setExperienceFilter('Any Experience');
+    setNearbyOnly(false);
+    setLatestOnly(false);
     setSelectedTag('All Perks');
     setSearchQuery('');
     setSortBy('relevant');
@@ -492,6 +575,50 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
       showToast(error instanceof Error ? error.message : 'Unable to submit application. Please retry.');
     } finally {
       setIsApplySubmitting(false);
+    }
+  };
+
+  const handleSearchApply = async (job: JobPosting) => {
+    if (searchApplyingJobId) return;
+    if (!isAuthenticated) {
+      onRequireLogin();
+      return;
+    }
+    if (!(userProfile.applicationReady ?? ((userProfile.profileCompletion || 0) >= 50))) {
+      setProfileGateMessage('Please complete your candidate profile before applying.');
+      setSelectedJob(null);
+      navigateToTab('profile');
+      return;
+    }
+    if (applications.some((application) => application.jobId === job.id)) {
+      navigateToTab('applications');
+      return;
+    }
+
+    setSearchApplyingJobId(job.id);
+    try {
+      // The confirmation opens only after submit_job_application returns the
+      // persisted Supabase row id. The database unique key is the second layer
+      // of duplicate protection behind the card-level guard above.
+      await onApplyJob(job, '');
+      setSelectedJob(null);
+      setApplicationConfirmation({
+        job,
+        appliedDate: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to submit your application. Please retry.';
+      if (/complete your.*profile|profile.*incomplete|PROFILE_INCOMPLETE/i.test(message)) {
+        setProfileGateMessage('Please complete your candidate profile before applying.');
+        setSelectedJob(null);
+        navigateToTab('profile');
+      } else if (/already applied|APPLICATION_ALREADY_EXISTS/i.test(message)) {
+        showToast('You have already applied to this job.');
+      } else {
+        showToast(message);
+      }
+    } finally {
+      setSearchApplyingJobId(null);
     }
   };
 
@@ -540,7 +667,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
             <Search className="w-4 h-4 text-[#8c7077] mr-2 flex-shrink-0" />
             <input
               type="text"
-              placeholder={isListening ? "Listening... Speak now..." : "Search roles, salons, balayage, facialist, chair rental..."}
+              placeholder={isListening ? "Listening... Speak now..." : "Search by job title..."}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-transparent border-none text-xs text-[#1c1b1b] focus:outline-none placeholder:text-[#594047]/60"
@@ -629,7 +756,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
           <Search className="w-4 h-4 text-[#8c7077] mr-2 flex-shrink-0" />
           <input
             type="text"
-            placeholder={isListening ? "Listening..." : "Search roles, salons, specialties..."}
+            placeholder={isListening ? "Listening..." : "Search by job title..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-transparent text-xs text-[#1c1b1b] focus:outline-none placeholder:text-[#594047]/60"
@@ -928,12 +1055,46 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                   </div>
                 </div>
 
-                {/* Dropdowns Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
-                  {/* Location Filter */}
+                {/* Search and filter controls */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2.5">
+                  {/* Job title */}
+                  <div className="relative">
+                    <label htmlFor="job-title-filter" className="text-[10px] font-bold text-[#594047] uppercase block mb-1">
+                      Job Title
+                    </label>
+                    <div className="flex items-center bg-[#fdf8f8] rounded-xl px-2.5 py-1.5 border border-[#e0bec6]">
+                      <Search className="w-3.5 h-3.5 text-[#8e004b] mr-1.5 flex-shrink-0" />
+                      <input
+                        id="job-title-filter"
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                        placeholder="e.g. Hair Stylist"
+                        className="w-full bg-transparent text-xs font-semibold text-[#1c1b1b] outline-none placeholder:text-[#8c7077]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Category */}
                   <div className="relative">
                     <label className="text-[10px] font-bold text-[#594047] uppercase block mb-1">
-                      Location
+                      Category
+                    </label>
+                    <div className="flex items-center bg-[#fdf8f8] rounded-xl px-2.5 py-1.5 border border-[#e0bec6]">
+                      <Sparkles className="w-3.5 h-3.5 text-[#8e004b] mr-1.5 flex-shrink-0" />
+                      <select
+                        value={selectedCategory}
+                        onChange={(event) => setSelectedCategory(event.target.value)}
+                        className="w-full bg-transparent text-xs font-semibold text-[#1c1b1b] outline-none cursor-pointer"
+                      >
+                        {categories.map((categoryName) => <option key={categoryName} value={categoryName}>{categoryName}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* City / Area */}
+                  <div className="relative">
+                    <label className="text-[10px] font-bold text-[#594047] uppercase block mb-1">
+                      City / Area
                     </label>
                     <div className="flex items-center bg-[#fdf8f8] rounded-xl px-2.5 py-1.5 border border-[#e0bec6]">
                       <MapPin className="w-3.5 h-3.5 text-[#8e004b] mr-1.5 flex-shrink-0" />
@@ -972,10 +1133,27 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                     </div>
                   </div>
 
-                  {/* Position / Job Type Filter */}
+                  {/* Experience */}
                   <div className="relative">
                     <label className="text-[10px] font-bold text-[#594047] uppercase block mb-1">
-                      Position Type
+                      Experience
+                    </label>
+                    <div className="flex items-center bg-[#fdf8f8] rounded-xl px-2.5 py-1.5 border border-[#e0bec6]">
+                      <Clock className="w-3.5 h-3.5 text-[#8e004b] mr-1.5 flex-shrink-0" />
+                      <select
+                        value={experienceFilter}
+                        onChange={(event) => setExperienceFilter(event.target.value)}
+                        className="w-full bg-transparent text-xs font-semibold text-[#1c1b1b] outline-none cursor-pointer"
+                      >
+                        {experienceOptions.map((experience) => <option key={experience} value={experience}>{experience}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Full-time / Part-time / Freelance */}
+                  <div className="relative">
+                    <label className="text-[10px] font-bold text-[#594047] uppercase block mb-1">
+                      Employment Type
                     </label>
                     <div className="flex items-center bg-[#fdf8f8] rounded-xl px-2.5 py-1.5 border border-[#e0bec6]">
                       <Briefcase className="w-3.5 h-3.5 text-[#8e004b] mr-1.5 flex-shrink-0" />
@@ -990,6 +1168,24 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                           </option>
                         ))}
                       </select>
+                    </div>
+                  </div>
+
+                  {/* Nearby and latest */}
+                  <div className="relative">
+                    <label className="text-[10px] font-bold text-[#594047] uppercase block mb-1">
+                      Job Discovery
+                    </label>
+                    <div className="min-h-[34px] flex items-center gap-2 bg-[#fdf8f8] rounded-xl px-2.5 py-1.5 border border-[#e0bec6]">
+                      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#1c1b1b] cursor-pointer">
+                        <input type="checkbox" checked={nearbyOnly} onChange={(event) => setNearbyOnly(event.target.checked)} className="accent-[#8e004b]" />
+                        Nearby jobs
+                      </label>
+                      <span className="text-[#e0bec6]">|</span>
+                      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#1c1b1b] cursor-pointer">
+                        <input type="checkbox" checked={latestOnly} onChange={(event) => setLatestOnly(event.target.checked)} className="accent-[#8e004b]" />
+                        Latest jobs
+                      </label>
                     </div>
                   </div>
 
@@ -1083,6 +1279,29 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                           <button onClick={() => setJobTypeFilter('All Types')} className="hover:text-[#b90064]">
                             <X className="w-3 h-3" />
                           </button>
+                        </span>
+                      )}
+
+                      {experienceFilter !== 'Any Experience' && (
+                        <span className="inline-flex items-center gap-1 bg-[#ffd9e2] text-[#8e004b] px-2.5 py-0.5 rounded-full text-xs font-semibold">
+                          Experience: {experienceFilter}
+                          <button onClick={() => setExperienceFilter('Any Experience')} className="hover:text-[#b90064]">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      )}
+
+                      {nearbyOnly && (
+                        <span className="inline-flex items-center gap-1 bg-[#ffd9e2] text-[#8e004b] px-2.5 py-0.5 rounded-full text-xs font-semibold">
+                          Nearby jobs
+                          <button onClick={() => setNearbyOnly(false)} className="hover:text-[#b90064]"><X className="w-3 h-3" /></button>
+                        </span>
+                      )}
+
+                      {latestOnly && (
+                        <span className="inline-flex items-center gap-1 bg-[#ffd9e2] text-[#8e004b] px-2.5 py-0.5 rounded-full text-xs font-semibold">
+                          Latest jobs
+                          <button onClick={() => setLatestOnly(false)} className="hover:text-[#b90064]"><X className="w-3 h-3" /></button>
                         </span>
                       )}
 
@@ -1229,6 +1448,17 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                           {job.salary}
                         </p>
 
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                          <div className="rounded-lg bg-[#fdf8f8] border border-[#e0bec6]/30 px-2.5 py-2">
+                            <p className="text-[9px] uppercase tracking-wide font-bold text-[#8c7077]">Experience Required</p>
+                            <p className="text-[11px] font-bold text-[#1c1b1b] mt-0.5">{experienceRequired(job)}</p>
+                          </div>
+                          <div className="rounded-lg bg-[#fdf8f8] border border-[#e0bec6]/30 px-2.5 py-2">
+                            <p className="text-[9px] uppercase tracking-wide font-bold text-[#8c7077]">Job Type</p>
+                            <p className="text-[11px] font-bold text-[#1c1b1b] mt-0.5">{job.jobType}</p>
+                          </div>
+                        </div>
+
                         <p className="text-xs text-[#594047] line-clamp-2 leading-relaxed mb-3">
                           {job.description}
                         </p>
@@ -1249,29 +1479,39 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                       {/* Card Footer Actions */}
                       <div className="pt-3 border-t border-[#e0bec6]/30 flex items-center justify-between gap-2 mt-auto">
                         <span className="text-[10px] text-[#8c7077] flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {job.postedDate}
+                          <Clock className="w-3 h-3" /> Posted {job.postedDate}
                         </span>
 
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap justify-end gap-2">
                           <button
                             onClick={() => setSelectedJob(job)}
                             className="px-3 py-1.5 rounded-full text-xs font-semibold text-[#8e004b] bg-[#f1edec] hover:bg-[#ffd9e2] transition-colors cursor-pointer"
                           >
                             Details
                           </button>
-                          <button
-                            onClick={() => {
-                              setSelectedJob(job);
-                              if (onStartApplyJob) {
-                                onStartApplyJob(job);
-                              } else {
-                                setShowApplyModal(true);
-                              }
-                            }}
-                            className="px-4 py-1.5 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] transition-colors active:scale-95 shadow-xs cursor-pointer"
-                          >
-                            Apply Now
-                          </button>
+                          {applications.some((application) => application.jobId === job.id) ? (
+                            <>
+                              <span className="px-3 py-1.5 rounded-full text-xs font-bold text-[#594047] bg-[#f1edec] border border-[#e0bec6]">
+                                Already Applied
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => navigateToTab('applications')}
+                                className="px-3 py-1.5 rounded-full text-xs font-bold text-[#8e004b] bg-[#ffd9e2] hover:bg-[#ffb0c8] transition-colors"
+                              >
+                                View Application
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void handleSearchApply(job)}
+                              disabled={Boolean(searchApplyingJobId)}
+                              className="px-4 py-1.5 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] disabled:opacity-60 transition-colors active:scale-95 shadow-xs cursor-pointer"
+                            >
+                              {searchApplyingJobId === job.id ? 'Applying…' : 'Apply Now'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1630,16 +1870,62 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
 
         {/* TAB 6: BEAUTY PROFILE */}
         {activeTab === 'profile' && (
-          <SeekerProfileTab
-            userProfile={userProfile}
-            onUpdateProfile={onUpdateProfile}
-            onSubmitProfile={onSubmitProfile}
-            onLogout={onLogout}
-            onNavigateTab={navigateToTab}
-            onNavigateScreen={onNavigateScreen}
-          />
+          <div className="space-y-4">
+            {profileGateMessage && (
+              <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <span>{profileGateMessage}</span>
+              </div>
+            )}
+            <SeekerProfileTab
+              userProfile={userProfile}
+              onUpdateProfile={onUpdateProfile}
+              onSubmitProfile={onSubmitProfile}
+              onLogout={onLogout}
+              onNavigateTab={navigateToTab}
+              onNavigateScreen={onNavigateScreen}
+            />
+          </div>
         )}
       </main>
+
+      {/* SEARCH APPLICATION CONFIRMATION */}
+      {applicationConfirmation && (
+        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="application-success-title">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-[#e0bec6] shadow-2xl overflow-hidden animate-scale-up">
+            <div className="bg-gradient-to-br from-[#8e004b] to-[#e2007c] px-6 py-8 text-white text-center">
+              <div className="w-16 h-16 rounded-full bg-white/20 border border-white/30 mx-auto grid place-items-center mb-4">
+                <CheckCircle2 className="w-9 h-9" />
+              </div>
+              <h2 id="application-success-title" className="text-xl font-extrabold">Application submitted successfully.</h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="rounded-2xl bg-[#fdf8f8] border border-[#e0bec6]/50 p-4 space-y-3">
+                <div><p className="text-[10px] uppercase tracking-wide font-bold text-[#8c7077]">Job Title</p><p className="text-sm font-extrabold text-[#1c1b1b] mt-0.5">{applicationConfirmation.job.title}</p></div>
+                <div><p className="text-[10px] uppercase tracking-wide font-bold text-[#8c7077]">Salon Name</p><p className="text-sm font-bold text-[#8e004b] mt-0.5">{applicationConfirmation.job.salonName}</p></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><p className="text-[10px] uppercase tracking-wide font-bold text-[#8c7077]">Applied Date</p><p className="text-xs font-bold text-[#1c1b1b] mt-0.5">{applicationConfirmation.appliedDate}</p></div>
+                  <div><p className="text-[10px] uppercase tracking-wide font-bold text-[#8c7077]">Status</p><p className="text-xs font-extrabold text-emerald-700 mt-0.5">Applied</p></div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setApplicationConfirmation(null); navigateToTab('applications'); }}
+                className="w-full rounded-full bg-[#e2007c] text-white py-3 text-xs font-bold hover:bg-[#b50062] transition-colors"
+              >
+                View My Applications
+              </button>
+              <button
+                type="button"
+                onClick={() => { setApplicationConfirmation(null); navigateToTab('feed'); }}
+                className="w-full rounded-full bg-white border border-[#8e004b] text-[#8e004b] py-3 text-xs font-bold hover:bg-[#ffd9e2]/30 transition-colors"
+              >
+                Continue Searching
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* JOB DETAIL MODAL */}
       {selectedJob && !showApplyModal && (
@@ -1722,24 +2008,28 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                 >
                   Close
                 </button>
-                <button
-                  type="button"
-                  disabled={applications.some((application) => application.jobId === selectedJob.id) || Boolean(selectedJob.approvalStatus && selectedJob.approvalStatus !== 'approved')}
-                  onClick={() => {
-                    if (onStartApplyJob && selectedJob) {
-                      onStartApplyJob(selectedJob);
-                    } else {
-                      setShowApplyModal(true);
-                    }
-                  }}
-                  className="flex-1 py-3 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] disabled:bg-gray-400 disabled:cursor-not-allowed shadow-md transition-colors cursor-pointer"
-                >
-                  {applications.some((application) => application.jobId === selectedJob.id)
-                    ? 'Already Applied'
-                    : selectedJob.approvalStatus && selectedJob.approvalStatus !== 'approved'
+                {applications.some((application) => application.jobId === selectedJob.id) ? (
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedJob(null); navigateToTab('applications'); }}
+                    className="flex-1 py-3 rounded-full text-xs font-bold text-[#8e004b] bg-[#ffd9e2] hover:bg-[#ffb0c8] shadow-md transition-colors cursor-pointer"
+                  >
+                    View Application
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={Boolean(searchApplyingJobId) || Boolean(selectedJob.approvalStatus && selectedJob.approvalStatus !== 'approved')}
+                    onClick={() => void handleSearchApply(selectedJob)}
+                    className="flex-1 py-3 rounded-full text-xs font-bold text-white bg-[#e2007c] hover:bg-[#b90064] disabled:bg-gray-400 disabled:cursor-not-allowed shadow-md transition-colors cursor-pointer"
+                  >
+                    {selectedJob.approvalStatus && selectedJob.approvalStatus !== 'approved'
                       ? 'Position Closed'
-                      : 'Apply Now'}
-                </button>
+                      : searchApplyingJobId === selectedJob.id
+                        ? 'Applying…'
+                        : 'Apply Now'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
