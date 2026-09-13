@@ -969,6 +969,40 @@ export async function updateApplicationStatus(applicationId: string, status: App
 }
 
 /**
+ * Turns a backend error into something a user can act on. Backend functions
+ * raise stable codes (never stack traces or constraint names); anything that
+ * still looks like raw SQL is replaced with the caller's fallback so internal
+ * details can never reach the screen.
+ */
+const backendErrorMessages: Record<string, string> = {
+  OFFER_ALREADY_ACTIVE: 'There is already an active offer for this candidate. Withdraw it before sending a new one.',
+  OFFER_PENDING: 'The candidate has an open offer. Withdraw the offer before changing the application.',
+  INVALID_APPLICATION_TRANSITION: 'That action is not available at this stage of the application.',
+  INVALID_EMPLOYMENT_TYPE: 'Choose one of the supported employment types and try again.',
+  JOB_HAS_APPLICATIONS: 'This job has applications, so it cannot be deleted. Close the posting instead.',
+  JOB_NOT_PUBLISHED: 'This job is not open for applications yet.',
+  JOB_NOT_FOUND: 'That job is no longer available.',
+  APPLICATION_ALREADY_EXISTS: 'You have already applied to this job.',
+  SALON_ACCESS_DENIED: 'You do not have access to this employer workspace.',
+  PORTAL_ROLE_MISMATCH: 'This account is registered with a different portal role.',
+  ROLE_NOT_ALLOWED: 'This account is not allowed to perform that action.',
+  VALIDATION_ERROR: 'Please check the details you entered and try again.',
+  ACCOUNT_NOT_ACTIVE: 'This account is not active. Contact support if this is unexpected.',
+};
+
+const looksLikeRawSql = /violates|constraint|relation "|column "|pg_|sqlstate|permission denied for|syntax error/i;
+
+export function mapBackendError(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const token = raw.toUpperCase();
+  for (const [code, message] of Object.entries(backendErrorMessages)) {
+    if (token.includes(code)) return message;
+  }
+  if (!raw.trim() || looksLikeRawSql.test(raw)) return fallback;
+  return raw;
+}
+
+/**
  * Employer sends an offer. The backend moves the application to `offer_sent`,
  * which is what the candidate's offer screen reacts to.
  */
@@ -987,12 +1021,41 @@ const numericOrNull = (value: string | number | null | undefined) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+/**
+ * The offer form speaks display labels ('full-time', 'Chair Rental'), while the
+ * database enforces the same vocabulary as job posts ('full_time'). Unknown
+ * values are passed through so the backend can refuse them with a stable error
+ * instead of the UI silently storing a second spelling.
+ */
+const offerEmploymentTypes: Record<string, string> = {
+  'full-time': 'full_time',
+  'full time': 'full_time',
+  fulltime: 'full_time',
+  full_time: 'full_time',
+  'part-time': 'part_time',
+  'part time': 'part_time',
+  parttime: 'part_time',
+  part_time: 'part_time',
+  internship: 'internship',
+  intern: 'internship',
+  contract: 'contract',
+  contractual: 'contract',
+  freelance: 'freelance',
+  commission: 'freelance',
+  'chair rental': 'freelance',
+};
+
+const normalizeOfferEmploymentType = (value?: string | null) => {
+  if (!value) return null;
+  return offerEmploymentTypes[value.trim().toLowerCase()] ?? value.trim();
+};
+
 export async function sendJobOffer(applicationId: string, input: JobOfferInput) {
   const { data, error } = await requireSupabase().rpc('send_job_offer', {
     target_application_id: applicationId,
     p_job_role: input.jobRole,
     p_salary: numericOrNull(input.salary),
-    p_employment_type: input.employmentType || null,
+    p_employment_type: normalizeOfferEmploymentType(input.employmentType),
     p_joining_date: input.joiningDate || null,
     p_offer_notes: input.offerNotes || null,
     p_expires_at: input.expiresAt || null,

@@ -70,7 +70,15 @@ Migrations are under `supabase/migrations/`:
 20260808170900_jobs_admin_approval.sql
 20260810090000_jobs_location_sync.sql
 20260913000000_jobs_backend_completion.sql
+20260913000100_jobs_schema_integrity.sql
 ```
+
+`20260913000100_jobs_schema_integrity.sql` completes the relational audit: one
+employment-type vocabulary for posts/offers/saved searches, the application
+history table constrained to the lifecycle vocabulary, closed vocabularies for
+the notification/audit/ticket event columns, a guard so a job with applications
+can never be deleted by accident (JOB_HAS_APPLICATIONS) plus notification
+cleanup on delete, and an index for every remaining foreign key.
 
 `20260913000000_jobs_backend_completion.sql` is the authoritative final state for
 everything the admin-approval model changed: it re-points the application and
@@ -151,7 +159,8 @@ publication. It is the fastest way to prove a backend change before deploying.
 
 `npm run test:contract` proves the app and the SQL still agree: every `.rpc()`
 call the frontend makes must exist in the migrations with matching argument
-names, every table must be RLS-protected, and no secret may reach the bundle.
+names, every table must be RLS-protected, the schema-integrity guarantees are
+present, and no secret may reach the bundle.
 
 `npm run test:location` executes the real modules (`src/lib/supabase.ts`,
 `src/routing.ts`, `src/lib/authErrors.ts`, `src/services/locationSync.ts`) with

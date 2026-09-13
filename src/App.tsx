@@ -40,6 +40,7 @@ import {
   setBookmark,
   updateAlertRead,
   updateApplicationStatus,
+  mapBackendError,
 } from './services/backend';
 
 type SeekerWorkspaceTab = 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
@@ -305,7 +306,7 @@ export default function App() {
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         void hydrateWorkspace(currentUserId, userRole).catch((error) =>
-          setBackendError(error instanceof Error ? error.message : 'Unable to refresh data.'),
+          setBackendError(mapBackendError(error, 'Unable to refresh data.')),
         );
       }, 250);
     }
@@ -444,7 +445,7 @@ export default function App() {
         setJobs((prevJobs) =>
           prevJobs.map((item) => (item.id === jobId ? { ...item, isBookmarked: !nextValue } : item)),
         );
-        setBackendError(error instanceof Error ? error.message : 'Unable to update bookmark.');
+        setBackendError(mapBackendError(error, 'Unable to update bookmark.'));
       });
     }
   };
@@ -500,7 +501,7 @@ export default function App() {
       ).catch((error) => {
         setApplications((prev) => prev.filter((application) => application.id !== applicationId));
         setApplicants((prev) => prev.filter((applicant) => applicant.id !== newApplicant.id));
-        setBackendError(error instanceof Error ? error.message : 'Unable to submit application.');
+        setBackendError(mapBackendError(error, 'Unable to submit application.'));
       });
     }
   };
@@ -512,7 +513,7 @@ export default function App() {
         setJobs((prev) => [savedJob, ...prev]);
         return;
       } catch (error) {
-        setBackendError(error instanceof Error ? error.message : 'Unable to submit job for approval.');
+        setBackendError(mapBackendError(error, 'Unable to submit job for approval.'));
         throw error;
       }
     }
@@ -532,7 +533,7 @@ export default function App() {
     );
     if (currentUserId) {
       void updateAlertRead(alertId).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to update alert.'),
+        setBackendError(mapBackendError(error, 'Unable to update alert.')),
       );
     }
   };
@@ -541,7 +542,7 @@ export default function App() {
     setJobAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
     if (currentUserId) {
       void markAllAlertsRead(currentUserId).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to update alerts.'),
+        setBackendError(mapBackendError(error, 'Unable to update alerts.')),
       );
     }
   };
@@ -550,7 +551,7 @@ export default function App() {
     setJobAlerts((prev) => prev.filter((a) => a.id !== alertId));
     if (currentUserId) {
       void deleteAlert(alertId).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to delete alert.'),
+        setBackendError(mapBackendError(error, 'Unable to delete alert.')),
       );
     }
   };
@@ -563,7 +564,7 @@ export default function App() {
     // Also sync Seeker applications if matching
     if (currentUserId) {
       void updateApplicationStatus(applicantId, status).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to update applicant status.'),
+        setBackendError(mapBackendError(error, 'Unable to update applicant status.')),
       );
     }
 
@@ -610,7 +611,7 @@ export default function App() {
           prev.map((a) => (a.id === applicantId ? { ...a, status: 'Offer Extended' } : a)),
         );
       } catch (error) {
-        setBackendError(error instanceof Error ? error.message : 'Unable to send the offer.');
+        setBackendError(mapBackendError(error, 'Unable to send the offer.'));
       }
     })();
   };
@@ -637,7 +638,7 @@ export default function App() {
     );
     if (!application?.interviewId) return;
     void respondToInterview(application.interviewId, action, reason).catch((error) =>
-      setBackendError(error instanceof Error ? error.message : 'Unable to update the interview.'),
+      setBackendError(mapBackendError(error, 'Unable to update the interview.')),
     );
   };
 
@@ -661,7 +662,7 @@ export default function App() {
     );
     if (!application?.offerId) return;
     void respondToJobOffer(application.offerId, action).catch((error) =>
-      setBackendError(error instanceof Error ? error.message : 'Unable to update the job offer.'),
+      setBackendError(mapBackendError(error, 'Unable to update the job offer.')),
     );
   };
 
@@ -696,7 +697,7 @@ export default function App() {
     if (currentUserId) {
       void sendMessageRecord(currentUserId, newMsg).catch((error) => {
         setMessages((prev) => prev.filter((message) => message.id !== newMsg.id));
-        setBackendError(error instanceof Error ? error.message : 'Unable to send message.');
+        setBackendError(mapBackendError(error, 'Unable to send message.'));
       });
     }
   };
@@ -745,7 +746,7 @@ export default function App() {
         targetSeekerEmail: newConv.seekerEmail,
       }).catch((error) => {
         setConversations((prev) => prev.filter((conversation) => conversation.id !== newConvId));
-        setBackendError(error instanceof Error ? error.message : 'Unable to start conversation.');
+        setBackendError(mapBackendError(error, 'Unable to start conversation.'));
       });
     }
     return newConvId;
@@ -755,7 +756,7 @@ export default function App() {
     setUserProfile(updatedProfile);
     if (currentUserId) {
       void saveProfile(currentUserId, updatedProfile).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to save profile.'),
+        setBackendError(mapBackendError(error, 'Unable to save profile.')),
       );
     }
   };
@@ -765,7 +766,7 @@ export default function App() {
     setUserProfile(updatedProfile);
     if (currentUserId) {
       void saveProfile(currentUserId, updatedProfile).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to save profile photo.'),
+        setBackendError(mapBackendError(error, 'Unable to save profile photo.')),
       );
     }
   };
@@ -992,7 +993,7 @@ export default function App() {
               if (currentUserId) await completeSeekerOnboarding(updatedProfile, selectedRoles);
               setScreen('main_app');
             } catch (error) {
-              setBackendError(error instanceof Error ? error.message : 'Unable to complete onboarding.');
+              setBackendError(mapBackendError(error, 'Unable to complete onboarding.'));
             }
           }}
         />
@@ -1009,7 +1010,7 @@ export default function App() {
               handleProfileUpdate({ ...userProfile, businessName: businessData.businessName });
               setScreen('employer_onboarding_step2');
             } catch (error) {
-              setBackendError(error instanceof Error ? error.message : 'Unable to complete business setup.');
+              setBackendError(mapBackendError(error, 'Unable to complete business setup.'));
             }
           }}
         />

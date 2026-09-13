@@ -465,6 +465,167 @@ const storagePolicies = await db.query(`select policyname from pg_policies where
 check('storage object policies installed', storagePolicies.rows.length >= 9, `${storagePolicies.rows.length} policies`);
 
 // ---------------------------------------------------------------------------
+// 7. Schema integrity: foreign keys, cascades and status vocabularies
+// ---------------------------------------------------------------------------
+const refColumns = await db.query(`
+  select t.relname as tbl, a.attname as col
+    from pg_class t
+    join pg_namespace n on n.oid=t.relnamespace and n.nspname='public'
+    join pg_attribute a on a.attrelid=t.oid and a.attnum>0 and not a.attisdropped
+   where t.relkind='r' and t.relname like 'job%'
+     and a.attname ~ '(^|_)(user_id|profile_id|candidate_id|employer_id|salon_id|job_id|application_id|interview_id|offer_id|resume_id|skill_id|conversation_id|ticket_id|sender_user_id|created_by|changed_by|reviewed_by|submitted_by|assigned_to|reporter_user_id|resolved_by|location_id)$'
+     and not exists (select 1 from pg_constraint c where c.conrelid=t.oid and c.contype='f' and a.attnum = any(c.conkey))`);
+check('every reference column on a job table has a foreign key', refColumns.rows.length === 0,
+  refColumns.rows.map((r) => `${r.tbl}.${r.col}`).join(', '));
+
+const unconstrainedStatus = await db.query(`
+  select c.relname as tbl, a.attname as col
+    from pg_class c
+    join pg_namespace n on n.oid=c.relnamespace and n.nspname='public'
+    join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped
+   where c.relkind='r' and c.relname like 'job%' and a.attname = 'status'
+     and not exists (
+       select 1 from pg_constraint k
+        where k.conrelid=c.oid and k.contype='c' and a.attnum = any(k.conkey))`);
+check('every status column has a CHECK constraint', unconstrainedStatus.rows.length === 0,
+  unconstrainedStatus.rows.map((r) => `${r.tbl}.${r.col}`).join(', '));
+
+const unindexedFks = await db.query(`
+  select t.relname as tbl, a.attname as col
+    from pg_constraint c
+    join pg_class t on t.oid=c.conrelid
+    join pg_namespace n on n.oid=t.relnamespace and n.nspname='public'
+    join pg_attribute a on a.attrelid=t.oid and a.attnum = c.conkey[1]
+   where c.contype='f' and array_length(c.conkey,1)=1 and t.relname like 'job%'
+     and not exists (select 1 from pg_index i
+                      where i.indrelid=c.conrelid and i.indisvalid
+                        and (i.indkey::int2[])[0] = c.conkey[1])`);
+check('every foreign key has a leading index (cascade deletes stay fast)', unindexedFks.rows.length === 0,
+  unindexedFks.rows.map((r) => `${r.tbl}.${r.col}`).join(', '));
+
+const statusValues = await db.query(`
+  select count(*)::int as n
+    from public.job_application_status_history
+   where from_status is not null and from_status = to_status`);
+check('application history never records a no-op transition', statusValues.rows[0].n === 0, `${statusValues.rows[0].n} rows`);
+
+const historyVocab = await db.query(`
+  select count(*)::int as n
+    from public.job_application_status_history
+   where (from_status is not null and from_status not in (
+            'submitted','viewed','shortlisted','interview_requested','interview_confirmed',
+            'interview_completed','offer_sent','offer_accepted','hired','rejected','withdrawn','position_closed'))
+      or to_status not in (
+            'submitted','viewed','shortlisted','interview_requested','interview_confirmed',
+            'interview_completed','offer_sent','offer_accepted','hired','rejected','withdrawn','position_closed')`);
+check('application history speaks the lifecycle vocabulary', historyVocab.rows[0].n === 0, `${historyVocab.rows[0].n} rows`);
+
+// Terminal states are frozen: a hired application cannot silently move again.
+let terminalRewrite = '';
+try {
+  await db.exec(`update public.job_applications set status='viewed' where id='${applicationId}'`);
+} catch (error) {
+  terminalRewrite = error.message;
+}
+check('terminal application state cannot be rewritten -> INVALID_APPLICATION_TRANSITION',
+  /INVALID_APPLICATION_TRANSITION/.test(terminalRewrite), terminalRewrite);
+
+// An open application, on the other hand, follows the documented path.
+const secondJob = (await rpc(employer, `select public.create_job_post(
+  '${salonId}', null, 'Colour Specialist', 'Hair',
+  'We are hiring a colour specialist with balayage experience for our Jaipur salon.', 'full_time') as id`)).rows[0].id;
+await rpc(admin, `select public.approve_job('${secondJob}')`);
+const secondApplication = (await rpc(seeker, `select id from public.submit_job_application('${secondJob}') as id`)).rows[0].id;
+// The state machine itself must refuse a skipped step, not just the RPC chain.
+let skippedStep = '';
+try {
+  await db.exec(`update public.job_applications set status='shortlisted' where id='${secondApplication}'`);
+} catch (error) {
+  skippedStep = error.message;
+}
+const afterSkip = await db.query(`select status from public.job_applications where id='${secondApplication}'`);
+check('skipping a lifecycle step is refused (submitted cannot jump to shortlisted)',
+  /INVALID_APPLICATION_TRANSITION/.test(skippedStep) && afterSkip.rows[0].status === 'submitted',
+  `${skippedStep} / status=${afterSkip.rows[0].status}`);
+await rpc(employer, `select public.mark_application_viewed('${secondApplication}')`);
+await rpc(employer, `select public.shortlist_application('${secondApplication}')`);
+const walkInterview = (await rpc(employer, `select id from public.create_interview_request(
+  '${secondApplication}','phone', now() + interval '2 days', 20, null, null, null) as id`)).rows[0].id;
+await rpc(seeker, `select public.accept_interview('${walkInterview}')`);
+await rpc(employer, `select public.complete_interview('${walkInterview}')`);
+const walkState = await db.query(`select status from public.job_applications where id='${secondApplication}'`);
+check('documented path reaches interview_completed', walkState.rows[0].status === 'interview_completed',
+  walkState.rows[0].status);
+
+// Employment type: the UI spelling is normalized at the database boundary.
+const normalizedOffer = (await rpc(employer, `select id, employment_type from public.send_job_offer(
+  '${secondApplication}','Colour Specialist', 28000, 'full-time', current_date + 7) as id`)).rows[0];
+check("send_job_offer normalizes 'full-time' to 'full_time'", normalizedOffer.employment_type === 'full_time',
+  String(normalizedOffer.employment_type));
+let badType = '';
+try {
+  await rpc(employer, `select public.send_job_offer('${secondApplication}','Colour Specialist', 28000, 'banana', current_date + 7)`);
+} catch (error) {
+  badType = error.message;
+}
+check('unusable employment type is refused -> INVALID_EMPLOYMENT_TYPE', /INVALID_EMPLOYMENT_TYPE/.test(badType), badType);
+let badTypeWrite = '';
+try {
+  await db.exec(`update public.job_offers set employment_type='full-time' where id='${normalizedOffer.id}'`);
+} catch (error) {
+  badTypeWrite = error.message;
+}
+check('offer employment type CHECK rejects a second spelling',
+  /job_offers_employment_type_check/.test(badTypeWrite), badTypeWrite);
+
+// Deleting a job that has applicants is refused with a stable code, not a raw
+// constraint name, and the posting survives.
+let jobDelete = '';
+try {
+  await db.exec(`delete from public.job_posts where id='${secondJob}'`);
+} catch (error) {
+  jobDelete = error.message;
+}
+check('deleting a job with applications -> JOB_HAS_APPLICATIONS', /JOB_HAS_APPLICATIONS/.test(jobDelete), jobDelete);
+const survived = await db.query(`select count(*)::int as n from public.job_posts where id='${secondJob}'`);
+check('the guarded job posting still exists', survived.rows[0].n === 1);
+
+// A job without applicants deletes cleanly and takes its dependants with it.
+const doomedJob = (await rpc(employer, `select public.create_job_post(
+  '${salonId}', null, 'Temporary Role', 'Hair',
+  'This posting exists only to verify cascade behaviour when a job is removed.', 'part_time') as id`)).rows[0].id;
+await db.exec(`
+  insert into public.job_saved_jobs(user_id, job_id) values ('${seeker}','${doomedJob}');
+  insert into public.job_notifications(user_id,type,title,body,entity_type,entity_id)
+    values ('${employer}','job_approved','Job approved','Approved.','job','${doomedJob}');
+`);
+await db.exec(`delete from public.job_posts where id='${doomedJob}'`);
+const orphans = await db.query(`
+  select
+    (select count(*)::int from public.job_posts where id='${doomedJob}')          as jobs,
+    (select count(*)::int from public.job_saved_jobs where job_id='${doomedJob}') as bookmarks,
+    (select count(*)::int from public.job_post_skills where job_id='${doomedJob}')as skills,
+    (select count(*)::int from public.job_notifications
+      where entity_type='job' and entity_id='${doomedJob}')                       as notifications`);
+check('deleting a job removes its bookmarks, skills and notifications',
+  orphans.rows[0].jobs === 0 && orphans.rows[0].bookmarks === 0 &&
+  orphans.rows[0].skills === 0 && orphans.rows[0].notifications === 0,
+  JSON.stringify(orphans.rows[0]));
+
+// Deleting an application (service-role only) cascades to its interviews, offers and history.
+await db.exec(`delete from public.job_applications where id='${secondApplication}'`);
+const applicationOrphans = await db.query(`
+  select
+    (select count(*)::int from public.job_interview_requests where application_id='${secondApplication}') as interviews,
+    (select count(*)::int from public.job_offers where application_id='${secondApplication}')             as offers,
+    (select count(*)::int from public.job_application_status_history
+      where application_id='${secondApplication}')                                                        as history`);
+check('deleting an application cascades to interviews, offers and history',
+  applicationOrphans.rows[0].interviews === 0 && applicationOrphans.rows[0].offers === 0 &&
+  applicationOrphans.rows[0].history === 0,
+  JSON.stringify(applicationOrphans.rows[0]));
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 const failed = results.filter((r) => !r.ok);

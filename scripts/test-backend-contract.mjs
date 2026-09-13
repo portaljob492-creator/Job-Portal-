@@ -139,7 +139,36 @@ check('hot-path indexes added for the audit findings',
   /job_applications_candidate_profile_idx/.test(sql) && /job_one_active_offer_per_application/.test(sql));
 
 // ---------------------------------------------------------------------------
-// 4. Secret hygiene
+// 4. Schema integrity guarantees
+// ---------------------------------------------------------------------------
+const integrityChecks = {
+  'offer employment type vocabulary': /job_offers_employment_type_check/,
+  'saved search employment type vocabulary': /job_saved_searches_employment_type_check/,
+  'application history vocabulary': /job_application_status_history_statuses_check/,
+  'notification type vocabulary': /job_notifications_type_check/,
+  'job deletion guard': /job_posts_guard_delete/,
+  'job deletion cleanup': /job_posts_cleanup_relations/,
+  'offer type normalization helper': /job_normalize_employment_type/,
+};
+for (const [name, pattern] of Object.entries(integrityChecks)) {
+  check(name, pattern.test(sql));
+}
+
+const employmentVocabulary = /job_offers_employment_type_check[\s\S]{0,220}'full_time'[\s\S]{0,80}'part_time'/;
+check('offer employment type vocabulary is a closed set', employmentVocabulary.test(sql));
+
+// Every table that stores a lifecycle status must be covered by the
+// constraint audit, otherwise a new status column could ship unconstrained.
+const controlledStatusTables = [
+  'job_account_deletion_requests', 'job_applications', 'job_conversations',
+  'job_employer_verifications', 'job_interview_requests', 'job_offers', 'job_posts',
+  'job_reports', 'job_salon_members', 'job_support_tickets', 'job_user_roles',
+];
+check('controlled status tables are all declared in the migrations',
+  controlledStatusTables.every((table) => sql.includes(table)));
+
+// ---------------------------------------------------------------------------
+// 5. Secret hygiene
 // ---------------------------------------------------------------------------
 const frontend = sourceFiles.map((file) => read(file)).join('\n');
 check('no service_role key in frontend code',
