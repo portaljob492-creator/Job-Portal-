@@ -221,27 +221,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   };
 
   return (
-    <div className="bg-[#fdf8f8] min-h-screen flex flex-col justify-center items-center px-5 py-8 font-sans text-[#1c1b1b] antialiased">
+    <div className="bg-[#f8fafc] min-h-screen flex flex-col justify-center items-center px-5 py-8 font-sans text-[#0f172a] antialiased">
       <main className="w-full max-w-[400px] flex flex-col gap-6">
         {/* Header */}
         <header className="text-center flex flex-col items-center">
           {/* Brand Spa Icon Placeholder */}
-          <div className="w-16 h-16 rounded-full bg-[#b90064] text-white flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(90,63,71,0.08)]">
+          <div className="w-16 h-16 rounded-full bg-[#6d28d9] text-white flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(15,23,42,0.08)]">
             <span className="material-symbols-outlined text-3xl filled-icon">spa</span>
           </div>
-          <h1 className="text-2xl font-bold text-[#1c1b1b] mb-1">Welcome Back</h1>
-          <p className="text-sm text-[#594047]">Sign in to continue your journey.</p>
+          <h1 className="text-2xl font-bold text-[#0f172a] mb-1">Welcome Back</h1>
+          <p className="text-sm text-[#475569]">Sign in to continue your journey.</p>
         </header>
 
         {/* Portal selector — the backend validates this against the email's permanent account type. */}
-        <div className="bg-[#f1edec] p-1 rounded-full flex gap-1 border border-[#e0bec6]/30">
+        <div className="bg-[#f1f5f9] p-1 rounded-full flex gap-1 border border-[#cbd5e1]/30">
           <button
             type="button"
             onClick={() => handleTabSwitch('seeker')}
             className={`flex-1 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeRole === 'seeker'
-                ? 'bg-white text-[#8e004b] shadow-sm'
-                : 'text-[#594047] hover:text-[#1c1b1b]'
+                ? 'bg-white text-[#4f46e5] shadow-sm'
+                : 'text-[#475569] hover:text-[#0f172a]'
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
@@ -252,24 +252,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             onClick={() => handleTabSwitch('employer')}
             className={`flex-1 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeRole === 'employer'
-                ? 'bg-white text-[#8e004b] shadow-sm'
-                : 'text-[#594047] hover:text-[#1c1b1b]'
+                ? 'bg-white text-[#4f46e5] shadow-sm'
+                : 'text-[#475569] hover:text-[#0f172a]'
             }`}
           >
             <Building2 className="w-3.5 h-3.5" />
             <span>Employer</span>
           </button>
         </div>
-        <p className="-mt-4 text-center text-[11px] font-medium text-[#594047]">
+        <p className="-mt-4 text-center text-[11px] font-medium text-[#475569]">
           Each email is permanently linked to one portal type.
         </p>
 
         {/* Form Card */}
-        <div className="bg-white rounded-2xl shadow-[0_4px_16px_rgba(90,63,71,0.06)] border border-[#e0bec6]/40 p-5 flex flex-col gap-4">
+        <div className="bg-white rounded-2xl shadow-[0_4px_16px_rgba(15,23,42,0.06)] border border-[#cbd5e1]/40 p-5 flex flex-col gap-4">
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {/* Email Input */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-[#1c1b1b]" htmlFor="email">
+              <label className="text-xs font-semibold text-[#0f172a]" htmlFor="email">
                 Email
               </label>
               <input
@@ -279,20 +279,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
                 required
-                className="w-full bg-[#fdf8f8] text-[#1c1b1b] text-sm px-4 py-3 rounded-lg border-0 ring-1 ring-[#e0bec6] focus:ring-2 focus:ring-[#8e004b] focus:bg-white transition-all outline-none placeholder:text-[#594047]/50"
+                className="w-full bg-[#f8fafc] text-[#0f172a] text-sm px-4 py-3 rounded-lg border-0 ring-1 ring-[#cbd5e1] focus:ring-2 focus:ring-[#4f46e5] focus:bg-white transition-all outline-none placeholder:text-[#475569]/50"
               />
             </div>
 
             {/* Password Input */}
             <div className="flex flex-col gap-1">
               <div className="flex justify-between items-center">
-                <label className="text-xs font-semibold text-[#1c1b1b]" htmlFor="password">
+                <label className="text-xs font-semibold text-[#0f172a]" htmlFor="password">
                   Password
                 </label>
                 <button
                   type="button"
                   onClick={() => onForgotPassword(email)}
-                  className="text-xs text-[#594047] hover:text-[#e2007c] transition-colors cursor-pointer"
+                  className="text-xs text-[#475569] hover:text-[#7c3aed] transition-colors cursor-pointer"
                 >
                   Forgot Password?
                 </button>
@@ -305,13 +305,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
-                  className="w-full bg-[#fdf8f8] text-[#1c1b1b] text-sm px-4 py-3 rounded-lg border-0 ring-1 ring-[#e0bec6] focus:ring-2 focus:ring-[#8e004b] focus:bg-white transition-all outline-none placeholder:text-[#594047]/50 pr-10"
+                  className="w-full bg-[#f8fafc] text-[#0f172a] text-sm px-4 py-3 rounded-lg border-0 ring-1 ring-[#cbd5e1] focus:ring-2 focus:ring-[#4f46e5] focus:bg-white transition-all outline-none placeholder:text-[#475569]/50 pr-10"
                 />
                 <button
                   type="button"
                   aria-label="Toggle password visibility"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#594047] hover:text-[#8e004b] transition-colors cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#475569] hover:text-[#4f46e5] transition-colors cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -325,12 +325,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             )}
 
             {roleMismatch && (
-              <div role="alert" className="rounded-xl border border-[#e0bec6]/70 bg-[#fdf2f5] px-3.5 py-3 flex flex-col gap-2.5">
-                <p className="text-xs font-medium text-[#8e004b] leading-relaxed">{roleMismatch.message}</p>
+              <div role="alert" className="rounded-xl border border-[#cbd5e1]/70 bg-[#eef2ff] px-3.5 py-3 flex flex-col gap-2.5">
+                <p className="text-xs font-medium text-[#4f46e5] leading-relaxed">{roleMismatch.message}</p>
                 <button
                   type="button"
                   onClick={handleSwitchPortal}
-                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
                 >
                   {roleMismatch.existingRole === 'employer'
                     ? <Building2 className="w-3.5 h-3.5" />
@@ -359,7 +359,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       type="button"
                       onClick={() => void handleResendConfirmation()}
                       disabled={!onResendConfirmation || confirmResend?.state === 'sending' || confirmResend?.state === 'sent'}
-                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       <Mail className="w-3.5 h-3.5" />
                       {confirmResend?.state === 'sent'
@@ -421,7 +421,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     <button
                       type="button"
                       onClick={handleInlineReset}
-                      className="text-[11px] font-bold text-[#8e004b] hover:text-[#e2007c] transition-colors cursor-pointer underline underline-offset-2 self-start"
+                      className="text-[11px] font-bold text-[#4f46e5] hover:text-[#7c3aed] transition-colors cursor-pointer underline underline-offset-2 self-start"
                     >
                       Try again
                     </button>
@@ -431,7 +431,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     type="button"
                     onClick={() => void handleInlineReset()}
                     disabled={resetLink?.state === 'sending'}
-                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <KeyRound className="w-3.5 h-3.5" />
                     {resetLink?.state === 'sending'
@@ -474,7 +474,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button
               type="submit"
               disabled={isLoading || cooldown > 0}
-              className="w-full bg-[#e6007e] disabled:opacity-60 disabled:cursor-wait text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#b50062] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+              className="w-full bg-[#7c3aed] disabled:opacity-60 disabled:cursor-wait text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#6d28d9] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
             >
               <span>{isLoading ? 'Signing in…' : cooldown > 0 ? `Try again in ${formatRetryCountdown(cooldown)}` : 'Login'}</span>
             </button>
@@ -483,11 +483,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
         {/* Social Separator */}
         <div className="flex items-center gap-3 px-2">
-          <div className="h-px bg-[#e0bec6] flex-1" />
-          <span className="text-[11px] font-semibold text-[#594047] uppercase tracking-wider">
+          <div className="h-px bg-[#cbd5e1] flex-1" />
+          <span className="text-[11px] font-semibold text-[#475569] uppercase tracking-wider">
             Or continue with
           </span>
-          <div className="h-px bg-[#e0bec6] flex-1" />
+          <div className="h-px bg-[#cbd5e1] flex-1" />
         </div>
 
         {/* Social Buttons */}
@@ -496,7 +496,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             type="button"
             disabled={isLoading || !onSocialLogin}
             onClick={() => handleSocialLogin('google')}
-            className="w-full bg-white disabled:opacity-50 text-[#1c1b1b] text-sm font-medium py-2.5 px-4 rounded-full border border-[#e0bec6] hover:bg-[#f7f2f2] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
+            className="w-full bg-white disabled:opacity-50 text-[#0f172a] text-sm font-medium py-2.5 px-4 rounded-full border border-[#cbd5e1] hover:bg-[#f8fafc] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
           >
             <img
               src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRbDCIKGSzKAwLwg9STfs20v54KkKGSB9qroIJqrchZBktxb-HOmv1SuO6rSCuxXmdhd3ISGwjmykxVjNRKlFd5INc_5LQEJFQNv976AxWpCLvCXXbtZW3baq1OG4TOXhoRWd1yHx1yFYUMVuzis66Q8SK7Jehg5A4zWyxgu84lNRYX_LWUaXcjGOdPcjG4UD7dlMfnlGJnDg-zh7wkhbv2RegItvEiRVSvosJ2PWzKhZZYQlIbgbN"
@@ -511,7 +511,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             type="button"
             disabled={isLoading || !onSocialLogin}
             onClick={() => handleSocialLogin('apple')}
-            className="w-full bg-white disabled:opacity-50 text-[#1c1b1b] text-sm font-medium py-2.5 px-4 rounded-full border border-[#e0bec6] hover:bg-[#f7f2f2] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
+            className="w-full bg-white disabled:opacity-50 text-[#0f172a] text-sm font-medium py-2.5 px-4 rounded-full border border-[#cbd5e1] hover:bg-[#f8fafc] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
           >
             <Apple className="w-4 h-4" />
             <span>Continue with Apple</span>
@@ -520,12 +520,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
         {/* Footer Link */}
         <footer className="text-center mt-2">
-          <p className="text-sm text-[#594047]">
+          <p className="text-sm text-[#475569]">
             Don't have an account?{' '}
             <button
               type="button"
               onClick={onSignUp}
-              className="text-[#8e004b] font-semibold hover:text-[#e2007c] transition-colors cursor-pointer"
+              className="text-[#4f46e5] font-semibold hover:text-[#7c3aed] transition-colors cursor-pointer"
             >
               Sign Up
             </button>

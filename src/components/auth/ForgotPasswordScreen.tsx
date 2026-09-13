@@ -68,29 +68,29 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
   const resendDisabled = cooldown > 0;
 
   return (
-    <div className="bg-[#fcf9f8] text-[#1c1b1b] min-h-screen flex flex-col font-sans antialiased">
+    <div className="bg-[#eef2ff] text-[#0f172a] min-h-screen flex flex-col font-sans antialiased">
       {/* TopAppBar Header */}
-      <header className="sticky top-0 bg-white shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex justify-between items-center px-5 h-16 w-full z-50 border-b border-[#e6e1e1]">
+      <header className="sticky top-0 bg-white shadow-[0_4px_12px_rgba(15,23,42,0.05)] flex justify-between items-center px-5 h-16 w-full z-50 border-b border-[#e2e8f0]">
         <button
           type="button"
           onClick={onBackToLogin}
           aria-label="Go back"
-          className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full flex items-center justify-center cursor-pointer"
+          className="text-[#4f46e5] hover:bg-[#e2e8f0] transition-colors p-2 rounded-full flex items-center justify-center cursor-pointer"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="font-bold text-xl text-[#8e004b] tracking-tight">Nexora Jobs</h1>
+        <h1 className="font-bold text-xl text-[#4f46e5] tracking-tight">Nexora Jobs</h1>
         <div className="w-10" />
       </header>
 
       {/* Main Content Canvas */}
       <main className="flex-grow flex items-center justify-center px-5 py-8">
-        <div className="w-full max-w-md bg-white border border-[#e8e8e8] rounded-2xl p-6 sm:p-8 shadow-[0_8px_24px_rgba(90,63,71,0.08)]">
-          
+        <div className="w-full max-w-md bg-white border border-[#e2e8f0] rounded-2xl p-6 sm:p-8 shadow-[0_8px_24px_rgba(15,23,42,0.08)]">
+
           {/* Header & Supporting Text */}
           <div className="flex flex-col gap-2 mb-6 text-center">
-            <h2 className="text-2xl font-extrabold text-[#1c1b1b]">Forgot Password?</h2>
-            <p className="text-sm text-[#594047] leading-relaxed">
+            <h2 className="text-2xl font-extrabold text-[#0f172a]">Forgot Password?</h2>
+            <p className="text-sm text-[#475569] leading-relaxed">
               Enter your registered email and we'll send you a reset link.
             </p>
           </div>
@@ -98,25 +98,25 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
           {/* Success State */}
           {submitted ? (
             <div className="flex flex-col items-center gap-4 py-4 text-center">
-              <div className="w-14 h-14 rounded-full bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center shadow-xs">
-                <CheckCircle2 className="w-8 h-8 text-[#e2007c]" />
+              <div className="w-14 h-14 rounded-full bg-[#ede9fe] text-[#4f46e5] flex items-center justify-center shadow-xs">
+                <CheckCircle2 className="w-8 h-8 text-[#7c3aed]" />
               </div>
               <div className="space-y-1">
                 <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold uppercase tracking-wider mb-1">
                   Success
                 </span>
-                <h3 className="font-extrabold text-xl text-[#1c1b1b]">Reset link sent</h3>
-                <p className="text-xs text-[#594047] leading-relaxed max-w-xs mx-auto">
-                  If an account exists for <span className="font-bold text-[#8e004b]">{email}</span>, a one-time reset link has been sent. Check spam too, and use only the newest email.
+                <h3 className="font-extrabold text-xl text-[#0f172a]">Reset link sent</h3>
+                <p className="text-xs text-[#475569] leading-relaxed max-w-xs mx-auto">
+                  If an account exists for <span className="font-bold text-[#4f46e5]">{email}</span>, a one-time reset link has been sent. Check spam too, and use only the newest email.
                 </p>
-                <p className="text-[11px] font-semibold text-[#8c7077]">The link expires after 60 minutes and works only once.</p>
+                <p className="text-[11px] font-semibold text-[#64748b]">The link expires after 60 minutes and works only once.</p>
               </div>
 
-              <div className="w-full pt-4 border-t border-[#e6e1e1] flex flex-col gap-2.5">
+              <div className="w-full pt-4 border-t border-[#e2e8f0] flex flex-col gap-2.5">
                 <button
                   type="button"
                   onClick={onBackToLogin}
-                  className="w-full h-10 bg-[#f1edec] hover:bg-[#ffd9e2] text-[#8e004b] rounded-full text-xs font-bold transition-all cursor-pointer"
+                  className="w-full h-10 bg-[#f1f5f9] hover:bg-[#ede9fe] text-[#4f46e5] rounded-full text-xs font-bold transition-all cursor-pointer"
                 >
                   Return to Login
                 </button>
@@ -124,7 +124,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                   type="button"
                   onClick={() => setSubmitted(false)}
                   disabled={resendDisabled}
-                  className="text-xs font-semibold text-[#8c7077] hover:text-[#8e004b] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                  className="text-xs font-semibold text-[#64748b] hover:text-[#4f46e5] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {resendDisabled ? `Resend available in ${formatRetryCountdown(cooldown)}` : "Didn't get the email? Try again"}
                 </button>
@@ -134,11 +134,11 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
             <form onSubmit={handleSubmit} className="flex flex-col gap-5">
               {/* Field: Email Address */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[#594047]" htmlFor="email">
+                <label className="text-xs font-semibold text-[#475569]" htmlFor="email">
                   Email Address
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#8c7077]">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#64748b]">
                     <Mail className="w-5 h-5" />
                   </span>
                   <input
@@ -149,7 +149,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="w-full h-12 pl-10 pr-4 bg-[#fdf8f8] border border-[#e0bec6] rounded-xl text-sm text-[#1c1b1b] placeholder:text-[#8c7077]/60 focus:bg-white focus:border-[#8e004b] focus:ring-2 focus:ring-[#8e004b] transition-all outline-none"
+                    className="w-full h-12 pl-10 pr-4 bg-[#f8fafc] border border-[#cbd5e1] rounded-xl text-sm text-[#0f172a] placeholder:text-[#64748b]/60 focus:bg-white focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5] transition-all outline-none"
                   />
                 </div>
               </div>
@@ -177,7 +177,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                 <button
                   type="submit"
                   disabled={isSending || resendDisabled}
-                  className="w-full h-12 bg-[#e2007c] hover:bg-[#8e004b] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-full text-sm font-extrabold tracking-wide active:scale-[0.98] transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full h-12 bg-[#7c3aed] hover:bg-[#4f46e5] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-full text-sm font-extrabold tracking-wide active:scale-[0.98] transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
                 >
                   {isSending ? (
                     <>
@@ -198,11 +198,11 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
           <RecoveryTokenPanel email={email} onVerifyRecoveryToken={onVerifyRecoveryToken} />
 
           {!submitted && (
-            <div className="mt-6 text-center pt-4 border-t border-[#e6e1e1]">
+            <div className="mt-6 text-center pt-4 border-t border-[#e2e8f0]">
               <button
                 type="button"
                 onClick={onBackToLogin}
-                className="text-xs font-bold text-[#8e004b] hover:underline underline-offset-4 cursor-pointer"
+                className="text-xs font-bold text-[#4f46e5] hover:underline underline-offset-4 cursor-pointer"
               >
                 Back to Login
               </button>
@@ -256,12 +256,12 @@ const RecoveryTokenPanel: React.FC<RecoveryTokenPanelProps> = ({ email, onVerify
   };
 
   return (
-    <div className="mt-6 pt-5 border-t border-[#e6e1e1]">
+    <div className="mt-6 pt-5 border-t border-[#e2e8f0]">
       <div className="flex items-start gap-2.5 mb-3">
-        <KeyRound className="w-4 h-4 text-[#8e004b] mt-0.5 flex-shrink-0" />
+        <KeyRound className="w-4 h-4 text-[#4f46e5] mt-0.5 flex-shrink-0" />
         <div>
-          <h3 className="text-xs font-extrabold text-[#1c1b1b]">Already received the email?</h3>
-          <p className="text-[11px] font-medium text-[#8c7077] leading-relaxed">
+          <h3 className="text-xs font-extrabold text-[#0f172a]">Already received the email?</h3>
+          <p className="text-[11px] font-medium text-[#64748b] leading-relaxed">
             Paste the reset link — or the 6-digit code inside it — from the newest reset email. No new email is sent.
           </p>
         </div>
@@ -277,7 +277,7 @@ const RecoveryTokenPanel: React.FC<RecoveryTokenPanelProps> = ({ email, onVerify
             if (panelError) setPanelError(null);
           }}
           placeholder="https://…/auth/v1/verify?token=…"
-          className="w-full px-3 py-2.5 bg-[#fdf8f8] border border-[#e0bec6] rounded-xl text-[11px] font-mono text-[#1c1b1b] placeholder:text-[#8c7077]/60 focus:bg-white focus:border-[#8e004b] focus:ring-2 focus:ring-[#8e004b] transition-all outline-none resize-y break-all"
+          className="w-full px-3 py-2.5 bg-[#f8fafc] border border-[#cbd5e1] rounded-xl text-[11px] font-mono text-[#0f172a] placeholder:text-[#64748b]/60 focus:bg-white focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5] transition-all outline-none resize-y break-all"
         />
 
         {panelError && (
@@ -289,7 +289,7 @@ const RecoveryTokenPanel: React.FC<RecoveryTokenPanelProps> = ({ email, onVerify
         <button
           type="submit"
           disabled={isVerifying || !token.trim()}
-          className="w-full h-11 bg-[#f1edec] hover:bg-[#ffd9e2] disabled:opacity-50 disabled:cursor-not-allowed text-[#8e004b] rounded-full text-xs font-extrabold transition-all cursor-pointer flex items-center justify-center gap-2"
+          className="w-full h-11 bg-[#f1f5f9] hover:bg-[#ede9fe] disabled:opacity-50 disabled:cursor-not-allowed text-[#4f46e5] rounded-full text-xs font-extrabold transition-all cursor-pointer flex items-center justify-center gap-2"
         >
           {isVerifying ? (
             <>

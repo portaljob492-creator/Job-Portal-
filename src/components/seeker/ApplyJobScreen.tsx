@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { JobPosting, Application, ResumeFile, UserProfile } from '../../types';
-import { listResumes } from '../../services/backend';
+import { listResumes, mapBackendError } from '../../services/backend';
 import { motion, AnimatePresence } from 'motion/react';
 import { Check, Send, ArrowLeft, Info, FileText, Briefcase, Sparkles, User, AlertTriangle } from 'lucide-react';
+import { JobsInlineSkeleton } from '../ui/JobsSkeleton';
 
 interface ApplyJobScreenProps {
   jobs: JobPosting[];
   selectedJob: JobPosting | null;
   applications: Application[];
   userProfile: UserProfile;
-  onApplyJob: (job: JobPosting, coverNote: string, expectedSalary: string, availability: string, resumeId?: string) => void;
+  onApplyJob: (job: JobPosting, coverNote: string, expectedSalary: string, availability: string, resumeId?: string) => Promise<void>;
   onBack: () => void;
   onNavigateToApplications?: () => void;
 }
@@ -29,29 +30,36 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
   );
 
   // Form Fields
-  const [expectedSalary, setExpectedSalary] = useState<string>('65000');
+  const [expectedSalary, setExpectedSalary] = useState<string>('');
   const [availability, setAvailability] = useState<string>('immediate');
   const [coverNote, setCoverNote] = useState<string>('');
-  
+
   // Submission Flow
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorToast, setErrorToast] = useState<string | null>(null);
 
   // The primary resume attaches to the application (optional but recommended).
   const [resumes, setResumes] = useState<ResumeFile[]>([]);
   const [selectedResumeId, setSelectedResumeId] = useState<string>('');
-  useEffect(() => {
-    let cancelled = false;
-    listResumes()
-      .then((files) => {
-        if (cancelled) return;
-        setResumes(files);
-        const primary = files.find((file) => file.isPrimary) ?? files[0];
-        if (primary) setSelectedResumeId(primary.id);
-      })
-      .catch(() => { if (!cancelled) setResumes([]); });
-    return () => { cancelled = true; };
+  const [isLoadingResumes, setIsLoadingResumes] = useState(true);
+  const [resumeLoadError, setResumeLoadError] = useState<string | null>(null);
+  const loadResumeOptions = useCallback(async () => {
+    setIsLoadingResumes(true);
+    setResumeLoadError(null);
+    try {
+      const files = await listResumes();
+      setResumes(files);
+      const primary = files.find((file) => file.isPrimary) ?? files[0];
+      setSelectedResumeId(primary?.id || '');
+    } catch (error) {
+      setResumes([]);
+      setResumeLoadError(mapBackendError(error, 'Unable to load your resumes. Retry, or apply without one.'));
+    } finally {
+      setIsLoadingResumes(false);
+    }
   }, []);
+  useEffect(() => { void loadResumeOptions(); }, [loadResumeOptions]);
 
   if (!selectedJob) {
     return (
@@ -70,18 +78,24 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
   // Duplicate Check
   const hasAlreadyApplied = applications.some((app) => app.jobId === selectedJob.id);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (hasAlreadyApplied) {
-      showTemporaryError('You have already submitted an application for this position.');
+    if (hasAlreadyApplied || isSubmitting) {
+      if (hasAlreadyApplied) showTemporaryError('You have already submitted an application for this position.');
       return;
     }
-    
-    // Call the parent state handler to persist the application
-    onApplyJob(selectedJob, coverNote, expectedSalary, availability, selectedResumeId || undefined);
-    
-    // Trigger successful animation transition state
-    setIsSubmitted(true);
+    setIsSubmitting(true);
+    setErrorToast(null);
+    try {
+      // Wait for the database id. A network/RLS error keeps every entered field
+      // on screen and exposes a retryable error instead of a false success page.
+      await onApplyJob(selectedJob, coverNote, expectedSalary, availability, selectedResumeId || undefined);
+      setIsSubmitted(true);
+    } catch (error) {
+      showTemporaryError(mapBackendError(error, 'Unable to submit your application. Your details are still here — please retry.'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const showTemporaryError = (msg: string) => {
@@ -117,7 +131,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
           className="w-full"
         >
           {/* Top App Bar */}
-          <header className="flex justify-between items-center px-margin-side h-16 w-full z-50 bg-surface dark:bg-surface-dim shadow-[0_4px_12px_rgba(90,63,71,0.05)] sticky top-0">
+          <header className="flex justify-between items-center px-margin-side h-16 w-full z-50 bg-surface dark:bg-surface-dim shadow-[0_4px_12px_rgba(15,23,42,0.05)] sticky top-0">
             <button
               onClick={onBack}
               className="text-primary dark:text-primary-fixed hover:bg-surface-variant transition-colors active:scale-95 duration-200 p-2 rounded-full -ml-2 flex items-center justify-center cursor-pointer"
@@ -127,7 +141,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
               <ArrowLeft className="w-6 h-6" />
             </button>
             <div className="flex flex-col items-center">
-              <span className="text-[10px] font-mono tracking-wider text-[#8c7077] uppercase bg-[#f1edec] px-2 py-0.5 rounded-md">
+              <span className="text-[10px] font-mono tracking-wider text-[#64748b] uppercase bg-[#f1f5f9] px-2 py-0.5 rounded-md">
                 /app/jobs/job/{selectedJob.id}/apply
               </span>
               <h1 className="font-screen-title text-screen-title text-primary font-bold">Review your application</h1>
@@ -138,7 +152,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
           {/* Main Content Canvas */}
           <main className="max-w-2xl mx-auto px-margin-side py-stack-default">
             {/* Application Context Note */}
-            <div className="bg-primary-fixed text-[#3e001e] px-4 py-3 rounded-lg mb-6 flex items-start gap-3 shadow-sm border border-outline-variant">
+            <div className="bg-primary-fixed text-[#312e81] px-4 py-3 rounded-lg mb-6 flex items-start gap-3 shadow-sm border border-outline-variant">
               <Info className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
               <div>
                 <p className="font-body-md text-sm text-on-primary-fixed">
@@ -151,7 +165,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
             {/* Candidate Preview Section */}
             <section className="mb-6">
               <h2 className="font-section-title text-section-title text-on-surface mb-3">Candidate Profile</h2>
-              <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+              <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)]">
                 <div className="flex items-center gap-4 mb-4">
                   {userProfile.avatarUrl ? (
                     <img
@@ -160,17 +174,20 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                       className="w-16 h-16 rounded-full object-cover border-2 border-primary"
                     />
                   ) : (
-                    <div className="w-16 h-16 rounded-full bg-primary-fixed text-[#3e001e] font-bold flex items-center justify-center text-xl">
+                    <div className="w-16 h-16 rounded-full bg-primary-fixed text-[#312e81] font-bold flex items-center justify-center text-xl">
                       {userProfile.name ? userProfile.name.charAt(0) : 'A'}
                     </div>
                   )}
                   <div>
-                    <h3 className="font-card-title text-card-title text-on-surface">{userProfile.name || 'Anjali Sharma'}</h3>
+                    <h3 className="font-card-title text-card-title text-on-surface">{userProfile.name || 'Candidate'}</h3>
                     <p className="font-body-md text-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
                       <Briefcase className="w-4 h-4 text-outline" />
-                      {userProfile.primaryRole || 'Senior Hair Stylist'}
+                      {userProfile.primaryRole || 'Role not added'}
                     </p>
-                    <p className="font-label-sm text-xs text-outline mt-0.5">5+ Years Experience • License: {userProfile.licenseNumber || 'CA-COS-889124'}</p>
+                    <p className="font-label-sm text-xs text-outline mt-0.5">
+                      {Math.floor((userProfile.totalExperienceMonths || 0) / 12)} years experience
+                      {userProfile.licenseNumber ? ` • License: ${userProfile.licenseNumber}` : ''}
+                    </p>
                   </div>
                 </div>
 
@@ -185,12 +202,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                       </span>
                     ))
                   ) : (
-                    <>
-                      <span className="bg-secondary-fixed text-primary px-3 py-1 rounded-full font-label-sm text-xs border border-outline-variant/30">Color Correction</span>
-                      <span className="bg-secondary-fixed text-primary px-3 py-1 rounded-full font-label-sm text-xs border border-outline-variant/30">Balayage</span>
-                      <span className="bg-secondary-fixed text-primary px-3 py-1 rounded-full font-label-sm text-xs border border-outline-variant/30">Bridal Styling</span>
-                      <span className="bg-secondary-fixed text-primary px-3 py-1 rounded-full font-label-sm text-xs border border-outline-variant/30">Extensions</span>
-                    </>
+                    <span className="font-label-sm text-xs text-outline">No skills added yet</span>
                   )}
                 </div>
               </div>
@@ -199,14 +211,23 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
             {/* Resume Section */}
             <section className="mb-6">
               <h2 className="font-section-title text-section-title text-on-surface mb-3">Resume Attachment</h2>
-              {resumes.length === 0 ? (
-                <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+              {isLoadingResumes ? (
+                <JobsInlineSkeleton rows={1} label="Loading your resumes" />
+              ) : resumeLoadError ? (
+                <div className="bg-surface-container-lowest border border-error/30 rounded-lg p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)]">
+                  <p role="alert" className="font-body-md text-sm text-error">{resumeLoadError}</p>
+                  <button type="button" onClick={() => void loadResumeOptions()} className="mt-2 text-primary text-xs font-semibold hover:underline">
+                    Retry resume loading
+                  </button>
+                </div>
+              ) : resumes.length === 0 ? (
+                <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)]">
                   <p className="font-body-md text-sm text-on-surface-variant">
                     No resume on your profile yet. Upload one under Profile → Resume to attach it automatically — you can still apply without it.
                   </p>
                 </div>
               ) : (
-                <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] space-y-3">
+                <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)] space-y-3">
                   {resumes.map((resume) => (
                     <label key={resume.id} className="flex items-center gap-3 cursor-pointer">
                       <input
@@ -215,7 +236,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                         checked={selectedResumeId === resume.id}
                         onChange={() => setSelectedResumeId(resume.id)}
                         disabled={hasAlreadyApplied}
-                        className="accent-[#b90064] w-4 h-4"
+                        className="accent-[#6d28d9] w-4 h-4"
                       />
                       <div className="bg-error-container/20 text-error p-2 rounded-lg">
                         <FileText className="w-6 h-6 text-error" />
@@ -258,18 +279,18 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
 
             {/* Application Details Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
-              <section className="bg-surface-container-lowest border border-surface-variant rounded-lg p-5 shadow-[0_4px_12px_rgba(90,63,71,0.05)] space-y-4">
+              <section className="bg-surface-container-lowest border border-surface-variant rounded-lg p-5 shadow-[0_4px_12px_rgba(15,23,42,0.05)] space-y-4">
                 <h2 className="font-section-title text-base text-on-surface font-semibold border-b border-outline-variant/20 pb-2">Application Details</h2>
-                
+
                 {/* Expected Salary */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="font-label-sm text-xs text-on-surface font-semibold" htmlFor="salary">Expected Salary (Annual)</label>
+                  <label className="font-label-sm text-xs text-on-surface font-semibold" htmlFor="salary">Expected Monthly Salary</label>
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-on-surface-variant font-body-md">₹</span>
                     <input
                       className="w-full bg-surface-container border border-surface-variant rounded-lg pl-8 pr-4 py-3 font-body-md text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:bg-surface-container-lowest transition-colors placeholder:text-outline"
                       id="salary"
-                      placeholder="e.g. 6,50,000"
+                      placeholder="e.g. 65,000"
                       type="number"
                       required
                       disabled={hasAlreadyApplied}
@@ -306,7 +327,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                   <textarea
                     className="w-full bg-surface-container border border-surface-variant rounded-lg px-4 py-3 font-body-md text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:bg-surface-container-lowest transition-colors placeholder:text-outline resize-none"
                     id="coverNote"
-                    placeholder="Briefly introduce yourself and why you're a great fit for Lumière Studio..."
+                    placeholder={`Briefly introduce yourself and why you're a great fit for ${selectedJob.salonName}…`}
                     rows={4}
                     disabled={hasAlreadyApplied}
                     value={coverNote}
@@ -316,18 +337,18 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
               </section>
 
               {/* Sticky Bottom CTA Container */}
-              <div className="fixed bottom-0 left-0 right-0 p-margin-side bg-surface-container-lowest border-t border-outline-variant/50 shadow-[0_-4px_12px_rgba(90,63,71,0.05)] z-40 flex justify-center">
+              <div className="fixed bottom-0 left-0 right-0 p-margin-side bg-surface-container-lowest border-t border-outline-variant/50 shadow-[0_-4px_12px_rgba(15,23,42,0.05)] z-40 flex justify-center">
                 <div className="w-full max-w-2xl">
                   <button
                     type="submit"
-                    disabled={hasAlreadyApplied}
+                    disabled={hasAlreadyApplied || isSubmitting}
                     className={`w-full text-white font-card-title text-base rounded-full py-4 flex items-center justify-center gap-2 transition-all duration-200 ${
-                      hasAlreadyApplied
+                      hasAlreadyApplied || isSubmitting
                         ? 'bg-gray-400 cursor-not-allowed opacity-80'
-                        : 'bg-[#b90064] hover:bg-secondary active:scale-[0.98]'
+                        : 'bg-[#6d28d9] hover:bg-secondary active:scale-[0.98]'
                     }`}
                   >
-                    {hasAlreadyApplied ? 'Already Applied' : 'Submit Application'}
+                    {hasAlreadyApplied ? 'Already Applied' : isSubmitting ? 'Submitting application…' : 'Submit Application'}
                     <Send className="w-5 h-5" />
                   </button>
                 </div>
@@ -354,21 +375,21 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
               <div className="absolute inset-0 bg-primary-container opacity-20 rounded-full animate-ping" style={{ animationDuration: '2s' }}></div>
               <div className="absolute inset-2 bg-primary-container opacity-30 rounded-full animate-pulse"></div>
               {/* Core Icon Container */}
-              <div className="relative w-16 h-16 bg-primary rounded-full flex items-center justify-center shadow-[0_8px_24px_rgba(185,0,100,0.25)]">
+              <div className="relative w-16 h-16 bg-primary rounded-full flex items-center justify-center shadow-[0_8px_24px_rgba(109,40,217,0.25)]">
                 <Check className="w-9 h-9 text-white" />
               </div>
             </div>
 
             {/* Typography Block */}
             <div className="text-center mb-6 w-full flex flex-col gap-2">
-              <h1 className="font-screen-title text-2xl text-on-surface font-bold">Application sent</h1>
+              <h1 className="font-screen-title text-2xl text-on-surface font-bold">Application submitted successfully.</h1>
               <p className="font-body-md text-sm text-on-surface-variant max-w-[280px] mx-auto">
-                Your application has been successfully sent to the employer.
+                The salon has received your candidate profile.
               </p>
             </div>
 
             {/* Contextual Info Card */}
-            <div className="w-full bg-surface-container-lowest rounded-lg border border-outline-variant shadow-[0_4px_12px_rgba(90,63,71,0.05)] p-4 mb-4 flex items-center gap-4 hover:bg-surface-bright transition-colors cursor-default">
+            <div className="w-full bg-surface-container-lowest rounded-lg border border-outline-variant shadow-[0_4px_12px_rgba(15,23,42,0.05)] p-4 mb-4 flex items-center gap-4 hover:bg-surface-bright transition-colors cursor-default">
               <div className="w-12 h-12 rounded-lg bg-surface-container-high flex-shrink-0 overflow-hidden border border-outline-variant/50">
                 {selectedJob.salonLogo ? (
                   <img
@@ -377,7 +398,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full bg-[#b90064] text-white font-bold flex items-center justify-center">
+                  <div className="w-full h-full bg-[#6d28d9] text-white font-bold flex items-center justify-center">
                     {selectedJob.salonName.charAt(0)}
                   </div>
                 )}
@@ -385,6 +406,17 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
               <div className="flex flex-col flex-grow min-w-0">
                 <h3 className="font-card-title text-base text-on-surface truncate font-semibold">{selectedJob.title}</h3>
                 <p className="font-body-md text-sm text-on-surface-variant truncate">{selectedJob.salonName}</p>
+              </div>
+            </div>
+
+            <div className="w-full grid grid-cols-2 gap-3 mb-4">
+              <div className="rounded-lg bg-surface-container-lowest border border-outline-variant p-3">
+                <p className="text-[10px] uppercase tracking-wide font-bold text-outline">Applied Date</p>
+                <p className="text-xs font-bold text-on-surface mt-1">{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+              </div>
+              <div className="rounded-lg bg-surface-container-lowest border border-outline-variant p-3">
+                <p className="text-[10px] uppercase tracking-wide font-bold text-outline">Status</p>
+                <p className="text-xs font-bold text-emerald-700 mt-1">Applied</p>
               </div>
             </div>
 
@@ -401,7 +433,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                 type="button"
               >
                 <Sparkles className="w-4 h-4" />
-                Explore More Jobs
+                Continue Searching
               </button>
               <button
                 onClick={() => {
@@ -415,7 +447,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                 type="button"
               >
                 <FileText className="w-4 h-4" />
-                View Application
+                View My Applications
               </button>
             </div>
           </main>

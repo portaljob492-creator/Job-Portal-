@@ -22,7 +22,7 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -57,32 +57,32 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
   };
 
   return (
-    <div className="bg-[#fdf8f8] text-[#1c1b1b] min-h-screen flex flex-col font-sans antialiased">
+    <div className="bg-[#f8fafc] text-[#0f172a] min-h-screen flex flex-col font-sans antialiased">
       {/* TopAppBar Header */}
-      <header className="sticky top-0 bg-white shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex justify-between items-center px-5 h-16 w-full z-50 border-b border-[#e6e1e1]">
+      <header className="sticky top-0 bg-white shadow-[0_4px_12px_rgba(15,23,42,0.05)] flex justify-between items-center px-5 h-16 w-full z-50 border-b border-[#e2e8f0]">
         <button
           type="button"
           onClick={onBackToLogin}
           aria-label="Go back to login"
-          className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+          className="text-[#4f46e5] hover:bg-[#e2e8f0] transition-colors p-2 rounded-full cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
         >
           <ArrowLeft className="w-5 h-5" />
           <span className="hidden sm:inline">Back</span>
         </button>
-        <h1 className="font-bold text-xl text-[#8e004b] tracking-tight">Nexora Jobs</h1>
+        <h1 className="font-bold text-xl text-[#4f46e5] tracking-tight">Nexora Jobs</h1>
         <div className="w-12" />
       </header>
 
       {/* Main Content Area */}
       <main className="flex-grow flex items-center justify-center px-4 py-8">
-        <div className="w-full max-w-md bg-white border border-[#e0bec6] rounded-2xl p-6 sm:p-8 shadow-[0_8px_24px_rgba(90,63,71,0.08)]">
-          
+        <div className="w-full max-w-md bg-white border border-[#cbd5e1] rounded-2xl p-6 sm:p-8 shadow-[0_8px_24px_rgba(15,23,42,0.08)]">
+
           {/* Header Title & Subtext */}
           <div className="text-center mb-6">
-            <h2 className="text-2xl font-extrabold text-[#1c1b1b] mb-1 tracking-tight">
+            <h2 className="text-2xl font-extrabold text-[#0f172a] mb-1 tracking-tight">
               Create New Password
             </h2>
-            <p className="text-sm text-[#594047] leading-relaxed">
+            <p className="text-sm text-[#475569] leading-relaxed">
               Choose at least 8 characters with lowercase and uppercase letters plus a number.
             </p>
           </div>
@@ -90,10 +90,10 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
           {/* Recovery session states */}
           {recoveryState === 'checking' ? (
             <div className="flex flex-col items-center gap-4 py-8 text-center">
-              <RefreshCw className="w-9 h-9 animate-spin text-[#e2007c]" />
+              <RefreshCw className="w-9 h-9 animate-spin text-[#7c3aed]" />
               <div>
-                <h3 className="font-extrabold text-lg text-[#1c1b1b]">Validating reset link…</h3>
-                <p className="mt-1 text-xs text-[#594047]">Please wait while we securely verify your recovery session.</p>
+                <h3 className="font-extrabold text-lg text-[#0f172a]">Validating reset link…</h3>
+                <p className="mt-1 text-xs text-[#475569]">Please wait while we securely verify your recovery session.</p>
               </div>
             </div>
           ) : recoveryState === 'invalid' ? (
@@ -105,42 +105,42 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                 <span className="inline-block px-3 py-0.5 rounded-full bg-amber-100 text-amber-900 text-xs font-extrabold uppercase tracking-wider">
                   Invalid or expired link
                 </span>
-                <h3 className="font-extrabold text-xl text-[#1c1b1b]">Request a fresh reset email</h3>
-                <p className="text-xs text-[#594047] leading-relaxed max-w-xs mx-auto">
+                <h3 className="font-extrabold text-xl text-[#0f172a]">Request a fresh reset email</h3>
+                <p className="text-xs text-[#475569] leading-relaxed max-w-xs mx-auto">
                   Password reset links work once and expire after 60 minutes. Use only the newest email sent by Nexora Jobs.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={onRequestNewLink}
-                className="w-full h-12 bg-[#e2007c] hover:bg-[#8e004b] text-white rounded-full text-sm font-extrabold transition-all shadow-md cursor-pointer"
+                className="w-full h-12 bg-[#7c3aed] hover:bg-[#4f46e5] text-white rounded-full text-sm font-extrabold transition-all shadow-md cursor-pointer"
               >
                 Request New Reset Link
               </button>
             </div>
           ) : isSuccess ? (
             <div className="flex flex-col items-center gap-5 py-4 text-center animate-fadeIn">
-              <div className="w-16 h-16 rounded-full bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center shadow-xs ring-4 ring-[#ffd9e2]/50">
-                <CheckCircle2 className="w-10 h-10 text-[#e2007c]" />
+              <div className="w-16 h-16 rounded-full bg-[#ede9fe] text-[#4f46e5] flex items-center justify-center shadow-xs ring-4 ring-[#ede9fe]/50">
+                <CheckCircle2 className="w-10 h-10 text-[#7c3aed]" />
               </div>
 
               <div className="space-y-1.5">
                 <span className="inline-block px-3 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold uppercase tracking-wider mb-1">
                   Success
                 </span>
-                <h3 className="font-extrabold text-xl text-[#1c1b1b]">
+                <h3 className="font-extrabold text-xl text-[#0f172a]">
                   Password updated successfully
                 </h3>
-                <p className="text-xs text-[#594047] leading-relaxed max-w-xs mx-auto">
+                <p className="text-xs text-[#475569] leading-relaxed max-w-xs mx-auto">
                   Your password has been changed successfully. You can now log in to your account with your new credentials.
                 </p>
               </div>
 
-              <div className="w-full pt-4 border-t border-[#e6e1e1] mt-2">
+              <div className="w-full pt-4 border-t border-[#e2e8f0] mt-2">
                 <button
                   type="button"
                   onClick={onSuccessLogin}
-                  className="w-full h-12 bg-[#e2007c] hover:bg-[#8e004b] text-white rounded-full text-base font-extrabold tracking-wide transition-all shadow-md active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full h-12 bg-[#7c3aed] hover:bg-[#4f46e5] text-white rounded-full text-base font-extrabold tracking-wide transition-all shadow-md active:scale-95 cursor-pointer flex items-center justify-center gap-2"
                 >
                   <span>Log In</span>
                 </button>
@@ -148,14 +148,14 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-              
+
               {/* Field 1: New Password */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-[#594047]" htmlFor="newPassword">
+                <label className="text-xs font-bold text-[#475569]" htmlFor="newPassword">
                   New Password
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#8c7077]">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#64748b]">
                     <Lock className="w-4 h-4" />
                   </span>
                   <input
@@ -170,12 +170,12 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                       if (errorMsg) setErrorMsg(null);
                     }}
                     placeholder="Enter at least 8 characters"
-                    className="w-full h-12 pl-10 pr-10 bg-[#fdf8f8] border border-[#e0bec6] rounded-xl text-sm text-[#1c1b1b] placeholder:text-[#8c7077]/60 focus:bg-white focus:border-[#8e004b] focus:ring-2 focus:ring-[#8e004b] transition-all outline-none"
+                    className="w-full h-12 pl-10 pr-10 bg-[#f8fafc] border border-[#cbd5e1] rounded-xl text-sm text-[#0f172a] placeholder:text-[#64748b]/60 focus:bg-white focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5] transition-all outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#8c7077] hover:text-[#1c1b1b] cursor-pointer"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#64748b] hover:text-[#0f172a] cursor-pointer"
                   >
                     {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -189,7 +189,7 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                       <div className={`h-full transition-all duration-300 ${strength.score >= 2 ? 'w-1/3 bg-amber-500' : 'w-0'}`} />
                       <div className={`h-full transition-all duration-300 ${strength.score >= 3 ? 'w-1/3 bg-emerald-500' : 'w-0'}`} />
                     </div>
-                    <span className="font-bold text-[11px] text-[#594047]">
+                    <span className="font-bold text-[11px] text-[#475569]">
                       Strength: <strong className="capitalize">{strength.label}</strong>
                     </span>
                   </div>
@@ -198,11 +198,11 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
 
               {/* Field 2: Confirm Password */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-[#594047]" htmlFor="confirmPassword">
+                <label className="text-xs font-bold text-[#475569]" htmlFor="confirmPassword">
                   Confirm Password
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#8c7077]">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#64748b]">
                     <ShieldCheck className="w-4 h-4" />
                   </span>
                   <input
@@ -217,18 +217,18 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                       if (errorMsg) setErrorMsg(null);
                     }}
                     placeholder="Re-enter your new password"
-                    className={`w-full h-12 pl-10 pr-10 bg-[#fdf8f8] border rounded-xl text-sm text-[#1c1b1b] placeholder:text-[#8c7077]/60 focus:bg-white focus:ring-2 transition-all outline-none ${
+                    className={`w-full h-12 pl-10 pr-10 bg-[#f8fafc] border rounded-xl text-sm text-[#0f172a] placeholder:text-[#64748b]/60 focus:bg-white focus:ring-2 transition-all outline-none ${
                       confirmPassword.length > 0 && newPassword !== confirmPassword
                         ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200'
                         : confirmPassword.length > 0 && newPassword === confirmPassword
                         ? 'border-emerald-400 focus:border-emerald-500 focus:ring-emerald-200'
-                        : 'border-[#e0bec6] focus:border-[#8e004b] focus:ring-[#8e004b]'
+                        : 'border-[#cbd5e1] focus:border-[#4f46e5] focus:ring-[#4f46e5]'
                     }`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#8c7077] hover:text-[#1c1b1b] cursor-pointer"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#64748b] hover:text-[#0f172a] cursor-pointer"
                   >
                     {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -263,9 +263,9 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
               )}
 
               {/* Requirements List */}
-              <div className="p-3 bg-[#f8f4f4] rounded-xl border border-[#e0bec6]/60 text-[11px] text-[#594047] space-y-1">
-                <span className="font-bold text-[#1c1b1b] block">Password requirements:</span>
-                <ul className="list-disc list-inside space-y-0.5 text-[#594047]">
+              <div className="p-3 bg-[#f8fafc] rounded-xl border border-[#cbd5e1]/60 text-[11px] text-[#475569] space-y-1">
+                <span className="font-bold text-[#0f172a] block">Password requirements:</span>
+                <ul className="list-disc list-inside space-y-0.5 text-[#475569]">
                   {PASSWORD_RULES.map((rule) => (
                     <li key={rule.code} className={rule.test(newPassword) ? 'text-emerald-700 font-bold' : ''}>
                       {rule.label}
@@ -278,7 +278,7 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full h-12 bg-[#e2007c] hover:bg-[#8e004b] text-white rounded-full text-base font-extrabold tracking-wide active:scale-[0.98] transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+                className="w-full h-12 bg-[#7c3aed] hover:bg-[#4f46e5] text-white rounded-full text-base font-extrabold tracking-wide active:scale-[0.98] transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (
                   <>
@@ -293,11 +293,11 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
           )}
 
           {!isSuccess && (
-            <div className="mt-6 text-center pt-4 border-t border-[#e6e1e1]">
+            <div className="mt-6 text-center pt-4 border-t border-[#e2e8f0]">
               <button
                 type="button"
                 onClick={onBackToLogin}
-                className="text-xs font-bold text-[#8e004b] hover:underline cursor-pointer"
+                className="text-xs font-bold text-[#4f46e5] hover:underline cursor-pointer"
               >
                 Back to Login
               </button>

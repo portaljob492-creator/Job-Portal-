@@ -4,6 +4,7 @@ import { requireSupabase } from '../../lib/supabase';
 import { PortfolioItem } from '../../types';
 import {
   MEDIA_BUCKETS,
+  deleteMediaObject,
   isStoragePath,
   pickDisplayUrl,
   resolveStorageUrls,
@@ -268,6 +269,10 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
   };
 
   const handleSavePortfolioItem = async () => {
+    if (!titleInput.trim()) {
+      setSaveError('Add a title for this work sample.');
+      return;
+    }
     if (!previewImageUrl) {
       setSaveError('Snap a photo or choose an image for your work sample.');
       return;
@@ -276,6 +281,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
     const editing = activeItemModal && activeItemModal !== 'new' ? activeItemModal : null;
     setIsSavingItem(true);
     setSaveError(null);
+    let uploadedPath: string | null = null;
     try {
       // Fresh bytes upload to Storage; presets persist as remote URLs; an
       // unchanged edit keeps the stored value (never a signed display URL).
@@ -285,18 +291,19 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
         if (userError) throw userError;
         const userId = userData.user?.id;
         if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
-        imageValue = await uploadPortfolioImage(userId, stagedFile);
+        uploadedPath = await uploadPortfolioImage(userId, stagedFile);
+        imageValue = uploadedPath;
       } else if (editing && !imageChanged) {
         imageValue = editing.imageUrl;
       }
 
       const newItem: PortfolioItem = {
         id: editing ? editing.id : crypto.randomUUID(),
-        title: titleInput.trim() || 'Work Transformation Sample',
+        title: titleInput.trim(),
         category: categoryInput,
         imageUrl: imageValue,
-        technique: techniqueInput.trim() || 'Custom Technique',
-        description: descriptionInput.trim() || 'Captured with camera',
+        technique: techniqueInput.trim() || undefined,
+        description: descriptionInput.trim() || undefined,
         date: editing?.date || new Date().toISOString().slice(0, 10),
         isPlaceholder: false
       };
@@ -313,8 +320,12 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
         onUpdateItems(previousItems);
         throw persistError;
       }
+      if (editing && isStoragePath(editing.imageUrl) && editing.imageUrl !== imageValue) {
+        await deleteMediaObject(MEDIA_BUCKETS.profileMedia, editing.imageUrl);
+      }
       handleCloseModal();
     } catch (error) {
+      if (uploadedPath) await deleteMediaObject(MEDIA_BUCKETS.profileMedia, uploadedPath);
       setSaveError(mapBackendError(error, 'Unable to save your work sample.'));
     } finally {
       setIsSavingItem(false);
@@ -327,12 +338,16 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
     e.stopPropagation();
     if (confirm('Are you sure you want to remove this work sample from your portfolio?')) {
       const previousItems = items;
+      const removedItem = items.find((item) => item.id === id);
       onUpdateItems(items.filter((it) => it.id !== id));
       if (lightboxItem?.id === id) setLightboxItem(null);
       // Local-only legacy ids were never persisted; nothing to delete remotely.
       if (!UUID_RE.test(id)) return;
       try {
         await deletePortfolioItem(id);
+        if (removedItem && isStoragePath(removedItem.imageUrl)) {
+          await deleteMediaObject(MEDIA_BUCKETS.profileMedia, removedItem.imageUrl);
+        }
       } catch (error) {
         onUpdateItems(previousItems);
         alert(mapBackendError(error, 'Unable to remove your work sample.'));
@@ -343,15 +358,15 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
   return (
     <div className="space-y-6">
       {/* Portfolio Header Bar */}
-      <div className="bg-white p-6 rounded-2xl border border-[#e0bec6]/40 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-white p-6 rounded-2xl border border-[#cbd5e1]/40 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="p-2 rounded-xl bg-[#ffd9e2] text-[#8e004b] font-bold">
+            <span className="p-2 rounded-xl bg-[#ede9fe] text-[#4f46e5] font-bold">
               <Layers className="w-5 h-5" />
             </span>
-            <h3 className="text-xl font-bold text-[#1c1b1b]">Work Portfolio & Transformations</h3>
+            <h3 className="text-xl font-bold text-[#0f172a]">Work Portfolio & Transformations</h3>
           </div>
-          <p className="text-xs text-[#594047]">
+          <p className="text-xs text-[#475569]">
             Showcase your best balayage, cuts, skin glow treatments, and makeup sets to top salon owners.
           </p>
         </div>
@@ -359,7 +374,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
         {isEditable && (
           <button
             onClick={() => handleOpenModal('new')}
-            className="px-5 py-2.5 rounded-full bg-[#8e004b] hover:bg-[#b90064] text-white text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
+            className="px-5 py-2.5 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
           >
             <Camera className="w-4 h-4" />
             <span>+ Add Work Sample (Camera)</span>
@@ -375,8 +390,8 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
             onClick={() => setSelectedCategory(cat)}
             className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               selectedCategory === cat
-                ? 'bg-[#8e004b] text-white shadow-2xs'
-                : 'bg-white text-[#594047] hover:bg-[#ffd9e2]/40 border border-[#e0bec6]/40'
+                ? 'bg-[#4f46e5] text-white shadow-2xs'
+                : 'bg-white text-[#475569] hover:bg-[#ede9fe]/40 border border-[#cbd5e1]/40'
             }`}
           >
             {cat} {cat === 'All' ? `(${items.length})` : `(${items.filter(i => i.category === cat).length})`}
@@ -386,18 +401,18 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
 
       {/* Gallery Cards Grid */}
       {filteredItems.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-[#e0bec6] p-12 text-center space-y-3">
-          <div className="w-16 h-16 rounded-full bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center mx-auto">
+        <div className="bg-white rounded-2xl border border-dashed border-[#cbd5e1] p-12 text-center space-y-3">
+          <div className="w-16 h-16 rounded-full bg-[#ede9fe] text-[#4f46e5] flex items-center justify-center mx-auto">
             <Camera className="w-8 h-8" />
           </div>
-          <h4 className="text-base font-bold text-[#1c1b1b]">No work samples in this category</h4>
-          <p className="text-xs text-[#594047] max-w-sm mx-auto">
+          <h4 className="text-base font-bold text-[#0f172a]">No work samples in this category</h4>
+          <p className="text-xs text-[#475569] max-w-sm mx-auto">
             Snap a live photo of your client transformation using your camera to showcase your talent.
           </p>
           {isEditable && (
             <button
               onClick={() => handleOpenModal('new')}
-              className="mt-2 px-5 py-2 bg-[#e2007c] text-white text-xs font-bold rounded-full hover:bg-[#b90064]"
+              className="mt-2 px-5 py-2 bg-[#7c3aed] text-white text-xs font-bold rounded-full hover:bg-[#6d28d9]"
             >
               Take First Photo
             </button>
@@ -409,10 +424,10 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
             <div
               key={item.id}
               onClick={() => setLightboxItem(item)}
-              className="group bg-white rounded-2xl border border-[#e0bec6]/40 shadow-2xs hover:shadow-md transition-all overflow-hidden cursor-pointer flex flex-col relative"
+              className="group bg-white rounded-2xl border border-[#cbd5e1]/40 shadow-2xs hover:shadow-md transition-all overflow-hidden cursor-pointer flex flex-col relative"
             >
               {/* Photo Thumbnail Container */}
-              <div className="relative aspect-4/3 w-full bg-[#f1edec] overflow-hidden">
+              <div className="relative aspect-4/3 w-full bg-[#f1f5f9] overflow-hidden">
                 <img
                   src={displayImageUrl(item.imageUrl)}
                   alt={item.title}
@@ -439,7 +454,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                       e.stopPropagation();
                       setLightboxItem(item);
                     }}
-                    className="p-2.5 bg-white/90 text-[#1c1b1b] rounded-full hover:bg-white shadow-md transition-all"
+                    className="p-2.5 bg-white/90 text-[#0f172a] rounded-full hover:bg-white shadow-md transition-all"
                     title="View Fullsize"
                   >
                     <Maximize2 className="w-4 h-4" />
@@ -451,7 +466,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                         e.stopPropagation();
                         handleOpenModal(item);
                       }}
-                      className="px-3 py-2 bg-[#e2007c] text-white text-xs font-bold rounded-full hover:bg-[#b90064] shadow-md flex items-center gap-1.5 transition-all"
+                      className="px-3 py-2 bg-[#7c3aed] text-white text-xs font-bold rounded-full hover:bg-[#6d28d9] shadow-md flex items-center gap-1.5 transition-all"
                       title="Replace with Camera"
                     >
                       <Camera className="w-4 h-4" />
@@ -464,22 +479,22 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
               {/* Card Details */}
               <div className="p-4 flex-1 flex flex-col justify-between space-y-2">
                 <div>
-                  <h4 className="text-sm font-bold text-[#1c1b1b] line-clamp-1">{item.title}</h4>
+                  <h4 className="text-sm font-bold text-[#0f172a] line-clamp-1">{item.title}</h4>
                   {item.technique && (
-                    <p className="text-[11px] font-bold text-[#e2007c] flex items-center gap-1 mt-0.5">
+                    <p className="text-[11px] font-bold text-[#7c3aed] flex items-center gap-1 mt-0.5">
                       <Sparkles className="w-3 h-3 shrink-0" />
                       <span>{item.technique}</span>
                     </p>
                   )}
                   {item.description && (
-                    <p className="text-xs text-[#594047] line-clamp-2 mt-1 leading-relaxed">
+                    <p className="text-xs text-[#475569] line-clamp-2 mt-1 leading-relaxed">
                       {item.description}
                     </p>
                   )}
                 </div>
 
                 {/* Card Footer Actions */}
-                <div className="pt-2 border-t border-[#e0bec6]/30 flex items-center justify-between text-[10px] text-[#8c7077]">
+                <div className="pt-2 border-t border-[#cbd5e1]/30 flex items-center justify-between text-[10px] text-[#64748b]">
                   <span>{item.date || 'Recent Work'}</span>
 
                   {isEditable && (
@@ -489,7 +504,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                           e.stopPropagation();
                           handleOpenModal(item);
                         }}
-                        className="hover:text-[#8e004b] font-bold cursor-pointer flex items-center gap-1"
+                        className="hover:text-[#4f46e5] font-bold cursor-pointer flex items-center gap-1"
                       >
                         <Edit3 className="w-3 h-3" /> Edit / Replace
                       </button>
@@ -512,36 +527,36 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
       {/* CAMERA & EDIT MODAL */}
       {activeItemModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-[#e0bec6]/60 space-y-5 my-8">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-[#cbd5e1]/60 space-y-5 my-8">
             {/* Modal Header */}
-            <div className="flex justify-between items-center pb-3 border-b border-[#e0bec6]/30">
+            <div className="flex justify-between items-center pb-3 border-b border-[#cbd5e1]/30">
               <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-full bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center font-bold">
+                <div className="w-9 h-9 rounded-full bg-[#ede9fe] text-[#4f46e5] flex items-center justify-center font-bold">
                   <Camera className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-[#1c1b1b]">
+                  <h3 className="text-base font-bold text-[#0f172a]">
                     {activeItemModal === 'new' ? 'Add Beauty Work Photo' : 'Update Work Sample'}
                   </h3>
-                  <p className="text-[11px] text-[#594047]">
+                  <p className="text-[11px] text-[#475569]">
                     Use live camera, upload a photo, or choose a preset.
                   </p>
                 </div>
               </div>
               <button
                 onClick={handleCloseModal}
-                className="p-1.5 text-[#8c7077] hover:text-[#1c1b1b] rounded-full hover:bg-[#f1edec]"
+                className="p-1.5 text-[#64748b] hover:text-[#0f172a] rounded-full hover:bg-[#f1f5f9]"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Source Tabs */}
-            <div className="flex gap-2 p-1 bg-[#f1edec] rounded-2xl text-xs font-bold">
+            <div className="flex gap-2 p-1 bg-[#f1f5f9] rounded-2xl text-xs font-bold">
               <button
                 onClick={() => setModalTab('camera')}
                 className={`flex-1 py-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                  modalTab === 'camera' ? 'bg-[#8e004b] text-white shadow-xs' : 'text-[#594047]'
+                  modalTab === 'camera' ? 'bg-[#4f46e5] text-white shadow-xs' : 'text-[#475569]'
                 }`}
               >
                 <Camera className="w-3.5 h-3.5" /> Live Camera
@@ -549,7 +564,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
               <button
                 onClick={() => setModalTab('upload')}
                 className={`flex-1 py-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                  modalTab === 'upload' ? 'bg-[#8e004b] text-white shadow-xs' : 'text-[#594047]'
+                  modalTab === 'upload' ? 'bg-[#4f46e5] text-white shadow-xs' : 'text-[#475569]'
                 }`}
               >
                 <Upload className="w-3.5 h-3.5" /> Upload File
@@ -557,7 +572,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
               <button
                 onClick={() => setModalTab('presets')}
                 className={`flex-1 py-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                  modalTab === 'presets' ? 'bg-[#8e004b] text-white shadow-xs' : 'text-[#594047]'
+                  modalTab === 'presets' ? 'bg-[#4f46e5] text-white shadow-xs' : 'text-[#475569]'
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" /> Beauty Presets
@@ -567,7 +582,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
             {/* TAB CONTENT: CAMERA */}
             {modalTab === 'camera' && (
               <div className="space-y-3">
-                <div className="relative aspect-square w-full max-w-sm mx-auto bg-black rounded-2xl overflow-hidden shadow-inner flex items-center justify-center border-4 border-[#ffd9e2]">
+                <div className="relative aspect-square w-full max-w-sm mx-auto bg-black rounded-2xl overflow-hidden shadow-inner flex items-center justify-center border-4 border-[#ede9fe]">
                   {/* Simulated Ring Light Effect Overlay */}
                   {ringLight && isCameraActive && !previewImageUrl && (
                     <div className="absolute inset-0 border-[16px] border-white/20 rounded-2xl pointer-events-none ring-4 ring-white/40 animate-pulse" />
@@ -589,11 +604,11 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                     />
                   ) : (
                     <div className="text-center p-6 text-white space-y-2">
-                      <Camera className="w-10 h-10 mx-auto opacity-50 text-[#e2007c]" />
+                      <Camera className="w-10 h-10 mx-auto opacity-50 text-[#7c3aed]" />
                       <p className="text-xs">{cameraError || 'Camera stream offline.'}</p>
                       <button
                         onClick={startCamera}
-                        className="px-4 py-1.5 bg-[#e2007c] text-white text-xs font-bold rounded-full"
+                        className="px-4 py-1.5 bg-[#7c3aed] text-white text-xs font-bold rounded-full"
                       >
                         Start Camera
                       </button>
@@ -633,7 +648,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                         setPreviewImageUrl(null);
                         startCamera();
                       }}
-                      className="px-4 py-2 bg-[#f1edec] hover:bg-[#e0bec6]/50 text-[#8e004b] text-xs font-bold rounded-full flex items-center gap-1.5 cursor-pointer"
+                      className="px-4 py-2 bg-[#f1f5f9] hover:bg-[#cbd5e1]/50 text-[#4f46e5] text-xs font-bold rounded-full flex items-center gap-1.5 cursor-pointer"
                     >
                       <RotateCcw className="w-4 h-4" /> Retake Photo
                     </button>
@@ -641,7 +656,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                     <button
                       onClick={handleSnapPhoto}
                       disabled={!isCameraActive}
-                      className="px-6 py-2.5 bg-[#e2007c] hover:bg-[#b90064] disabled:opacity-50 text-white font-bold text-xs rounded-full shadow-lg flex items-center gap-2 cursor-pointer transition-transform active:scale-95"
+                      className="px-6 py-2.5 bg-[#7c3aed] hover:bg-[#6d28d9] disabled:opacity-50 text-white font-bold text-xs rounded-full shadow-lg flex items-center gap-2 cursor-pointer transition-transform active:scale-95"
                     >
                       <div className="w-3 h-3 rounded-full bg-white animate-ping" />
                       <span>Snap Photo Now</span>
@@ -656,11 +671,11 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
               <div className="space-y-3">
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-[#e0bec6] hover:border-[#e2007c] bg-[#fdf8f8] rounded-2xl p-8 text-center cursor-pointer transition-colors space-y-2"
+                  className="border-2 border-dashed border-[#cbd5e1] hover:border-[#7c3aed] bg-[#f8fafc] rounded-2xl p-8 text-center cursor-pointer transition-colors space-y-2"
                 >
-                  <Upload className="w-8 h-8 text-[#8e004b] mx-auto" />
-                  <p className="text-xs font-bold text-[#1c1b1b]">Click or drag & drop photo here</p>
-                  <p className="text-[10px] text-[#8c7077]">JPG, PNG, WEBP high-resolution photos</p>
+                  <Upload className="w-8 h-8 text-[#4f46e5] mx-auto" />
+                  <p className="text-xs font-bold text-[#0f172a]">Click or drag & drop photo here</p>
+                  <p className="text-[10px] text-[#64748b]">JPG, PNG, WEBP high-resolution photos</p>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -671,7 +686,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                 </div>
 
                 {previewImageUrl && (
-                  <div className="relative w-32 h-32 mx-auto rounded-xl overflow-hidden border border-[#e0bec6] shadow-sm">
+                  <div className="relative w-32 h-32 mx-auto rounded-xl overflow-hidden border border-[#cbd5e1] shadow-sm">
                     <img src={previewImageUrl} alt="Uploaded" className="w-full h-full object-cover" />
                   </div>
                 )}
@@ -692,13 +707,13 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                     }}
                     className={`group relative rounded-xl overflow-hidden border-2 text-left cursor-pointer transition-all aspect-square ${
                       previewImageUrl === preset.url
-                        ? 'border-[#e2007c] ring-2 ring-[#ffd9e2]'
-                        : 'border-[#e0bec6]/40 hover:border-[#e2007c]'
+                        ? 'border-[#7c3aed] ring-2 ring-[#ede9fe]'
+                        : 'border-[#cbd5e1]/40 hover:border-[#7c3aed]'
                     }`}
                   >
                     <img src={preset.url} alt={preset.title} className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent p-2 flex flex-col justify-end text-white">
-                      <span className="text-[9px] font-bold text-[#ffd9e2]">{preset.category}</span>
+                      <span className="text-[9px] font-bold text-[#ede9fe]">{preset.category}</span>
                       <span className="text-[10px] font-bold line-clamp-1">{preset.title}</span>
                     </div>
                   </button>
@@ -707,10 +722,10 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
             )}
 
             {/* Form Fields for Title, Category, Technique, Description */}
-            <div className="space-y-3 pt-2 border-t border-[#e0bec6]/30">
+            <div className="space-y-3 pt-2 border-t border-[#cbd5e1]/30">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-[#1c1b1b] mb-1">
+                  <label className="block text-xs font-bold text-[#0f172a] mb-1">
                     Title / Transformation
                   </label>
                   <input
@@ -718,16 +733,16 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                     placeholder="e.g. Dimensional Blonde Balayage"
                     value={titleInput}
                     onChange={(e) => setTitleInput(e.target.value)}
-                    className="w-full p-2.5 bg-[#f1edec] rounded-xl border border-[#e0bec6]/60 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#e2007c]/30"
+                    className="w-full p-2.5 bg-[#f1f5f9] rounded-xl border border-[#cbd5e1]/60 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/30"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-[#1c1b1b] mb-1">Category</label>
+                  <label className="block text-xs font-bold text-[#0f172a] mb-1">Category</label>
                   <select
                     value={categoryInput}
                     onChange={(e) => setCategoryInput(e.target.value as any)}
-                    className="w-full p-2.5 bg-[#f1edec] rounded-xl border border-[#e0bec6]/60 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#e2007c]/30"
+                    className="w-full p-2.5 bg-[#f1f5f9] rounded-xl border border-[#cbd5e1]/60 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/30"
                   >
                     <option value="Hair">Hair (Color/Cut/Style)</option>
                     <option value="Skin">Skin (Facials/Aesthetics)</option>
@@ -740,7 +755,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-[#1c1b1b] mb-1">
+                <label className="block text-xs font-bold text-[#0f172a] mb-1">
                   Technique / Products Used
                 </label>
                 <input
@@ -748,12 +763,12 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                   placeholder="e.g. Freehand foilayage + Olaplex Bond Repair"
                   value={techniqueInput}
                   onChange={(e) => setTechniqueInput(e.target.value)}
-                  className="w-full p-2.5 bg-[#f1edec] rounded-xl border border-[#e0bec6]/60 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#e2007c]/30"
+                  className="w-full p-2.5 bg-[#f1f5f9] rounded-xl border border-[#cbd5e1]/60 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/30"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-[#1c1b1b] mb-1">
+                <label className="block text-xs font-bold text-[#0f172a] mb-1">
                   Stylist Notes / Formula
                 </label>
                 <textarea
@@ -761,7 +776,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                   placeholder="Describe the consultation, client request, or color formula..."
                   value={descriptionInput}
                   onChange={(e) => setDescriptionInput(e.target.value)}
-                  className="w-full p-2.5 bg-[#f1edec] rounded-xl border border-[#e0bec6]/60 text-xs focus:outline-none focus:ring-2 focus:ring-[#e2007c]/30"
+                  className="w-full p-2.5 bg-[#f1f5f9] rounded-xl border border-[#cbd5e1]/60 text-xs focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/30"
                 />
               </div>
             </div>
@@ -772,17 +787,17 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                 {saveError}
               </p>
             )}
-            <div className="flex justify-end gap-2 pt-2 border-t border-[#e0bec6]/30">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#cbd5e1]/30">
               <button
                 onClick={handleCloseModal}
-                className="px-4 py-2 rounded-full border border-[#e0bec6] text-xs font-bold text-[#594047] hover:bg-[#f1edec]"
+                className="px-4 py-2 rounded-full border border-[#cbd5e1] text-xs font-bold text-[#475569] hover:bg-[#f1f5f9]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSavePortfolioItem}
                 disabled={isSavingItem}
-                className="px-6 py-2 rounded-full bg-[#8e004b] text-white text-xs font-bold hover:bg-[#b90064] shadow-md flex items-center gap-1.5 disabled:opacity-60"
+                className="px-6 py-2 rounded-full bg-[#4f46e5] text-white text-xs font-bold hover:bg-[#6d28d9] shadow-md flex items-center gap-1.5 disabled:opacity-60"
               >
                 <Check className="w-4 h-4" /> {isSavingItem ? 'Saving…' : 'Save to Portfolio'}
               </button>
@@ -812,32 +827,32 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
 
             <div className="md:w-1/2 p-6 flex flex-col justify-between space-y-4">
               <div>
-                <span className="px-3 py-1 bg-[#ffd9e2] text-[#8e004b] text-[10px] font-extrabold uppercase rounded-full">
+                <span className="px-3 py-1 bg-[#ede9fe] text-[#4f46e5] text-[10px] font-extrabold uppercase rounded-full">
                   {lightboxItem.category}
                 </span>
-                <h3 className="text-xl font-bold text-[#1c1b1b] mt-2">{lightboxItem.title}</h3>
+                <h3 className="text-xl font-bold text-[#0f172a] mt-2">{lightboxItem.title}</h3>
 
                 {lightboxItem.technique && (
-                  <p className="text-xs font-bold text-[#e2007c] flex items-center gap-1 mt-1">
+                  <p className="text-xs font-bold text-[#7c3aed] flex items-center gap-1 mt-1">
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>{lightboxItem.technique}</span>
                   </p>
                 )}
 
-                <p className="text-xs text-[#594047] leading-relaxed mt-3">
+                <p className="text-xs text-[#475569] leading-relaxed mt-3">
                   {lightboxItem.description || 'No detailed formula notes specified.'}
                 </p>
               </div>
 
               {isEditable && (
-                <div className="pt-4 border-t border-[#e0bec6]/40 flex gap-2">
+                <div className="pt-4 border-t border-[#cbd5e1]/40 flex gap-2">
                   <button
                     onClick={() => {
                       const itemToEdit = lightboxItem;
                       setLightboxItem(null);
                       handleOpenModal(itemToEdit);
                     }}
-                    className="flex-1 py-2 bg-[#e2007c] text-white text-xs font-bold rounded-full hover:bg-[#b90064] flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 bg-[#7c3aed] text-white text-xs font-bold rounded-full hover:bg-[#6d28d9] flex items-center justify-center gap-1.5"
                   >
                     <Camera className="w-4 h-4" /> Replace Photo with Camera
                   </button>

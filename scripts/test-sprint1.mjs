@@ -148,7 +148,8 @@ check('data url decodes to bytes', blob.size === 5 && blob.type === 'image/png')
 /* 3. Backend error codes (Sprint 1 additions)                         */
 /* ------------------------------------------------------------------ */
 
-check('profile-incomplete maps friendly', mapBackendError(new Error('PROFILE_INCOMPLETE')).includes('50%'));
+check('profile-incomplete maps to the candidate profile gate',
+  mapBackendError(new Error('PROFILE_INCOMPLETE')) === 'Please complete your candidate profile before applying.');
 check('interview transition maps friendly', mapBackendError(new Error('INVALID_INTERVIEW_TRANSITION')).includes('no longer'));
 check('salon-not-found maps friendly', mapBackendError(new Error('SALON_NOT_FOUND')).includes('search results'));
 check('raw sql still hidden', mapBackendError(new Error('violates check constraint "x" on relation "y"'), 'Fallback.') === 'Fallback.');

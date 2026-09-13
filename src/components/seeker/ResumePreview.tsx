@@ -34,16 +34,16 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl border border-[#e0bec6]/60 space-y-6 max-h-[95vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl border border-[#cbd5e1]/60 space-y-6 max-h-[95vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-[#e0bec6]/30 pb-4 flex-shrink-0">
+        <div className="flex items-center justify-between border-b border-[#cbd5e1]/30 pb-4 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-[#ede9fe] text-[#4f46e5] flex items-center justify-center">
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-[#1c1b1b]">Resume PDF & Document Viewer</h3>
-              <p className="text-xs text-[#594047]">{resumeFileName}</p>
+              <h3 className="text-base font-bold text-[#0f172a]">Resume PDF & Document Viewer</h3>
+              <p className="text-xs text-[#475569]">{resumeFileName}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -52,7 +52,7 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({
             </span>
             <button
               onClick={onClose}
-              className="w-8 h-8 rounded-full bg-[#f1edec] hover:bg-[#e6e1e1] text-[#1c1b1b] flex items-center justify-center transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-full bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#0f172a] flex items-center justify-center transition-colors cursor-pointer"
               aria-label="Close preview"
             >
               <X className="w-4 h-4" />
@@ -61,7 +61,7 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({
         </div>
 
         {/* PDF Viewer Container using iframe / object */}
-        <div className="flex-1 min-h-[450px] bg-[#f1edec] rounded-2xl border border-[#e0bec6]/60 overflow-hidden relative flex flex-col">
+        <div className="flex-1 min-h-[450px] bg-[#f1f5f9] rounded-2xl border border-[#cbd5e1]/60 overflow-hidden relative flex flex-col">
           {resumeFileUrl ? (
             <iframe
               src={resumeFileUrl}
@@ -69,37 +69,37 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({
               className="w-full h-[500px] border-none bg-white"
             />
           ) : (
-            <div className="flex-1 flex flex-col bg-white p-6 sm:p-10 overflow-y-auto shadow-inner space-y-6 text-[#1c1b1b]">
+            <div className="flex-1 flex flex-col bg-white p-6 sm:p-10 overflow-y-auto shadow-inner space-y-6 text-[#0f172a]">
               {/* Document Header */}
-              <div className="border-b border-[#e0bec6]/40 pb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div className="border-b border-[#cbd5e1]/40 pb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                  <h1 className="text-2xl font-bold text-[#8e004b]">{userName}</h1>
-                  <p className="text-sm font-semibold text-[#1c1b1b] mt-1">{userRole}</p>
-                  <div className="flex flex-wrap gap-4 text-xs text-[#594047] mt-3">
+                  <h1 className="text-2xl font-bold text-[#4f46e5]">{userName}</h1>
+                  <p className="text-sm font-semibold text-[#0f172a] mt-1">{userRole}</p>
+                  <div className="flex flex-wrap gap-4 text-xs text-[#475569] mt-3">
                     <span>📍 {userLocation}</span>
                     <span>✉️ {userEmail}</span>
                     <span>📞 {userPhone}</span>
                   </div>
                 </div>
-                <div className="bg-[#ffd9e2] text-[#8e004b] px-3 py-1.5 rounded-xl text-xs font-bold border border-[#e0bec6]">
+                <div className="bg-[#ede9fe] text-[#4f46e5] px-3 py-1.5 rounded-xl text-xs font-bold border border-[#cbd5e1]">
                   {resumeFileName}
                 </div>
               </div>
 
               {/* Summary */}
               <div className="space-y-2">
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#8e004b]">Professional Summary</h4>
-                <p className="text-xs text-[#594047] leading-relaxed">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#4f46e5]">Professional Summary</h4>
+                <p className="text-xs text-[#475569] leading-relaxed">
                   {userBio}
                 </p>
               </div>
 
               {/* Skills */}
               <div className="space-y-2">
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#8e004b]">Core Skills</h4>
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#4f46e5]">Core Skills</h4>
                 <div className="flex flex-wrap gap-2">
                   {userSkills.map((skill, i) => (
-                    <span key={i} className="bg-[#ffd9e2] text-[#8e004b] text-[11px] font-bold px-2.5 py-1 rounded-lg">
+                    <span key={i} className="bg-[#ede9fe] text-[#4f46e5] text-[11px] font-bold px-2.5 py-1 rounded-lg">
                       {skill}
                     </span>
                   ))}
@@ -108,28 +108,28 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({
 
               {/* Experience Highlights */}
               <div className="space-y-3">
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#8e004b]">Experience Highlights</h4>
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#4f46e5]">Experience Highlights</h4>
                 <div className="space-y-2.5 text-xs">
-                  <div className="bg-[#fdf8f8] p-3.5 rounded-xl border border-[#e0bec6]/40">
-                    <div className="flex justify-between font-bold text-[#1c1b1b]">
+                  <div className="bg-[#f8fafc] p-3.5 rounded-xl border border-[#cbd5e1]/40">
+                    <div className="flex justify-between font-bold text-[#0f172a]">
                       <span>Lead Beauty Stylist & Consultant</span>
-                      <span className="text-[#8e004b]">2023 - Present</span>
+                      <span className="text-[#4f46e5]">2023 - Present</span>
                     </div>
-                    <p className="text-[#594047] text-[11px]">Vogue Luxury Salon • New York, NY</p>
-                    <p className="text-[#594047] text-[11px] mt-1">Delivered premium bridal styling, skincare treatments, and managed client relations for VIP accounts.</p>
+                    <p className="text-[#475569] text-[11px]">Vogue Luxury Salon • New York, NY</p>
+                    <p className="text-[#475569] text-[11px] mt-1">Delivered premium bridal styling, skincare treatments, and managed client relations for VIP accounts.</p>
                   </div>
                 </div>
               </div>
 
               {/* Embedded object element demonstration */}
-              <div className="pt-4 border-t border-[#e0bec6]/30 flex flex-col items-center justify-center bg-[#fdf8f8] p-4 rounded-xl">
-                <p className="text-[11px] text-[#594047] mb-2">Embedded PDF / Object Node Render Active</p>
+              <div className="pt-4 border-t border-[#cbd5e1]/30 flex flex-col items-center justify-center bg-[#f8fafc] p-4 rounded-xl">
+                <p className="text-[11px] text-[#475569] mb-2">Embedded PDF / Object Node Render Active</p>
                 <object
                   data={resumeFileUrl || `#`}
                   type="application/pdf"
                   className="w-full h-12 opacity-60 pointer-events-none"
                 >
-                  <span className="text-[11px] text-[#8c7077]">PDF Object container ready for download & verification</span>
+                  <span className="text-[11px] text-[#64748b]">PDF Object container ready for download & verification</span>
                 </object>
               </div>
             </div>
@@ -138,7 +138,7 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({
 
         {/* Modal Footer */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 flex-shrink-0">
-          <div className="text-xs text-[#594047] flex items-center gap-1.5">
+          <div className="text-xs text-[#475569] flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
             <span>Document verified and ready for automatic attachment on applications</span>
           </div>
@@ -168,14 +168,14 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({
                   URL.revokeObjectURL(url);
                 }
               }}
-              className="px-4 py-2.5 bg-[#f1edec] hover:bg-[#e6e1e1] text-[#1c1b1b] text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+              className="px-4 py-2.5 bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#0f172a] text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
             >
-              <Download className="w-4 h-4 text-[#8e004b]" />
+              <Download className="w-4 h-4 text-[#4f46e5]" />
               <span>Download PDF</span>
             </button>
             <button
               onClick={onClose}
-              className="px-5 py-2.5 bg-[#8e004b] hover:bg-[#b90064] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              className="px-5 py-2.5 bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
             >
               Close Preview
             </button>

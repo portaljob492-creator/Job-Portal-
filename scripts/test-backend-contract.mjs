@@ -51,8 +51,8 @@ const signatures = {};
 const finalFunctionBody = {};
 // Bodies may be quoted with $$ or a tagged delimiter such as $fn$; the tag is
 // captured so the regex cannot stop at the wrong place.
-for (const match of sql.matchAll(/create or replace function public\.([a-z_]+)\s*\((.*?)\)\s*returns.*?\$([a-z_]*)\$(.*?)\$\3\$;/gis)) {
-  const [, name, params, body] = match;
+for (const match of sql.matchAll(/create(?: or replace)? function public\.([a-z_]+)\s*\((.*?)\)\s*returns.*?\$([a-z_]*)\$(.*?)\$\3\$/gis)) {
+  const [, name, params, , body] = match;
   signatures[name] = signatures[name] || new Set();
   finalFunctionBody[name] = body;
   for (const arg of params.matchAll(/(?:^|,)\s*(p_[a-z_]+|target_[a-z_]+)\s+[a-z]/gi)) {
@@ -128,7 +128,10 @@ for (const arrayMatch of sql.matchAll(/foreach table_name in array array\[(.*?)\
 const tablesWithoutRls = createdTables.filter((name) => !rlsTables.has(name));
 check('every job table enables row level security', tablesWithoutRls.length === 0, tablesWithoutRls.join(', '));
 
-const bucketRows = [...sql.matchAll(/\('([a-z-]+)',\s*'[a-z-]+',\s*(true|false),/g)].map((m) => ({ id: m[1], public: m[2] }));
+const bucketRows = Object.values(Object.fromEntries(
+  [...sql.matchAll(/\('([a-z-]+)',\s*'[a-z-]+',\s*(true|false),/g)]
+    .map((m) => [m[1], { id: m[1], public: m[2] }]),
+));
 check('storage buckets declared', bucketRows.length === 7, bucketRows.map((b) => b.id).join(', '));
 const publicBuckets = bucketRows.filter((b) => b.public === 'true').map((b) => b.id);
 check('only salon-public-media is a public bucket',
@@ -218,6 +221,85 @@ check('the employer dashboard exposes the lifecycle actions',
   /onJobAction/.test(read('src/components/employer/EmployerWorkspace.tsx'))
   && /'submit' \| 'pause' \| 'resume' \| 'close'/.test(read('src/services/backend.ts')));
 
+const seekerWorkspace = read('src/components/seeker/JobSeekerWorkspace.tsx');
+const postJobWizard = read('src/components/employer/PostJobWizard.tsx');
+check('Post a Job exposes every requested employer field',
+  ['Job Title', 'Business / Salon Name', 'Category', 'Job Role', 'Job Description', 'Skills Required',
+    'Experience Required', 'Salary Range', 'Job Type', 'Work Location', 'City', 'Area', 'Contact Person',
+    'Contact Mobile', 'WhatsApp Number', 'Number of Openings', 'Interview Mode', 'Status: Draft / Published']
+    .every((label) => postJobWizard.includes(label)));
+check('Post a Job waits for persistence and renders the requested confirmation',
+  postJobWizard.includes('await onComplete({')
+  && postJobWizard.includes('aria-busy={isSubmitting}')
+  && ['Your job post has been published successfully.', 'Job Status', 'Posted Date',
+    'View My Job Posts', 'Post Another Job', 'View Applications']
+    .every((label) => postJobWizard.includes(label)));
+check('Post a Job uses the authenticated ownership and shop-linked RPC',
+  read('src/services/backend.ts').includes("rpc('post_employer_job'")
+  && /created_by[\s\S]*actor/.test(finalFunctionBody.post_employer_job || '')
+  && /shop_id[\s\S]*p_salon_id/.test(finalFunctionBody.post_employer_job || '')
+  && /job_is_active_salon_member/.test(finalFunctionBody.post_employer_job || ''));
+const employerWorkspace = read('src/components/employer/EmployerWorkspace.tsx');
+check('My Job Posts cards expose the requested status, details, counts and actions',
+  ['My Job Posts', 'Status:', 'Published', 'Draft', 'Closed', 'Location', 'Salary', 'Posted Date',
+    'Total Applications', 'New Applications', 'Edit Job', 'Close Job', 'View Applications']
+    .every((label) => employerWorkspace.includes(label)));
+check('My Job Posts has the exact empty state and Post a Job action',
+  employerWorkspace.includes('You have not posted any job yet.')
+  && employerWorkspace.includes('Post a Job'));
+check('My Job Posts reads only jobs created by the authenticated employer',
+  /\.eq\('created_by', user\.id\)/.test(read('src/services/backend.ts')));
+check('Edit Job is persisted through an actor-owned server RPC',
+  read('src/services/backend.ts').includes("rpc('update_employer_job'")
+  && /existing\.created_by<>actor/.test(finalFunctionBody.update_employer_job || '')
+  && /job_is_active_salon_member/.test(finalFunctionBody.update_employer_job || ''));
+check('Applications Received cards expose all requested candidate details',
+  ['Applications Received', 'Candidate Name', 'Profile Image', 'Mobile / Email', 'Experience', 'Skills',
+    'Preferred Location', 'Resume Download', 'Application Status', 'Applied Date']
+    .every((label) => employerWorkspace.includes(label)));
+check('Applications Received exposes every requested employer action',
+  ['Mark Under Review', 'Shortlist', 'Reject', 'Hire', 'WhatsApp Candidate', 'Call Candidate']
+    .every((label) => employerWorkspace.includes(label)));
+check('employer application status UI awaits secured Supabase persistence',
+  /await onUpdateApplicantStatus\(applicant\.id, status\)/.test(employerWorkspace)
+  && /if \(currentUserId\) await updateApplicationStatus/.test(read('src/App.tsx')));
+check('employer applications RPC is actor-scoped and returns selected resume metadata',
+  read('src/services/backend.ts').includes("rpc('get_employer_job_applications'")
+  && /j\.created_by=actor/.test(finalFunctionBody.get_employer_job_applications || '')
+  && /resume_storage_path/.test(sql));
+check('My Applications renders the requested job and application fields',
+  ['My Applications', 'Salary Range', 'Job Type', 'Applied Date', 'View Job', 'Withdraw Application']
+    .every((label) => seekerWorkspace.includes(label)));
+check('My Applications has the required empty state and search action',
+  seekerWorkspace.includes('You have not applied for any job yet.')
+  && seekerWorkspace.includes('Search Jobs'));
+check('application withdrawal is wired through the secured RPC',
+  seekerWorkspace.includes('onWithdrawApplication')
+  && read('src/services/backend.ts').includes("rpc('withdraw_application'")
+  && /function public\.withdraw_application\s*\(/.test(sql));
+check('candidate application statuses cover each requested hiring stage',
+  ['Applied', 'Under Review', 'Shortlisted', 'Rejected', 'Hired']
+    .every((status) => read('src/types.ts').includes(`'${status}'`)));
+check('job search exposes every requested filter',
+  ['Job Title', 'Category', 'City / Area', 'Salary Range', 'Experience', 'Employment Type', 'Nearby jobs', 'Latest jobs']
+    .every((label) => seekerWorkspace.includes(label)));
+check('job search cards expose required details and already-applied actions',
+  ['Experience Required', 'Job Type', 'Posted ', 'Apply Now', 'Already Applied', 'View Application']
+    .every((label) => seekerWorkspace.includes(label)));
+check('job search enforces the exact profile gate before submitting',
+  seekerWorkspace.includes('Please complete your candidate profile before applying.')
+  && seekerWorkspace.includes('onRequireLogin')
+  && seekerWorkspace.includes("await onApplyJob(job, '')"));
+check('job search success confirmation exposes the requested data and actions',
+  ['Application submitted successfully.', 'Job Title', 'Salon Name', 'Applied Date', 'View My Applications', 'Continue Searching']
+    .every((label) => seekerWorkspace.includes(label)));
+check('duplicate applications remain protected in both UI and database',
+  /applications\.some\(\(application\) => application\.jobId === job\.id\)/.test(seekerWorkspace)
+  && /unique \(job_id, candidate_user_id\)/.test(sql));
+check('application RPC independently enforces candidate profile completion',
+  /profile_completion\s*<\s*50/.test(finalFunctionBody.submit_job_application || '')
+  && /PROFILE_INCOMPLETE/.test(finalFunctionBody.submit_job_application || ''));
+
 // Candidate search must be reachable through the RPC and the search text must be
 // indexed, not scanned.
 check('candidate search uses full-text search',
@@ -236,13 +318,107 @@ for (const [name, body] of Object.entries(finalFunctionBody)) {
 }
 check('every procedure carries a server-side authorization guard', guardless.length === 0, guardless.join(', '));
 
-// Writes into the marketplace go through RPCs: no client insert policy may
-// exist for membership, plan enablement or postings.
-for (const table of ['job_salon_members', 'job_salon_profiles', 'job_posts']) {
+// Membership and plan enablement remain RPC-only. Existing salon team job-post
+// workflows stay active, admin authority remains job_is_admin(), and immutable
+// ownership columns prevent members from moving posts between users or salons.
+for (const table of ['job_salon_members', 'job_salon_profiles']) {
   const policyBlocks = [...sql.matchAll(new RegExp(`create policy [a-z_]+ on public\\.${table}\\b[\\s\\S]*?;`, 'g'))];
   const insertPolicies = policyBlocks.filter((block) => /for insert|for all/i.test(block[0]));
   check(`no client insert policy on ${table}`, insertPolicies.length === 0, `${insertPolicies.length} found`);
 }
+check('job post RLS preserves team workflows and adds active-admin CRUD',
+  /create policy job_posts_read[\s\S]*job_my_active_salon_ids/.test(sql)
+  && /create policy job_posts_member_update[\s\S]*job_is_active_salon_member\(salon_id\)/.test(sql)
+  && /create policy job_posts_member_delete_draft[\s\S]*job_is_active_salon_member\(salon_id\)/.test(sql)
+  && ['select','insert','update','delete'].every((operation) =>
+    new RegExp(`create policy job_posts_reconcile_admin_${operation}[\\s\\S]*job_is_admin\\(\\)`).test(sql)));
+check('application RLS includes self-insert, salon-team status update, and admin management',
+  /create policy job_applications_reconcile_candidate_insert[\s\S]*candidate_user_id=\(select auth\.uid\(\)\)/.test(sql)
+  && /create policy job_applications_reconcile_manager_status[\s\S]*job_my_active_salon_ids/.test(sql)
+  && /create policy job_applications_reconcile_admin_update[\s\S]*job_is_admin\(\)/.test(sql));
+check('offer documents use candidate/team reads and manager-admin writes',
+  /create policy job_offer_related_read[\s\S]*job_can_read_offer_media/.test(sql)
+  && /create policy job_offer_authorized_insert[\s\S]*job_can_manage_offer_media/.test(sql)
+  && /create policy job_offer_authorized_delete[\s\S]*job_can_manage_offer_media/.test(sql));
+check('employer portfolio view uses an application-scoped team-aware RPC',
+  /function public\.job_get_applicant_portfolio\(target_application_id uuid\)/.test(sql)
+  && /job_can_manage_application\(target_application_id\)/.test(sql)
+  && /rpc\('job_get_applicant_portfolio', \{ target_application_id: applicationId \}\)/.test(read('src/services/backend.ts')));
+
+// Authority hardening remains server-enforced and the UI uses only the guarded
+// transactional entry points for deletion/profile/resume workflows.
+const backendService = read('src/services/backend.ts');
+const appSource = read('src/App.tsx');
+const avatarUploader = read('src/components/profile/ProfileImageUploader.tsx');
+check('application trigger derives candidate identity and owner from relationships',
+  /job_reconcile_application_insert/.test(sql)
+  && /new\.candidate_user_id:=actor/.test(sql)
+  && /new\.candidate_profile_id:=seeker_id/.test(sql)
+  && /new\.candidate_id:=candidate_record_id/.test(sql)
+  && /new\.owner_id:=post_owner/.test(sql));
+check('application and post ownership references are immutable',
+  /IMMUTABLE_APPLICATION_OWNERSHIP/.test(sql) && /IMMUTABLE_JOB_OWNERSHIP/.test(sql));
+check('duplicate applications have a non-destructive admin report',
+  /job_application_duplicate_report/.test(sql)
+  && /having count\(\*\)>1/.test(sql)
+  && /no rows (?:were )?deleted/i.test(sql));
+check('job deletion is salon-authorized, application-guarded, and wired to the employer UI',
+  /create(?: or replace)? function public\.delete_employer_job/.test(sql)
+  && /job_is_active_salon_member\(post\.salon_id\)/.test(finalFunctionBody.delete_employer_job || '')
+  && /JOB_HAS_APPLICATIONS/.test(finalFunctionBody.delete_employer_job || '')
+  && backendService.includes("rpc('delete_employer_job'")
+  && appSource.includes('onDeleteJob={handleDeleteJob}'));
+check('employer profile persistence is one authenticated transaction',
+  /create(?: or replace)? function public\.job_update_employer_profile/.test(sql)
+  && backendService.includes("rpc('job_update_employer_profile'")
+  && /await updateEmployerProfile/.test(appSource));
+check('resume creation and primary selection use atomic RPCs',
+  backendService.includes("rpc('job_create_candidate_resume'")
+  && backendService.includes("rpc('job_set_primary_resume'")
+  && /update public\.job_candidate_resumes set is_primary=false/.test(sql));
+check('avatar replacement waits for profile persistence before old-object cleanup',
+  /await onSaveAvatar\(value\)/.test(avatarUploader)
+  && avatarUploader.indexOf('await onSaveAvatar(value)') < avatarUploader.indexOf('await removeReplacedStorageAvatar'));
+check('apply flow reports and retries resume loading failures',
+  /resumeLoadError/.test(read('src/components/seeker/ApplyJobScreen.tsx'))
+  && /Retry resume loading/.test(read('src/components/seeker/ApplyJobScreen.tsx')));
+check('interview and offer screens use returned workflow details instead of fabricated fixtures',
+  /interviewMeetingUrl/.test(backendService) && /offerJoiningDate/.test(backendService)
+  && !/mock-app|zoom\.us\/j\/1234567890|Lumière Studio|Nov 15, 2026/.test(
+    read('src/components/seeker/InterviewInvitationScreen.tsx')
+      + read('src/components/seeker/JobOfferScreen.tsx'),
+  ));
+check('candidate signup starts empty and requires explicit terms consent',
+  /useState\(''\)/.test(read('src/components/auth/JobSeekerSignupScreen.tsx'))
+  && /useState\(false\)/.test(read('src/components/auth/JobSeekerSignupScreen.tsx')));
+check('salary analytics derives from loaded jobs and disclaims market estimates',
+  /filteredJobs/.test(read('src/components/employer/RegionalSalaryAnalytics.tsx'))
+  && /no estimated market data/i.test(read('src/components/employer/RegionalSalaryAnalytics.tsx')));
+
+// Jobs UI remains a light, mobile-first SaaS surface without changing its
+// information architecture: the contract checks palette, loaders and states.
+const indexCss = read('src/index.css');
+const jobsSkeleton = read('src/components/ui/JobsSkeleton.tsx');
+check('Jobs uses the Nexora blue-purple light palette',
+  indexCss.includes('--color-primary: #4f46e5')
+  && indexCss.includes('--color-secondary-container: #7c3aed')
+  && indexCss.includes('--color-background: #f8fafc')
+  && !/#8e004b|#e2007c|#fdf8f8/i.test(frontendSources));
+check('workspace and inline loaders render accessible white-card skeletons',
+  /JobsWorkspaceSkeleton/.test(appSource)
+  && /role="status"/.test(jobsSkeleton)
+  && /animate-pulse/.test(jobsSkeleton)
+  && /rounded-3xl[\s\S]*border[\s\S]*bg-white/.test(jobsSkeleton)
+  && /JobsInlineSkeleton/.test(read('src/components/seeker/ApplyJobScreen.tsx'))
+  && /JobsInlineSkeleton/.test(employerWorkspace));
+check('existing mobile sticky bottom navigation remains in Jobs flows',
+  /fixed bottom-0[\s\S]*md:hidden/.test(read('src/components/seeker/InterviewInvitationScreen.tsx'))
+  && /md:hidden fixed bottom-0/.test(employerWorkspace));
+check('Jobs exposes confirmation, empty, error and retry states',
+  /Application submitted successfully/.test(seekerWorkspace)
+  && /No applications received for this job yet/.test(employerWorkspace)
+  && /role="alert"/.test(employerWorkspace)
+  && /Retry/.test(employerWorkspace));
 
 // ---------------------------------------------------------------------------
 // 4. Schema integrity guarantees

@@ -247,8 +247,12 @@ export const INITIAL_APPLICATIONS: Application[] = [
     salonName: 'Luxe & Co Salon',
     salonLogo: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=120&h=120',
     location: 'Beverly Hills, CA',
+    salaryRange: INITIAL_JOBS[0].salary,
+    jobType: INITIAL_JOBS[0].jobType,
+    job: INITIAL_JOBS[0],
     appliedDate: 'Yesterday',
     status: 'Interview Scheduled',
+    applicationStatus: 'Shortlisted',
     notes: 'Interview scheduled for Tuesday at 2:00 PM PST with Salon Manager Sarah.',
     interviewDate: 'Tue, Aug 12 • 2:00 PM'
   },
@@ -259,8 +263,12 @@ export const INITIAL_APPLICATIONS: Application[] = [
     salonName: 'Velvet Lash Bar',
     salonLogo: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&q=80&w=120&h=120',
     location: 'Austin, TX',
+    salaryRange: INITIAL_JOBS[2].salary,
+    jobType: INITIAL_JOBS[2].jobType,
+    job: INITIAL_JOBS[2],
     appliedDate: '3 days ago',
     status: 'Under Review',
+    applicationStatus: 'Under Review',
     notes: 'Portfolio received by hiring team. Currently reviewing lash extension samples.'
   }
 ];

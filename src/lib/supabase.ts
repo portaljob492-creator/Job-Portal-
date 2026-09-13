@@ -67,11 +67,16 @@ export function isValidSupabaseAnonKey(key: string | undefined): boolean {
   ) {
     return false;
   }
-  // New-style Supabase publishable keys are not JWTs but are equally usable
-  // as the client credential (the diagnostics below report them separately).
+  // New-style publishable keys are browser-safe. Secret keys are deliberately
+  // rejected even if somebody accidentally puts one in VITE_SUPABASE_ANON_KEY.
   if (/^sb_publishable_[A-Za-z0-9_-]+$/.test(trimmed)) return true;
+  if (/^sb_secret_/i.test(trimmed)) return false;
+
+  // Legacy browser keys are JWTs whose payload role is exactly `anon`. Merely
+  // looking JWT-shaped is not enough: accepting a service_role JWT here would
+  // put an RLS-bypassing credential into the browser bundle.
   const parts = trimmed.split('.');
-  return parts.length === 3 && trimmed.startsWith('eyJ');
+  return parts.length === 3 && trimmed.startsWith('eyJ') && decodeJwtPayloadRole(trimmed) === 'anon';
 }
 
 const rawSupabaseUrl = readEnvValue(env.VITE_SUPABASE_URL);
@@ -314,6 +319,7 @@ export interface SupabaseDiagnosticsReport {
     maskedPreview: string;
     looksLikeJwt: boolean;
     looksLikePublishableKey: boolean;
+    looksLikeSecretKey: boolean;
     payloadRole: string | null;
   };
   isSupabaseConfigured: boolean;
@@ -397,16 +403,12 @@ export function diagnoseSupabaseEnv(): SupabaseDiagnosticsReport {
   const keyIsPlaceholder = keyPresent && pickedAnonKey.source === 'none';
   const looksLikeJwt = hasUsableAnonKey && effectiveSupabaseAnonKey.split('.').length === 3;
   const looksLikePublishableKey =
-    hasUsableAnonKey &&
-    /^(sb_publishable_|sb_secret_|sb_)/.test(effectiveSupabaseAnonKey) &&
-    effectiveSupabaseAnonKey.length >= 20;
+    hasUsableAnonKey && /^sb_publishable_[A-Za-z0-9_-]+$/.test(effectiveSupabaseAnonKey);
+  const looksLikeSecretKey = hasUsableAnonKey && /^sb_secret_/i.test(effectiveSupabaseAnonKey);
   const payloadRole = hasUsableAnonKey ? decodeJwtPayloadRole(effectiveSupabaseAnonKey) : null;
-  // Legacy anon keys are JWTs (role `anon`); newer publishable keys are `sb_*`.
-  // Accept either shape here — the live `auth.getSession()` probe confirms usability.
-  const keyValidShape =
-    hasUsableAnonKey &&
-    effectiveSupabaseAnonKey.length >= 20 &&
-    (looksLikePublishableKey || looksLikeJwt);
+  // Use the exact client-initialization validator here as well, so diagnostics
+  // can never label an sb_secret_* key or service_role JWT as browser-safe.
+  const keyValidShape = isValidSupabaseAnonKey(effectiveSupabaseAnonKey);
 
   // Attempt a throwaway client init with the exact same inputs, so the report
   // proves initialization works instead of only reporting env presence.
@@ -440,9 +442,11 @@ export function diagnoseSupabaseEnv(): SupabaseDiagnosticsReport {
     ? 'MISSING in every layer — Supabase client cannot initialize'
     : keyIsPlaceholder
       ? 'PLACEHOLDER in every layer — Supabase client cannot initialize'
-      : keyValidShape
-        ? `present and valid shape (source: ${sourceLabel(pickedAnonKey.source)})${payloadRole ? ` — JWT role=${payloadRole}` : looksLikePublishableKey ? ' — publishable key' : ''}`
-        : `present but UNRECOGNIZED shape (source: ${sourceLabel(pickedAnonKey.source)}) — expected a JWT anon key or sb_publishable_* key`;
+      : looksLikeSecretKey || (looksLikeJwt && payloadRole !== 'anon')
+        ? `UNSAFE server credential rejected (source: ${sourceLabel(pickedAnonKey.source)}) — use an anon or sb_publishable_* key`
+        : keyValidShape
+          ? `present and browser-safe (source: ${sourceLabel(pickedAnonKey.source)})${payloadRole ? ` — JWT role=${payloadRole}` : looksLikePublishableKey ? ' — publishable key' : ''}`
+          : `present but UNRECOGNIZED shape (source: ${sourceLabel(pickedAnonKey.source)}) — expected a role=anon JWT or sb_publishable_* key`;
 
   return {
     timestamp,
@@ -474,6 +478,7 @@ export function diagnoseSupabaseEnv(): SupabaseDiagnosticsReport {
       maskedPreview: maskSupabaseAnonKey(effectiveSupabaseAnonKey),
       looksLikeJwt,
       looksLikePublishableKey,
+      looksLikeSecretKey,
       payloadRole,
     },
     isSupabaseConfigured,

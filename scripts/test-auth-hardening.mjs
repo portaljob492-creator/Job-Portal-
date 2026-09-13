@@ -24,7 +24,7 @@ import {
   PortalRoleMismatchError,
   roleMismatchMessage,
 } from '../src/lib/authErrors.ts';
-import { buildAuthClientOptions } from '../src/lib/supabase.ts';
+import { buildAuthClientOptions, isValidSupabaseAnonKey } from '../src/lib/supabase.ts';
 import { mapBackendError } from '../src/services/backend.ts';
 import { LoginScreen } from '../src/components/auth/LoginScreen.tsx';
 
@@ -148,6 +148,19 @@ await check('mismatch copy names each portal with the right article', () => {
   assert.ok(roleMismatchMessage('seeker').includes('as a Job Seeker'));
   assert.ok(roleMismatchMessage('employer').includes('as an Employer'));
   assert.equal(portalRoleLabel('admin'), 'Admin');
+});
+
+await check('browser Supabase key validation accepts only publishable or role-anon credentials', () => {
+  const jwt = (role) => [
+    Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url'),
+    Buffer.from(JSON.stringify({ role })).toString('base64url'),
+    'signature',
+  ].join('.');
+  assert.equal(isValidSupabaseAnonKey('sb_publishable_browser-safe-key'), true);
+  assert.equal(isValidSupabaseAnonKey('sb_secret_server-only-key'), false);
+  assert.equal(isValidSupabaseAnonKey(jwt('anon')), true);
+  assert.equal(isValidSupabaseAnonKey(jwt('service_role')), false);
+  assert.equal(isValidSupabaseAnonKey(jwt('authenticated')), false);
 });
 
 await check('supabase client enables persistence and auto-refresh', () => {

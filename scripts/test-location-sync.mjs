@@ -105,6 +105,21 @@ assertCheck('login route resolves', resolveJobPortalRoute(loginPath()).screen ==
 assertCheck('universal /auth/login alias resolves to login', resolveJobPortalRoute('/auth/login').screen === 'login');
 assertCheck('/auth/login is not a protected route', resolveJobPortalRoute('/auth/login').protected === false);
 assertCheck('protected route still protected', resolveJobPortalRoute('/dashboard/seeker').protected === true);
+assertCheck('/jobs/profile opens the candidate profile', resolveJobPortalRoute('/jobs/profile').seekerTab === 'profile');
+assertCheck('/jobs/search opens protected candidate job search', resolveJobPortalRoute('/jobs/search').seekerTab === 'feed' && resolveJobPortalRoute('/jobs/search').protected === true && resolveJobPortalRoute('/jobs/search').requiredRole === 'seeker');
+assertCheck('/jobs/applications alias opens submitted applications', resolveJobPortalRoute('/jobs/applications').seekerTab === 'applications');
+assertCheck('/jobs/my-applications opens submitted applications', resolveJobPortalRoute('/jobs/my-applications').seekerTab === 'applications');
+assertCheck('My Applications uses its canonical URL', pathForScreen('main_app', 'seeker', 'applications') === '/jobs/my-applications');
+assertCheck('/jobs/post-a-job opens the employer wizard', resolveJobPortalRoute('/jobs/post-a-job').requiredRole === 'employer' && resolveJobPortalRoute('/jobs/post-a-job').openPostJob === true);
+assertCheck('/jobs/posted-jobs opens employer jobs', resolveJobPortalRoute('/jobs/posted-jobs').employerTab === 'jobs');
+assertCheck('/jobs/my-posts opens employer jobs', resolveJobPortalRoute('/jobs/my-posts').employerTab === 'jobs');
+assertCheck('My Job Posts uses its canonical URL', pathForScreen('main_app', 'employer', undefined, 'jobs') === '/jobs/my-posts');
+const employerJobApplicationsRoute = resolveJobPortalRoute('/jobs/applications/job-123');
+assertCheck('/jobs/applications/:jobId opens employer applications', employerJobApplicationsRoute.requiredRole === 'employer'
+  && employerJobApplicationsRoute.employerTab === 'candidates' && employerJobApplicationsRoute.employerJobId === 'job-123');
+assertCheck('job applications uses its canonical employer URL',
+  pathForScreen('main_app', 'employer', undefined, 'candidates', false, 'job-123') === '/jobs/applications/job-123');
+assertCheck('/jobs/employer-applications opens employer candidates', resolveJobPortalRoute('/jobs/employer-applications').requiredRole === 'employer' && resolveJobPortalRoute('/jobs/employer-applications').employerTab === 'candidates');
 
 // ---------------------------------------------------------------------------
 // 3. Session validity classification
