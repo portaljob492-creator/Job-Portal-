@@ -66,6 +66,7 @@ interface EmployerWorkspaceProps {
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
+  onUpdateProfile?: (updated: UserProfile) => void;
   onJobAction?: (jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') => void;
   onLogout: () => void;
 }
@@ -85,6 +86,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   onSendMessage,
   onStartConversation,
   onUpdateAvatar,
+  onUpdateProfile,
   onJobAction,
   onLogout,
 }) => {
@@ -781,6 +783,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
             <EmployerProfileTab
               userProfile={userProfile}
               onUpdateAvatar={(url) => setShowImageUploader(true)}
+              onUpdateProfile={onUpdateProfile}
               onLogout={() => setShowLogoutModal(true)}
             />
           )}
