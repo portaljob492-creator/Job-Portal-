@@ -22,6 +22,7 @@ type NavigatorWithStandalone = Navigator & { standalone?: boolean };
 type InstallPlatform = 'android' | 'ios' | 'desktop';
 
 function isStandaloneMode() {
+  if (typeof window === 'undefined') return false;
   return window.matchMedia('(display-mode: standalone)').matches ||
     Boolean((window.navigator as NavigatorWithStandalone).standalone);
 }
@@ -52,17 +53,19 @@ export const PwaInstallButton: React.FC = () => {
       setIsInstalling(false);
       setShowHelp(false);
       setJustInstalled(true);
-      window.setTimeout(() => setJustInstalled(false), 5000);
+      if (typeof window !== 'undefined') window.setTimeout(() => setJustInstalled(false), 5000);
     };
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
-    const displayMode = window.matchMedia('(display-mode: standalone)');
+    const displayMode = typeof window !== 'undefined' ? window.matchMedia('(display-mode: standalone)') : null;
     const handleDisplayMode = () => setIsInstalled(isStandaloneMode());
 
-    window.addEventListener('appinstalled', handleInstalled);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    displayMode.addEventListener?.('change', handleDisplayMode);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('appinstalled', handleInstalled);
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      displayMode?.addEventListener?.('change', handleDisplayMode);
+    }
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.ready
@@ -74,10 +77,12 @@ export const PwaInstallButton: React.FC = () => {
 
     return () => {
       unsubscribePrompt();
-      window.removeEventListener('appinstalled', handleInstalled);
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      displayMode.removeEventListener?.('change', handleDisplayMode);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('appinstalled', handleInstalled);
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+        displayMode?.removeEventListener?.('change', handleDisplayMode);
+      }
     };
   }, []);
 
@@ -87,7 +92,7 @@ export const PwaInstallButton: React.FC = () => {
       const choice = await requestNativeInstall(prompt);
       if (choice?.outcome === 'accepted') {
         setJustInstalled(true);
-        window.setTimeout(() => setJustInstalled(false), 5000);
+        if (typeof window !== 'undefined') window.setTimeout(() => setJustInstalled(false), 5000);
       } else {
         setShowHelp(true);
       }
@@ -224,7 +229,7 @@ export const PwaInstallButton: React.FC = () => {
             {!installPrompt && selectedPlatform !== 'ios' && (
               <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-[#e0bec6] bg-white px-3 py-2 text-[11px] text-[#594047]">
                 <span>{workerReady === 'ready' ? 'App is ready. If the native prompt is hidden, refresh once or use the browser menu.' : 'Preparing offline installation support…'}</span>
-                <button type="button" onClick={() => window.location.reload()} className="flex shrink-0 items-center gap-1 font-bold text-[#8e004b] hover:underline">
+                <button type="button" onClick={() => typeof window !== 'undefined' && window.location.reload()} className="flex shrink-0 items-center gap-1 font-bold text-[#8e004b] hover:underline">
                   <RefreshCw className="h-3.5 w-3.5" /> Refresh
                 </button>
               </div>

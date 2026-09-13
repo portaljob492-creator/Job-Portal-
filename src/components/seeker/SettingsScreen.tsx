@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { UserProfile } from '../../types';
+import { ProfileEditor } from '../profile/ProfileEditor';
 import {
   ArrowLeft,
   User,
@@ -25,6 +27,8 @@ interface SettingsScreenProps {
   onBack: () => void;
   onLogout: () => void;
   onNavigateTab?: (tab: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile') => void;
+  userProfile: UserProfile;
+  onUpdateProfile: (profile: UserProfile) => void;
 }
 
 interface BlockedEmployer {
@@ -38,6 +42,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onBack,
   onLogout,
   onNavigateTab,
+  userProfile,
+  onUpdateProfile,
 }) => {
   // Navigation / Active View State ('account' | 'notifications' | 'privacy' | 'language' | 'password' | 'blocked' | 'terms' | 'policy' | null)
   const [activeSection, setActiveSection] = useState<
@@ -431,89 +437,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <p className="text-xs text-[#594047] mt-1 font-medium">Review and update your primary communication credentials and licensure details.</p>
             </div>
 
-            <form onSubmit={handleSaveAccount} className="space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-[#1c1b1b]">Full Name</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    className="w-full bg-[#f1edec]/75 border-transparent focus:border-[#8e004b] focus:bg-white focus:ring-1 focus:ring-[#8e004b] rounded-xl py-3.5 px-4 text-xs font-semibold text-[#1c1b1b] outline-none transition-colors"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-[#1c1b1b]">Email Address</label>
-                  <input 
-                    type="email" 
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-[#f1edec]/75 border-transparent focus:border-[#8e004b] focus:bg-white focus:ring-1 focus:ring-[#8e004b] rounded-xl py-3.5 px-4 text-xs font-semibold text-[#1c1b1b] outline-none transition-colors"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-[#1c1b1b]">Mobile Number</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full bg-[#f1edec]/75 border-transparent focus:border-[#8e004b] focus:bg-white focus:ring-1 focus:ring-[#8e004b] rounded-xl py-3.5 px-4 text-xs font-semibold text-[#1c1b1b] outline-none transition-colors"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-[#1c1b1b]">Cosmetology License No.</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={licenseNumber}
-                    onChange={(e) => setLicenseNumber(e.target.value)}
-                    className="w-full bg-[#f1edec]/75 border-transparent focus:border-[#8e004b] focus:bg-white focus:ring-1 focus:ring-[#8e004b] rounded-xl py-3.5 px-4 text-xs font-semibold text-[#1c1b1b] outline-none transition-colors"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-[#1c1b1b]">Preferred Contact Method</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['email', 'phone', 'both'] as const).map((method) => (
-                    <button
-                      key={method}
-                      type="button"
-                      onClick={() => setContactMethod(method)}
-                      className={`py-3 px-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                        contactMethod === method 
-                          ? 'bg-[#ffd9e2] text-[#8e004b] border-[#8e004b] shadow-2xs' 
-                          : 'border-[#e0bec6] bg-transparent text-[#594047] hover:bg-[#ffd9e2]/10'
-                      }`}
-                    >
-                      {method === 'email' ? 'Email Only' : method === 'phone' ? 'Phone Only' : 'Both'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-[#e0bec6]/25 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setActiveSection(null)}
-                  className="flex-1 py-3 border border-[#e0bec6] hover:bg-[#f7f2f2] font-bold text-xs text-[#594047] rounded-full transition-all cursor-pointer text-center"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-3 bg-[#b90064] text-white font-bold text-xs rounded-full hover:bg-[#8e004b] transition-all cursor-pointer text-center shadow-md"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
+            <ProfileEditor
+              profile={userProfile}
+              onUpdate={(updatedProfile) => {
+                onUpdateProfile(updatedProfile);
+                triggerToast('✅ Account changes saved successfully.');
+                setActiveSection(null);
+              }}
+              onCancel={() => setActiveSection(null)}
+            />
           </div>
         )}
 

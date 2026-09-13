@@ -467,7 +467,9 @@ export const InterviewInvitationScreen: React.FC<InterviewInvitationScreenProps>
                     type="button"
                     onClick={() => {
                       showToast('Directions link copied. Opening external navigation...', 'success');
-                      window.open('https://maps.google.com/?q=Lumiere+Studio+Beverly+Hills', '_blank');
+                      if (typeof window !== 'undefined') {
+                        window.open('https://maps.google.com/?q=Lumiere+Studio+Beverly+Hills', '_blank');
+                      }
                     }}
                     className="text-xs bg-[#8e004b] text-white px-4 py-1.5 rounded-full font-bold hover:bg-[#b90064] transition-colors flex items-center gap-1.5 shadow-2xs self-end sm:self-auto cursor-pointer"
                   >

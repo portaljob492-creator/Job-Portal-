@@ -15,8 +15,11 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       VitePWA({
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'service-worker.ts',
         registerType: 'autoUpdate',
-        injectRegister: false,
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         includeAssets: [
           'icons/favicon-64.png',
           'icons/apple-touch-icon.png',

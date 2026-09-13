@@ -163,8 +163,8 @@ export default function App() {
         if (!active) return;
         sessionEmail = data.session?.user?.email ?? '';
 
-        const queryParams = new URLSearchParams(window.location.search);
-        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const queryParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+        const hashParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.hash.replace(/^#/, '')) : new URLSearchParams();
         const isRecovery = queryParams.get('recovery') === '1';
         const recoveryError = queryParams.get('error_description') || hashParams.get('error_description');
         if (isRecovery) {
@@ -180,7 +180,7 @@ export default function App() {
         } else if (data.session?.user) {
           await applyPendingOAuthRole(data.session.user.id);
           await enterAuthenticatedPortal(data.session.user.id, data.session.user.user_metadata?.role as UserRole | undefined);
-          if (new URLSearchParams(window.location.search).has('verified')) {
+          if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('verified')) {
             window.history.replaceState({}, document.title, window.location.pathname);
           }
         }
@@ -205,11 +205,13 @@ export default function App() {
             // portal role): it was cleared above. Land on the login screen with
             // the correct portal and email pre-selected instead of bouncing to
             // the welcome screen, so the user can sign in without a re-type.
-            window.history.replaceState(
-              {},
-              document.title,
-              loginPathWithPrefill(roleMismatch?.existingRole, roleMismatch?.email || sessionEmail),
-            );
+            if (typeof window !== 'undefined') {
+              window.history.replaceState(
+                {},
+                document.title,
+                loginPathWithPrefill(roleMismatch?.existingRole, roleMismatch?.email || sessionEmail),
+              );
+            }
             setScreen('login');
             setBackendError(error instanceof Error ? error.message : 'Unable to validate your portal access.');
           } else {
@@ -268,7 +270,7 @@ export default function App() {
   useEffect(() => {
     if (isBackendLoading) return;
     const desiredPath = pathForScreen(screen, userRole, seekerInitialTab);
-    if (window.location.pathname !== desiredPath) {
+    if (typeof window !== 'undefined' && window.location.pathname !== desiredPath) {
       window.history.replaceState({}, document.title, `${desiredPath}${window.location.search}`);
     }
   }, [isBackendLoading, screen, seekerInitialTab, userRole]);
@@ -284,20 +286,25 @@ export default function App() {
       if (route.seekerTab) setSeekerInitialTab(route.seekerTab);
       setScreen(route.screen);
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('popstate', handlePopState);
+      return () => window.removeEventListener('popstate', handlePopState);
+    }
+    return () => {};
   }, [currentUserId]);
 
   useEffect(() => {
     if (!supabase || !currentUserId) return;
     let refreshTimer: number | undefined;
     const refresh = () => {
+    if (typeof window !== 'undefined') {
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         void hydrateWorkspace(currentUserId, userRole).catch((error) =>
           setBackendError(error instanceof Error ? error.message : 'Unable to refresh data.'),
         );
       }, 250);
+    }
     };
 
     const channel = supabase
@@ -308,7 +315,9 @@ export default function App() {
       .subscribe();
 
     return () => {
-      window.clearTimeout(refreshTimer);
+      if (typeof window !== 'undefined') {
+        window.clearTimeout(refreshTimer);
+      }
       void supabase.removeChannel(channel);
     };
   }, [currentUserId, hydrateWorkspace, userRole]);
@@ -324,75 +333,89 @@ export default function App() {
   };
 
   const handleSeekerSignup = async (formData: { name: string; email: string; phone: string; password: string }) => {
-    setUserRole('seeker');
-    setUserProfile((prev) => ({
-      ...prev,
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      role: 'seeker',
-    }));
-    const { user, session } = await authBackend.signUp({
-      role: 'seeker',
-      email: formData.email,
-      password: formData.password,
-      name: formData.name,
-      phone: formData.phone,
-    });
-    if (session && user) {
-      setCurrentUserId(user.id);
-      await hydrateWorkspace(user.id, 'seeker');
-      setScreen('seeker_onboarding_step1');
-    } else {
-      throw new Error('Account activation did not complete. Please try signing in or contact support.');
+    try {
+      setUserRole('seeker');
+      setUserProfile((prev) => ({
+        ...prev,
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        role: 'seeker',
+      }));
+      const { user, session } = await authBackend.signUp({
+        role: 'seeker',
+        email: formData.email,
+        password: formData.password,
+        name: formData.name,
+        phone: formData.phone,
+      });
+      if (session && user) {
+        setCurrentUserId(user.id);
+        await hydrateWorkspace(user.id, 'seeker');
+        setScreen('seeker_onboarding_step1');
+      } else {
+        throw new Error('Account activation did not complete. Please try signing in or contact support.');
+      }
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : 'Unable to create seeker account.');
     }
   };
 
   const handleEmployerSignup = async (formData: { businessName: string; contactPerson: string; email: string; password: string }) => {
-    setUserRole('employer');
-    setUserProfile((prev) => ({
-      ...prev,
-      name: formData.contactPerson,
-      email: formData.email,
-      businessName: formData.businessName,
-      contactPerson: formData.contactPerson,
-      role: 'employer',
-    }));
-    const { user, session } = await authBackend.signUp({
-      role: 'employer',
-      email: formData.email,
-      password: formData.password,
-      name: formData.contactPerson,
-      businessName: formData.businessName,
-    });
-    if (session && user) {
-      setCurrentUserId(user.id);
-      await hydrateWorkspace(user.id, 'employer');
-      setScreen('employer_onboarding_step1');
-    } else {
-      throw new Error('Account activation did not complete. Please try signing in or contact support.');
+    try {
+      setUserRole('employer');
+      setUserProfile((prev) => ({
+        ...prev,
+        name: formData.contactPerson,
+        email: formData.email,
+        businessName: formData.businessName,
+        contactPerson: formData.contactPerson,
+        role: 'employer',
+      }));
+      const { user, session } = await authBackend.signUp({
+        role: 'employer',
+        email: formData.email,
+        password: formData.password,
+        name: formData.contactPerson,
+        businessName: formData.businessName,
+      });
+      if (session && user) {
+        setCurrentUserId(user.id);
+        await hydrateWorkspace(user.id, 'employer');
+        setScreen('employer_onboarding_step1');
+      } else {
+        throw new Error('Account activation did not complete. Please try signing in or contact support.');
+      }
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : 'Unable to create employer account.');
     }
   };
 
   const handleLoginSuccess = async (selectedRole: UserRole, email: string, password: string) => {
-    const { user } = await authBackend.signIn(email, password, selectedRole);
-    if (!user) throw new Error('Login succeeded but no user session was returned.');
     try {
-      await enterAuthenticatedPortal(user.id, selectedRole);
-    } catch (portalError) {
-      // Sign-in produced a session the portal cannot use (role mismatch or no
-      // role row). Clear it so no incomplete/invalid state persists before the
-      // error reaches the login screen.
-      if (isPortalRoleMismatchError(portalError) || isUnassignedPortalRoleError(portalError)) {
-        await authBackend.signOut().catch(() => undefined);
+      const { user } = await authBackend.signIn(email, password, selectedRole);
+      if (!user) throw new Error('Login succeeded but no user session was returned.');
+      try {
+        await enterAuthenticatedPortal(user.id, selectedRole);
+      } catch (portalError) {
+        // Sign-in produced a session the portal cannot use (role mismatch or no
+        // role row). Clear it so no incomplete/invalid state persists before the
+        // error reaches the login screen.
+        if (isPortalRoleMismatchError(portalError) || isUnassignedPortalRoleError(portalError)) {
+          await authBackend.signOut().catch(() => undefined);
+        }
+        throw portalError;
       }
-      throw portalError;
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : 'Unable to sign in. Please try again.');
     }
   };
 
   /** Forwards a role-mismatch from a signup screen to the prefilled portal login. */
   const handleSwitchPortalToLogin = (role: UserRole, email: string) => {
-    window.history.replaceState({}, document.title, loginPathWithPrefill(role, email));
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, document.title, loginPathWithPrefill(role, email));
+    }
     setScreen('login');
   };
 
@@ -677,7 +700,9 @@ export default function App() {
       if (updateError instanceof RecoverySessionLostError) setPasswordRecoveryState('invalid');
       throw updateError;
     }
-    window.history.replaceState({}, document.title, window.location.pathname);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   };
 
   /**
@@ -698,7 +723,9 @@ export default function App() {
     setScreen('reset_password');
     // Keep the recovery marker so a reload returns to the reset form, and drop
     // any stale PKCE params that would fail a second exchange.
-    window.history.replaceState({}, document.title, `${window.location.pathname}?recovery=1`);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, document.title, `${window.location.pathname}?recovery=1`);
+    }
   };
 
   const exitPasswordRecovery = async (target: 'login' | 'forgot_password') => {
@@ -1046,6 +1073,8 @@ export default function App() {
             setSeekerInitialTab(normalizeSeekerTab(tab));
             setScreen('main_app');
           }}
+          userProfile={userProfile}
+          onUpdateProfile={handleProfileUpdate}
         />
       )}
     </div>

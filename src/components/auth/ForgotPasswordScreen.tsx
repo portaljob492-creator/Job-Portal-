@@ -38,8 +38,8 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
 
   useEffect(() => {
     if (cooldown <= 0) return;
-    const timer = window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
-    return () => window.clearInterval(timer);
+    const timer = typeof window !== 'undefined' ? window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000) : 0;
+    return () => { if (typeof window !== 'undefined') window.clearInterval(timer); };
   }, [cooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {

@@ -146,6 +146,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const [isListening, setIsListening] = useState<boolean>(false);
 
   const startVoiceSearch = () => {
+    if (typeof window === 'undefined') return;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       showToast('Speech recognition is not supported in this browser.');
