@@ -917,9 +917,14 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
       avatarUrl: profileRow.avatar_path || undefined,
       businessName: salon?.name || undefined,
       contactPerson: profileRow.full_name || undefined,
+      location: salon && (salon.city || salon.state)
+        ? [salon.city, salon.state].filter(Boolean).join(', ')
+        : undefined,
       specialties,
       primaryRole: candidate?.headline || specialties[0] || undefined,
-      bio: candidate?.bio || undefined,
+      bio: candidate?.bio || salon?.description || undefined,
+      website: salon?.website_url || undefined,
+      instagram: salon?.instagram_url || undefined,
       portfolioItems,
       savedFilters,
     },
@@ -946,6 +951,54 @@ export async function saveProfile(_userId: string, profile: UserProfile) {
     p_display_name: profile.role === 'employer' ? profile.contactPerson || profile.name : null,
   });
   if (error) throw error;
+}
+
+/**
+ * Persists the employer brand/location fields that `job_save_profile` does not
+ * own: website + instagram on the salon profile row, and city/state on the
+ * primary salon location row ("City, State" free text is split on the first
+ * comma). Both tables grant active salon members direct writes (see the
+ * `job_salon_profiles_member_update` and `job_salon_locations_member_write`
+ * policies), so no RPC is needed. Business name and description live on the
+ * platform `salons` table, which exposes no member write path — those edits
+ * stay in local app state until a salon-update RPC ships (follow-up).
+ */
+export async function updateEmployerSalonDetails(userId: string, profile: UserProfile): Promise<void> {
+  if (profile.role !== 'employer') return;
+  const client = requireSupabase();
+  const { data: membership, error: membershipError } = await client
+    .from('job_salon_members')
+    .select('salon_id')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle();
+  if (membershipError) throw membershipError;
+  const salonId = (membership as { salon_id: string } | null)?.salon_id;
+  if (!salonId) return; // Pre-onboarding: no salon row exists to update yet.
+
+  const { error: brandError } = await client
+    .from('job_salon_profiles')
+    .update({
+      website_url: profile.website?.trim() || null,
+      instagram_url: profile.instagram?.trim() || null,
+    })
+    .eq('salon_id', salonId);
+  if (brandError) throw brandError;
+
+  const location = profile.location?.trim();
+  if (location) {
+    const [city, ...rest] = location.split(',').map((part) => part.trim()).filter(Boolean);
+    if (city) {
+      const state = rest.join(', ');
+      const { error: locationError } = await client
+        .from('job_salon_locations')
+        .update(state ? { city, state } : { city })
+        .eq('salon_id', salonId)
+        .eq('is_primary', true);
+      if (locationError) throw locationError;
+    }
+  }
 }
 
 export async function setBookmark(userId: string, jobId: string, bookmarked: boolean) {

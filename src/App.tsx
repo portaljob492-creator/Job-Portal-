@@ -44,6 +44,7 @@ import {
   sendMessageRecord,
   setBookmark,
   updateAlertRead,
+  updateEmployerSalonDetails,
   updateApplicationStatus,
   mapBackendError,
 } from './services/backend';
@@ -916,11 +917,22 @@ export default function App() {
   };
 
   const handleProfileUpdate = (updatedProfile: UserProfile) => {
+    // Salon brand/location rows live outside `job_save_profile`, so they are
+    // persisted separately — but only when they actually changed. Otherwise an
+    // onboarding-time save (whose profile never loaded the salon row) would
+    // blank the website/instagram/location the onboarding RPC just wrote.
+    const salonDetailsChanged =
+      updatedProfile.role === 'employer' &&
+      ((updatedProfile.website ?? '') !== (userProfile.website ?? '') ||
+        (updatedProfile.instagram ?? '') !== (userProfile.instagram ?? '') ||
+        (updatedProfile.location ?? '') !== (userProfile.location ?? ''));
     setUserProfile(updatedProfile);
     if (currentUserId) {
-      void saveProfile(currentUserId, updatedProfile).catch((error) =>
-        setBackendError(mapBackendError(error, 'Unable to save profile.')),
-      );
+      void saveProfile(currentUserId, updatedProfile)
+        .then(() => {
+          if (salonDetailsChanged && currentUserId) return updateEmployerSalonDetails(currentUserId, updatedProfile);
+        })
+        .catch((error) => setBackendError(mapBackendError(error, 'Unable to save profile.')));
     }
   };
 
@@ -1262,6 +1274,7 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
               onUpdateAvatar={handleAvatarUpdate}
+              onUpdateProfile={handleProfileUpdate}
               onJobAction={handleJobAction}
               onLogout={handleLogout}
             />

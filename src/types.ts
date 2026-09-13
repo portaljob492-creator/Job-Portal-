@@ -207,6 +207,9 @@ export interface UserProfile {
   primaryRole?: string;
   location?: string;
   bio?: string;
+  /** Employer brand links, surfaced from the salon profile row. */
+  website?: string;
+  instagram?: string;
   portfolioItems?: PortfolioItem[];
   savedFilters?: SavedFilter[];
 }
