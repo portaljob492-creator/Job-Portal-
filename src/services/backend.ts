@@ -1,4 +1,4 @@
-import type { Provider, User } from '@supabase/supabase-js';
+import type { Provider, Session, SupabaseClient, User } from '@supabase/supabase-js';
 import type {
   Applicant,
   Application,
@@ -31,6 +31,7 @@ import {
   uploadResumeObject,
 } from '../lib/storageMedia';
 import { clearSessionBeforeSignUp, markUserInitiatedSignOut } from '../lib/authSession';
+import { decideSignInPortal, isEnterablePortalRole, normalizeStoredPortalRole } from '../lib/portalRole';
 import { normalizeEmail } from '../lib/email';
 import { isEmailNotConfirmedError } from '../lib/signUpOutcome';
 import { validateNewPassword } from '../lib/passwordPolicy';
@@ -73,11 +74,6 @@ const confirmationRedirectUrl = () => appCallbackUrl('?confirmed=1');
 const backendRole = (role: UserRole) => role === 'seeker' ? 'job_seeker' : role;
 const frontendRole = (role?: string | null): UserRole => role === 'admin' ? 'admin' : role === 'employer' ? 'employer' : 'seeker';
 const portalLabel = (role: UserRole) => role === 'seeker' ? 'Job Seeker' : role === 'admin' ? 'Admin' : 'Employer';
-
-function portalMismatchMessage(actualBackendRole: string, requestedRole: UserRole) {
-  const actualRole = frontendRole(actualBackendRole);
-  return `An account with this email already exists as a ${portalLabel(actualRole)}. Please use a different email or log in.`;
-}
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error
@@ -487,6 +483,35 @@ export interface SignUpInput {
   businessName?: string;
 }
 
+/**
+ * Result of a successful password sign-in: the Supabase auth response plus the
+ * portal role the backend granted. Portal verification runs before the password
+ * check, so this always equals the requested tab; the app routes on it rather
+ * than on UI state.
+ */
+export interface SignInResult {
+  user: User | null;
+  session: Session | null;
+  /** Portal role granted for this session. */
+  portalRole: UserRole;
+}
+
+/**
+ * Reads the portal role permanently assigned to an email.
+ *
+ * `role` is null when the address is unknown or has no Jobs portal role yet, so
+ * callers must still work without it; `raw` keeps the backend's own value
+ * because `'unassigned'` drives different sign-in copy than "no such account".
+ */
+async function readStoredPortalRole(
+  client: SupabaseClient,
+  email: string,
+): Promise<{ raw: string | null; role: UserRole | null }> {
+  const { data, error } = await client.rpc('job_email_portal_role', { p_email: email });
+  const raw = !error && typeof data === 'string' ? data.toLowerCase() : null;
+  return { raw, role: normalizeStoredPortalRole(raw) };
+}
+
 export const authBackend = {
   async signUp(input: SignUpInput) {
     const client = requireSupabase();
@@ -561,10 +586,19 @@ export const authBackend = {
     return data;
   },
 
-  async signIn(email: string, password: string, requestedRole: UserRole) {
+  /**
+   * Password sign-in.
+   *
+   * `requestedRole` is the portal tab the user clicked, and it is validated
+   * against the account's stored portal role *before* the password is checked:
+   * a Job Seeker tab with an Employer email is refused up front with a
+   * `PortalRoleMismatchError` naming the Employer portal, which the login form
+   * renders as the inline card + "Switch to Employer Portal" action. On success
+   * the granted role is returned so the app routes to that portal.
+   */
+  async signIn(email: string, password: string, requestedRole: UserRole): Promise<SignInResult> {
     const client = requireSupabase();
     const normalizedEmail = normalizeEmail(email);
-    const requestedBackendRole = backendRole(requestedRole);
 
     // Sign-in is an account-switch boundary just like sign-up: drop a stale
     // cached session first so a JWT for a deleted user cannot poison the
@@ -572,18 +606,20 @@ export const authBackend = {
     // exist"). The password grant then starts from a clean anonymous state.
     await clearSessionBeforeSignUp(client);
 
-    // Fail fast when the email is already permanently assigned to the other
-    // portal: no session is created at all, so no tokens need clearing and the
-    // user gets the structured mismatch error directly. Fails open on lookup
-    // errors; the authoritative post-sign-in check below still applies.
-    const { data: existingRole, error: lookupError } = await client.rpc('job_email_portal_role', {
-      p_email: normalizedEmail,
-    });
-    if (!lookupError && (existingRole === 'job_seeker' || existingRole === 'employer') && existingRole !== requestedBackendRole) {
+    // Portal verification, before any password validation: one email is
+    // permanently registered to exactly one portal, so a tab that does not
+    // match the account's stored role is refused without authenticating.
+    // Throwing the structured error (rather than a bare message) is what lets
+    // the login form render the inline card and its "Switch to … Portal"
+    // action. Fails open when the lookup itself fails — `resolvePortalRole`
+    // then enforces the same rule authoritatively after the password check.
+    const { raw: storedRoleText, role: storedRole } = await readStoredPortalRole(client, normalizedEmail);
+    const decision = decideSignInPortal(storedRole, requestedRole);
+    if (decision.kind === 'mismatch') {
       throw new PortalRoleMismatchError({
         email: normalizedEmail,
         requestedRole,
-        existingRole: frontendRole(existingRole),
+        existingRole: decision.existingRole,
       });
     }
 
@@ -605,7 +641,7 @@ export const authBackend = {
         // no password at all. Throwing the structured error lets the login screen
         // offer recovery actions (reset link / social continue) instead of a
         // sentence the user has to act on by themselves.
-        if (existingRole === requestedBackendRole) {
+        if (isEnterablePortalRole(storedRole)) {
           // Try to detect whether this account was created via OAuth (no local
           // password). The check is best-effort: if the RPC is not deployed the
           // message still covers the case. The UI uses the `oauthOnly` hint to
@@ -618,7 +654,7 @@ export const authBackend = {
             oauthOnly,
           });
         }
-        if (existingRole === 'unassigned') {
+        if (storedRoleText === 'unassigned') {
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
             role: requestedRole,
@@ -628,15 +664,50 @@ export const authBackend = {
       }
       throw mapAuthError(error);
     }
+
+    let portalRole: UserRole;
     try {
-      await this.registerRole(requestedRole, normalizedEmail);
+      portalRole = await this.resolvePortalRole(requestedRole, normalizedEmail);
     } catch (roleError) {
-      // The session was created but the portal rejected its role: clear the
+      // The session was created but the portal refused entry (role assigned to
+      // the other portal in the meantime, deactivated account): clear the
       // tokens so no invalid/partial session survives, then surface the error.
       await signOutDeliberately();
       throw mapPortalRoleError(roleError, requestedRole, normalizedEmail);
     }
-    return data;
+    return { ...data, portalRole };
+  },
+
+  /**
+   * Portal role permanently assigned to an email, or null when the address is
+   * unknown, has no portal role yet, or the lookup is unavailable. The login
+   * screen uses it to verify the tab against the account before the user
+   * submits; null simply leaves the form alone, so this must never block a
+   * sign-in — the authoritative check is in `signIn` itself.
+   */
+  async lookupPortalRole(email: string): Promise<UserRole | null> {
+    const normalized = normalizeEmail(email);
+    if (!normalized) return null;
+    const { role } = await readStoredPortalRole(requireSupabase(), normalized);
+    return role;
+  },
+
+  /**
+   * Enters the portal for the signed-in user and returns the role granted.
+   *
+   * Strict, like the pre-auth check: `job_register_role` assigns the requested
+   * role when the account has none yet and raises `PORTAL_ROLE_MISMATCH:<role>`
+   * when it already has a different one. That makes it the authoritative
+   * backstop for the cases the lookup could not settle (RPC missing, offline,
+   * role assigned between the two calls) — the refusal is surfaced as the
+   * structured mismatch, never retried into the other portal.
+   */
+  async resolvePortalRole(requestedRole: UserRole, email = ''): Promise<UserRole> {
+    const { data, error } = await requireSupabase().rpc('job_register_role', {
+      requested_role: backendRole(requestedRole),
+    });
+    if (error) throw mapPortalRoleError(error, requestedRole, email);
+    return frontendRole(String(data));
   },
 
   async signInAdmin(email: string, password: string) {
@@ -647,19 +718,6 @@ export const authBackend = {
     if (roleError || roleRow?.role !== 'admin') {
       await signOutDeliberately();
       throw new Error('Admin access is restricted to approved administrator accounts.');
-    }
-    return data;
-  },
-
-  async registerRole(role: UserRole, email = '') {
-    const { data, error } = await requireSupabase().rpc('job_register_role', { requested_role: backendRole(role) });
-    if (error) throw mapPortalRoleError(error, role, email);
-    if (data !== backendRole(role)) {
-      const actualRole = frontendRole(String(data));
-      if (actualRole === 'seeker' || actualRole === 'employer') {
-        throw new PortalRoleMismatchError({ email, requestedRole: role, existingRole: actualRole });
-      }
-      throw new Error(portalMismatchMessage(String(data), role));
     }
     return data;
   },
@@ -737,9 +795,19 @@ export const authBackend = {
   },
 };
 
-export async function applyPendingOAuthRole(_userId: string) {
+/**
+ * Assigns (or confirms) the portal role for a session that just came back from
+ * Google/Apple, and returns the role that was granted — null when no provider
+ * sign-in was pending.
+ *
+ * The provider button the user pressed recorded the requested portal, and the
+ * same rule as password sign-in applies: an account that already belongs to the
+ * other portal is refused with the structured mismatch, so the app can drop the
+ * session and send the user to the login of the portal that owns the account.
+ */
+export async function applyPendingOAuthRole(_userId: string): Promise<UserRole | null> {
   const pendingRole = window.localStorage.getItem('nexora_pending_role') as UserRole | null;
-  if (!pendingRole) return;
+  if (!pendingRole) return null;
   let email = '';
   try {
     const { data } = await requireSupabase().auth.getUser();
@@ -748,10 +816,11 @@ export async function applyPendingOAuthRole(_userId: string) {
     // Email is best-effort; a mismatch error without it still redirects to login.
   }
   try {
-    await authBackend.registerRole(pendingRole, email);
+    return await authBackend.resolvePortalRole(pendingRole, email);
   } catch (error) {
-    // The OAuth session is unusable for this portal (wrong or unassigned role):
-    // clear it before redirecting so no invalid state persists.
+    // The OAuth session is unusable for any Jobs portal (admin account, or no
+    // role could be assigned): clear it before redirecting so no invalid state
+    // persists.
     await signOutDeliberately();
     throw mapPortalRoleError(error, pendingRole, email);
   } finally {

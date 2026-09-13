@@ -238,8 +238,13 @@ export default function App() {
             setPasswordRecoveryState('invalid');
           }
         } else if (data.session?.user) {
-          await applyPendingOAuthRole(data.session.user.id);
-          await enterAuthenticatedPortal(data.session.user.id, data.session.user.user_metadata?.role as UserRole | undefined);
+          const pendingRole = await applyPendingOAuthRole(data.session.user.id);
+          // A role just resolved for a returning provider sign-in wins over the
+          // role recorded in user metadata: it is what the backend granted.
+          await enterAuthenticatedPortal(
+            data.session.user.id,
+            pendingRole ?? (data.session.user.user_metadata?.role as UserRole | undefined),
+          );
           if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
             // Drop the one-time auth params so a reload cannot replay them.
@@ -317,7 +322,12 @@ export default function App() {
         if (enteredPortalUserId.current !== userId) {
           enteredPortalUserId.current = userId;
           void applyPendingOAuthRole(userId)
-            .then(() => enterAuthenticatedPortal(userId, session.user.user_metadata?.role as UserRole | undefined))
+            .then((pendingRole) =>
+              enterAuthenticatedPortal(
+                userId,
+                pendingRole ?? (session.user.user_metadata?.role as UserRole | undefined),
+              ),
+            )
             .catch((error) => {
               setBackendError(mapBackendError(error, 'Unable to open your workspace.'));
             });
@@ -504,10 +514,14 @@ export default function App() {
 
   const handleLoginSuccess = async (selectedRole: UserRole, email: string, password: string) => {
     try {
-      const { user } = await authBackend.signIn(email, password, selectedRole);
+      const { user, portalRole } = await authBackend.signIn(email, password, selectedRole);
       if (!user) throw new Error('Login succeeded but no user session was returned.');
       try {
-        await enterAuthenticatedPortal(user.id, selectedRole);
+        // Enter the portal the backend granted for this session. Portal
+        // verification already ran before the password check, so a mismatched
+        // tab never gets this far — it is refused and rendered as the login
+        // form's inline "Switch to … Portal" card.
+        await enterAuthenticatedPortal(user.id, portalRole ?? selectedRole);
       } catch (portalError) {
         // Sign-in produced a session the portal cannot use (role mismatch or no
         // role row). Clear it so no incomplete/invalid state persists before the
@@ -525,6 +539,19 @@ export default function App() {
       setBackendError(error instanceof Error ? error.message : 'Unable to sign in. Please try again.');
     }
   };
+
+  /**
+   * Portal role behind an email, used by the login screen to move the portal tab
+   * onto the account the user is actually signing in to. Best-effort: a lookup
+   * failure returns null and the tab simply stays where the user put it.
+   */
+  const handleResolvePortalRole = useCallback(async (email: string): Promise<UserRole | null> => {
+    try {
+      return await authBackend.lookupPortalRole(email);
+    } catch {
+      return null;
+    }
+  }, []);
 
   /** Forwards a role-mismatch from a signup screen to the prefilled portal login. */
   const handleSwitchPortalToLogin = (role: UserRole, email: string) => {
@@ -1183,6 +1210,7 @@ export default function App() {
         <LoginScreen
           onLoginSuccess={handleLoginSuccess}
           onSocialLogin={handleSocialLogin}
+          onResolvePortalRole={handleResolvePortalRole}
           onSignUp={() => setScreen('role_select')}
           onResendConfirmation={async (email) => { await authBackend.resendConfirmationEmail(email); }}
           onSendResetLink={async (email) => { await authBackend.sendPasswordReset(email); }}

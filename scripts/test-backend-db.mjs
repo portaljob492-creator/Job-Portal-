@@ -380,6 +380,25 @@ try {
 check('portal role cannot be switched after assignment -> PORTAL_ROLE_MISMATCH',
   /PORTAL_ROLE_MISMATCH/.test(roleSwitch), roleSwitch);
 
+// Sign-in resolution contract (src/services/backend.ts -> resolvePortalRole):
+// the refusal names the role the account really has, and registering with that
+// role succeeds. That is what lets a login on the wrong portal tab enter the
+// account's own portal instead of dead-ending on the mismatch.
+const reportedRole = /PORTAL_ROLE_MISMATCH:([a-z_]+)/.exec(roleSwitch)?.[1] ?? '';
+let correctedRole = '';
+if (reportedRole) {
+  const retry = await rpc(seeker, `select public.job_register_role('${reportedRole}')`);
+  correctedRole = retry.rows[0]?.job_register_role ?? '';
+}
+check('the mismatch names a role that portal entry then accepts',
+  reportedRole === 'job_seeker' && correctedRole === 'job_seeker', `${reportedRole} -> ${correctedRole}`);
+
+// The login screen reads this before authenticating to move the portal tab onto
+// the account, so it must report the permanent role for a plain email lookup.
+const emailLookup = await rpc(seeker, `select public.job_email_portal_role('Employer@Example.com') as role`);
+check('job_email_portal_role resolves an email to its permanent portal',
+  emailLookup.rows[0]?.role === 'employer', emailLookup.rows[0]?.role);
+
 // An OAuth-style signup carries no app_context metadata, so the signup trigger
 // skips it entirely. Portal entry through job_register_role must still converge
 // the account to a complete row set (role + shared profile).

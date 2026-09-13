@@ -372,7 +372,7 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, userEmail,
       items: [
         { q: 'How do I update my cosmetology or esthetician license?', a: 'Go to your "Beauty Profile" tab, click the edit button, and choose the "Licenses & Special Certifications" section to keep your active number current.' },
         { q: 'How do I change my profile headshot?', a: 'You can tap on your avatar headshot at the top right header to load the high-fidelity Profile Headshot Uploader & Camera module.' },
-        { q: 'Can I use the same email for Seeker and Employer access?', a: 'No. Each email is permanently linked to one portal type. Use a separate email address to create an Employer account, then sign in through the Employer portal.' }
+        { q: 'Can I use the same email for Seeker and Employer access?', a: 'No. Each email is permanently linked to one portal type, so use a separate email address to create an Employer account. Signing in on the wrong tab is fine though — we detect your account type and open the right portal for you.' }
       ]
     },
     'Resume Help': {

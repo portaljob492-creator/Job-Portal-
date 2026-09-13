@@ -2,14 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { UserRole } from '../../types';
 import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound, Mail, ShieldCheck } from 'lucide-react';
 import {
+  asPortalRoleMismatch,
   formatRetryCountdown,
   isAuthRateLimitError,
   isPasswordSignInBlockedError,
-  isPortalRoleMismatchError,
   portalRoleLabel,
+  PortalRoleMismatchError,
   type PasswordSignInBlockedError,
-  type PortalRoleMismatchError,
 } from '../../lib/authErrors';
+import { isLikelyEmail, normalizeEmail } from '../../lib/email';
 import { jobPortalPath, loginPathWithPrefill } from '../../routing';
 
 interface LoginScreenProps {
@@ -18,6 +19,13 @@ interface LoginScreenProps {
   onSignUp: () => void;
   /** Receives the email already typed so the reset screen starts pre-filled. */
   onForgotPassword: (email: string) => void;
+  /**
+   * Portal role permanently assigned to an email, or null when it is unknown.
+   * Used to move the portal tab onto the account being signed in to, so picking
+   * the wrong tab is a routing detail instead of a failed sign-in. Best-effort:
+   * returning null simply leaves the tab where the user put it.
+   */
+  onResolvePortalRole?: (email: string) => Promise<UserRole | null>;
   /**
    * Sends a password-reset email directly from the inline recovery card
    * (no navigation). Called when the user taps "Email a reset link to …".
@@ -53,6 +61,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   onSignUp,
   onForgotPassword,
   onSendResetLink,
+  onResolvePortalRole,
   initialEmail = '',
 }) => {
   const prefill = readLoginPrefill();
@@ -60,6 +69,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [activeRole, setActiveRole] = useState<UserRole>(prefill.role ?? 'seeker');
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
@@ -69,6 +79,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [resetLink, setResetLink] = useState<{ email: string; state: 'idle' | 'sending' | 'sent' | 'error'; message?: string } | null>(null);
   /** Seconds left on a sign-in throttle. The submit stays disabled so attempts are not burned. */
   const [cooldown, setCooldown] = useState(0);
+  /**
+   * Portal the typed email is permanently registered to, from the debounced
+   * lookup. When it differs from the active tab the form is flagged: inline
+   * notification, "Switch to … Portal" action, submit disabled.
+   */
+  const [detectedRole, setDetectedRole] = useState<UserRole | null>(null);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -76,8 +92,72 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     return () => { if (typeof window !== 'undefined') window.clearInterval(timer); };
   }, [cooldown]);
 
+  /**
+   * Flags the typed email as belonging to a different portal, which renders the
+   * inline notification + "Switch to … Portal" action and blocks the submit.
+   *
+   * Debounced and best-effort: an unknown address, a failed lookup or an
+   * offline moment leaves the form alone. The backend verifies the portal
+   * again before validating the password, so a missed detection cannot sign
+   * the user in to the wrong workspace — it comes back as the same card.
+   */
+  useEffect(() => {
+    if (!onResolvePortalRole) return;
+    const candidate = normalizeEmail(email);
+    if (!isLikelyEmail(candidate)) {
+      setDetectedRole(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        let resolved: UserRole | null = null;
+        try {
+          resolved = await onResolvePortalRole(candidate);
+        } catch {
+          resolved = null;
+        }
+        if (cancelled) return;
+        setDetectedRole(resolved === 'seeker' || resolved === 'employer' || resolved === 'admin' ? resolved : null);
+      })();
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [email, onResolvePortalRole]);
+
+  /**
+   * The email is currently flagged as belonging to another portal. Derived from
+   * the lookup and kept in step with the tab, so switching portals — the only
+   * way forward the card offers — clears it immediately.
+   */
+  const oppositePortalRole: UserRole | null =
+    detectedRole && detectedRole !== activeRole ? detectedRole : null;
+
+  /** The inline card to render: an API mismatch wins, else the pre-submit flag. */
+  const mismatchCard =
+    roleMismatch ??
+    (oppositePortalRole
+      ? new PortalRoleMismatchError({
+          email: normalizeEmail(email),
+          requestedRole: activeRole,
+          existingRole: oppositePortalRole,
+        })
+      : null);
+
+  /** Login stays disabled while the form knows the submit can only fail. */
+  const isPortalBlocked = Boolean(mismatchCard);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // The email is flagged as another portal's account. The submit is disabled,
+    // but an implicit submission (Enter in a field) must switch portals rather
+    // than post a sign-in that can only come back as a role mismatch.
+    if (mismatchCard) {
+      handleSwitchPortal(mismatchCard);
+      return;
+    }
     if (isLoading || cooldown > 0) return;
     setError(null);
     setRoleMismatch(null);
@@ -88,10 +168,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     try {
       await onLoginSuccess(activeRole, email, password);
     } catch (loginError) {
-      if (isPortalRoleMismatchError(loginError)) {
-        // Role conflict: surface the explainer + portal switch instead of a
-        // generic error toast.
-        setRoleMismatch(loginError);
+      // A role conflict arrives as a structured error, a PORTAL_ROLE_MISMATCH
+      // code, or the plain "already registered as …" sentence. All three render
+      // the inline notification + switch action — never the generic toast.
+      const mismatch = asPortalRoleMismatch(loginError, activeRole, email);
+      if (mismatch) {
+        setRoleMismatch(mismatch);
         setError(null);
       } else if (isAuthRateLimitError(loginError)) {
         // Throttled: count down on the button instead of letting the user burn
@@ -191,12 +273,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   /**
    * Switches the login screen to the email's permanent portal: flips the role
    * tab, pre-fills the email and mirrors the state into the URL so the screen
-   * is deep-linkable and survives reloads.
+   * is deep-linkable and survives reloads. Accepts the card being acted on so
+   * both sources (a pre-submit detection and an API response) share one path.
    */
-  const handleSwitchPortal = () => {
-    if (!roleMismatch) return;
-    const target = roleMismatch.existingRole;
-    const prefilledEmail = roleMismatch.email || email;
+  const handleSwitchPortal = (card: PortalRoleMismatchError | null = roleMismatch) => {
+    if (!card) return;
+    const target = card.existingRole;
+    const prefilledEmail = card.email || email;
     setRoleMismatch(null);
     setSignInBlocked(null);
     setError(null);
@@ -261,7 +344,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           </button>
         </div>
         <p className="-mt-4 text-center text-[11px] font-medium text-[#475569]">
-          Each email is permanently linked to one portal type.
+          Each email is permanently linked to one portal type — we&apos;ll flag it if you&apos;re on the wrong one.
         </p>
 
         {/* Form Card */}
@@ -324,22 +407,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               </p>
             )}
 
-            {roleMismatch && (
+            {/* Role conflict: inline notification + the portal switch, from
+                either the pre-submit lookup or the sign-in response. */}
+            {mismatchCard && (
               <div role="alert" className="rounded-xl border border-[#cbd5e1]/70 bg-[#eef2ff] px-3.5 py-3 flex flex-col gap-2.5">
-                <p className="text-xs font-medium text-[#4f46e5] leading-relaxed">{roleMismatch.message}</p>
+                <p className="text-xs font-medium text-[#4f46e5] leading-relaxed">{mismatchCard.message}</p>
                 <button
                   type="button"
-                  onClick={handleSwitchPortal}
+                  onClick={() => handleSwitchPortal(mismatchCard)}
                   className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
                 >
-                  {roleMismatch.existingRole === 'employer'
+                  {mismatchCard.existingRole === 'employer'
                     ? <Building2 className="w-3.5 h-3.5" />
-                    : roleMismatch.existingRole === 'admin'
+                    : mismatchCard.existingRole === 'admin'
                       ? <ShieldCheck className="w-3.5 h-3.5" />
                       : <UserCheck className="w-3.5 h-3.5" />}
-                  {roleMismatch.existingRole === 'admin'
+                  {mismatchCard.existingRole === 'admin'
                     ? 'Go to Admin Sign In'
-                    : `Switch to ${portalRoleLabel(roleMismatch.existingRole)} Portal`}
+                    : `Switch to ${portalRoleLabel(mismatchCard.existingRole)} Portal`}
                 </button>
               </div>
             )}
@@ -470,11 +555,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               </div>
             )}
 
-            {/* Primary CTA */}
+            {/* Primary CTA — blocked while the email is flagged as another
+                portal's account; the card above is the way forward. */}
             <button
               type="submit"
-              disabled={isLoading || cooldown > 0}
-              className="w-full bg-[#7c3aed] disabled:opacity-60 disabled:cursor-wait text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#6d28d9] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+              disabled={isLoading || cooldown > 0 || isPortalBlocked}
+              aria-disabled={isLoading || cooldown > 0 || isPortalBlocked}
+              className={`w-full bg-[#7c3aed] disabled:opacity-60 text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#6d28d9] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2 ${
+                isPortalBlocked ? 'disabled:cursor-not-allowed' : 'disabled:cursor-wait'
+              }`}
             >
               <span>{isLoading ? 'Signing in…' : cooldown > 0 ? `Try again in ${formatRetryCountdown(cooldown)}` : 'Login'}</span>
             </button>

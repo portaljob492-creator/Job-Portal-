@@ -17,8 +17,10 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import {
+  asPortalRoleMismatch,
   AuthRateLimitError,
   isActionableAuthScreenError,
+  matchesPortalRoleMismatch,
   parsePortalRoleMismatch,
   portalRoleLabel,
   PortalRoleMismatchError,
@@ -120,7 +122,7 @@ await check('login screen wires the throttle countdown', () => {
   assert.ok(screen.includes('isAuthRateLimitError(loginError)'), 'classifies throttled sign-ins');
   assert.ok(screen.includes('setCooldown(loginError.retryAfterSeconds)'), 'counts down from the server wait');
   assert.ok(screen.includes('Try again in ${formatRetryCountdown(cooldown)}'), 'countdown on the button');
-  assert.ok(screen.includes('disabled={isLoading || cooldown > 0}'), 'submit blocked while cooling down');
+  assert.ok(screen.includes('disabled={isLoading || cooldown > 0 || isPortalBlocked}'), 'submit blocked while cooling down');
 });
 
 // ---------------------------------------------------------------------------
@@ -148,6 +150,51 @@ await check('mismatch copy names each portal with the right article', () => {
   assert.ok(roleMismatchMessage('seeker').includes('as a Job Seeker'));
   assert.ok(roleMismatchMessage('employer').includes('as an Employer'));
   assert.equal(portalRoleLabel('admin'), 'Admin');
+});
+
+await check('every mismatch shape is recognised, not just the structured one', () => {
+  assert.equal(matchesPortalRoleMismatch(new Error('PORTAL_ROLE_MISMATCH:employer')), true);
+  assert.equal(
+    matchesPortalRoleMismatch(new Error('This email is already registered as an Employer. Please sign in through the Employer portal.')),
+    true,
+  );
+  assert.equal(matchesPortalRoleMismatch(new Error('Invalid login credentials')), false);
+  // The signup paths throw the prose form as a plain Error. It has to count as
+  // actionable, or the app-level handler turns it into the generic toast.
+  assert.equal(
+    isActionableAuthScreenError(
+      new Error('This email is already registered as a Job Seeker. Please sign in through the Job Seeker portal.'),
+    ),
+    true,
+  );
+});
+
+await check('a raw mismatch coerces into the inline card payload', () => {
+  const coded = asPortalRoleMismatch({ code: '42501', message: 'PORTAL_ROLE_MISMATCH:employer' }, 'seeker', 'a@b.c');
+  assert.equal(coded?.existingRole, 'employer');
+  assert.equal(coded?.requestedRole, 'seeker');
+  assert.equal(
+    coded?.message,
+    'This email is already registered as an Employer. Please sign in through the Employer portal.',
+  );
+
+  const prose = asPortalRoleMismatch(
+    new Error('This email is already registered as an Employer. Please sign in through the Employer portal.'),
+    'seeker',
+    'a@b.c',
+  );
+  assert.equal(prose?.existingRole, 'employer');
+
+  // Nothing to switch when the copy names the portal already selected.
+  assert.equal(
+    asPortalRoleMismatch(
+      new Error('This email is already registered as an Employer. Please sign in through the Employer portal.'),
+      'employer',
+      'a@b.c',
+    ),
+    null,
+  );
+  assert.equal(asPortalRoleMismatch(new Error('Network unreachable.'), 'seeker', 'a@b.c'), null);
 });
 
 await check('browser Supabase key validation accepts only publishable or role-anon credentials', () => {
@@ -194,6 +241,45 @@ await check('both signup screens wire the throttle countdown', () => {
     assert.ok(screen.includes('setCooldown(signupError.retryAfterSeconds)'), `${file}: counts down`);
     assert.ok(screen.includes('cooldown > 0'), `${file}: gates submit`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 5. A wrong portal tab routes to the account's portal instead of failing
+// ---------------------------------------------------------------------------
+
+await check('login screen flags an email that belongs to the other portal', () => {
+  const screen = read('src/components/auth/LoginScreen.tsx');
+  assert.ok(screen.includes('onResolvePortalRole'), 'accepts the portal lookup');
+  assert.ok(screen.includes('isLikelyEmail(candidate)'), 'only looks up plausible addresses');
+  assert.ok(screen.includes('setDetectedRole'), 'records the portal behind the address');
+  assert.ok(screen.includes('const isPortalBlocked = Boolean(mismatchCard)'), 'derives the submit block');
+  assert.ok(screen.includes('disabled={isLoading || cooldown > 0 || isPortalBlocked}'), 'gates the submit on it');
+  assert.ok(screen.includes('handleSwitchPortal(mismatchCard)'), 'an implicit submit switches portals');
+});
+
+await check('the app routes sign-in to the portal the backend resolved', () => {
+  const app = read('src/App.tsx');
+  assert.ok(app.includes('const { user, portalRole } = await authBackend.signIn'), 'reads the resolved portal');
+  assert.ok(app.includes('enterAuthenticatedPortal(user.id, portalRole ?? selectedRole)'), 'routes on it');
+  assert.ok(app.includes('onResolvePortalRole={handleResolvePortalRole}'), 'wires the login screen lookup');
+});
+
+await check('sign-up still refuses to reassign an email to the other portal', () => {
+  const backend = read('src/services/backend.ts');
+  const signUp = backend.slice(backend.indexOf('async signUp(input: SignUpInput)'), backend.indexOf('async signIn(email'));
+  assert.ok(signUp.includes('throw new PortalRoleMismatchError'), 'signup keeps the structured mismatch');
+});
+
+await check('sign-in verifies the portal before validating the password', () => {
+  const backend = read('src/services/backend.ts');
+  const signIn = backend.slice(backend.indexOf('async signIn(email'), backend.indexOf('async lookupPortalRole('));
+  const refusalAt = signIn.indexOf("decision.kind === 'mismatch'");
+  const passwordAt = signIn.indexOf('signInWithPassword');
+  assert.ok(refusalAt > -1, 'refuses a tab that does not match the stored role');
+  assert.ok(passwordAt > -1, 'authenticates');
+  assert.ok(refusalAt < passwordAt, `portal check precedes password validation (${refusalAt} < ${passwordAt})`);
+  assert.ok(signIn.includes('throw new PortalRoleMismatchError'), 'with the structured mismatch');
+  assert.ok(!/resolvePortalRole\(actualRole\)/.test(backend), 'portal entry is never retried into the other portal');
 });
 
 console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));

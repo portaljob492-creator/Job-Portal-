@@ -74,13 +74,18 @@ export function portalRoleLabel(role: UserRole): string {
   return 'Job Seeker';
 }
 
+/** Indefinite article for a portal label ("a Job Seeker", "an Employer"). */
+export function portalRoleArticle(role: UserRole): string {
+  return role === 'seeker' ? 'a' : 'an';
+}
+
 /**
  * Friendly message for a portal role conflict. Mirrors the copy used by the
  * backend (`job_register_role` raising `PORTAL_ROLE_MISMATCH:<role>`).
  */
 export function roleMismatchMessage(existingRole: UserRole): string {
   const label = portalRoleLabel(existingRole);
-  const article = existingRole === 'seeker' ? 'a' : 'an';
+  const article = portalRoleArticle(existingRole);
   return `This email is already registered as ${article} ${label}. Please sign in through the ${label} portal.`;
 }
 
@@ -176,7 +181,7 @@ export function isPasswordSignInBlockedError(error: unknown): error is PasswordS
  * next step never renders.
  */
 export function isActionableAuthScreenError(error: unknown): boolean {
-  return isPortalRoleMismatchError(error)
+  return matchesPortalRoleMismatch(error)
     || isPasswordSignInBlockedError(error)
     || isUnassignedPortalRoleError(error)
     || isAuthRateLimitError(error);
@@ -208,6 +213,53 @@ export function parsePortalRoleMismatch(
   const existingRole: UserRole | null =
     suffix === 'employer' ? 'employer' : suffix === 'admin' ? 'admin' : suffix === 'job_seeker' ? 'seeker' : null;
   if (!existingRole) return null;
+  return new PortalRoleMismatchError({ email, requestedRole, existingRole });
+}
+
+/**
+ * The sentence the signup paths throw for a role conflict. Matching it matters
+ * as much as the error code: it arrives as a plain `Error`, so without this the
+ * login form would fall through to the generic "Unable to sign in" banner.
+ */
+const REGISTERED_AS_PATTERN = /already registered as (?:a|an) (Job Seeker|Employer|Admin)/i;
+
+function roleFromPortalLabel(label: string): UserRole | null {
+  const value = label.trim().toLowerCase();
+  if (value === 'employer') return 'employer';
+  if (value === 'admin') return 'admin';
+  if (value === 'job seeker') return 'seeker';
+  return null;
+}
+
+/**
+ * True when a failure — structured, coded or plain prose — says the email
+ * belongs to a different portal. `job_register_role` reports
+ * `PORTAL_ROLE_MISMATCH:<role>` and the signup paths throw the sentence, so all
+ * three shapes have to be recognised before anything falls back to a toast.
+ */
+export function matchesPortalRoleMismatch(error: unknown): boolean {
+  if (isPortalRoleMismatchError(error)) return true;
+  const text = errorSignalText(error);
+  return PORTAL_ROLE_MISMATCH_PATTERN.test(text) || REGISTERED_AS_PATTERN.test(text);
+}
+
+/**
+ * Coerces any role-conflict failure into a `PortalRoleMismatchError`, so the
+ * login form always has `existingRole` + `email` to render the inline card and
+ * its "Switch to … Portal" action. Returns null for anything else, and for the
+ * "already registered as *this* portal" case, where there is nothing to switch.
+ */
+export function asPortalRoleMismatch(
+  error: unknown,
+  requestedRole: UserRole,
+  email: string,
+): PortalRoleMismatchError | null {
+  if (isPortalRoleMismatchError(error)) return error;
+  const parsed = parsePortalRoleMismatch(error, requestedRole, email);
+  if (parsed) return parsed;
+  const label = errorSignalText(error).match(REGISTERED_AS_PATTERN)?.[1];
+  const existingRole = label ? roleFromPortalLabel(label) : null;
+  if (!existingRole || existingRole === requestedRole) return null;
   return new PortalRoleMismatchError({ email, requestedRole, existingRole });
 }
 
