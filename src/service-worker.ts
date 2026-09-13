@@ -1,6 +1,10 @@
 
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 import { clientsClaim } from 'workbox-core';
+import { registerRoute } from 'workbox-routing';
+import { NetworkFirst } from 'workbox-strategies';
+import { ExpirationPlugin } from 'workbox-expiration';
+import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 import { openDB } from 'idb';
 
 declare let self: ServiceWorkerGlobalScope;
@@ -8,6 +12,22 @@ declare let self: ServiceWorkerGlobalScope;
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 clientsClaim();
+
+// Runtime caching for public job listings
+registerRoute(
+  ({ url, request }) =>
+    request.method === 'GET' &&
+    url.hostname.endsWith('.supabase.co') &&
+    url.pathname.includes('/rest/v1/public_job_listings'),
+  new NetworkFirst({
+    cacheName: 'nexora-public-jobs-v1',
+    networkTimeoutSeconds: 5,
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
+      new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 60 * 60 }),
+    ],
+  }),
+);
 
 const DB_NAME = 'nexora-offline-db';
 const STORE_NAME = 'pending-actions';

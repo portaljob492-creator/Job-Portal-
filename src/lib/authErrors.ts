@@ -79,7 +79,7 @@ export function portalRoleLabel(role: UserRole): string {
 export function roleMismatchMessage(existingRole: UserRole): string {
   const label = portalRoleLabel(existingRole);
   const article = existingRole === 'employer' ? 'an' : 'a';
-  return `This email is already registered as ${article} ${label}. Please sign in through the ${label} portal.`;
+  return `You are registered as ${article} ${label}. Please switch to the correct tab.`;
 }
 
 export interface PortalRoleMismatchDetails {
