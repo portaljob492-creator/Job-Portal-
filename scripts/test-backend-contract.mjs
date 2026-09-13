@@ -201,6 +201,41 @@ const directWrites = clientWrites.filter(([table, verb]) =>
 check('multi-table workflows no longer write from the browser',
   directWrites.length === 0, directWrites.map(([t, v]) => `${t}.${v}`).join(', '));
 
+// Every moderation/lifecycle action the dashboard offers must reach a real
+// procedure. These calls had zero wiring once and the gap was invisible.
+for (const [rpc, file] of [
+  ['submit_job_for_approval', 'src/services/backend.ts'],
+  ['pause_job', 'src/services/backend.ts'],
+  ['resume_job', 'src/services/backend.ts'],
+  ['close_job', 'src/services/backend.ts'],
+  ['approve_job', 'src/services/adminJobs.ts'],
+  ['reject_job', 'src/services/adminJobs.ts'],
+]) {
+  check(`${rpc} is wired from the frontend`,
+    read(file).includes(`'${rpc}'`) && new RegExp(`function public\\.${rpc}\\s*\\(`).test(sql));
+}
+check('the employer dashboard exposes the lifecycle actions',
+  /onJobAction/.test(read('src/components/employer/EmployerWorkspace.tsx'))
+  && /'submit' \| 'pause' \| 'resume' \| 'close'/.test(read('src/services/backend.ts')));
+
+// Candidate search must be reachable through the RPC and the search text must be
+// indexed, not scanned.
+check('candidate search uses full-text search',
+  /websearch_to_tsquery/.test(sql) && /search_vector/.test(sql) && /job_candidate_search_idx/.test(sql)
+  && /ts_rank/.test(sql));
+
+// Client-side role checks are not authorization: every procedure callable by a
+// signed-in user must carry a server-side guard.
+const guardless = [];
+for (const [name, body] of Object.entries(finalFunctionBody)) {
+  if (/^(job_(assert|is_|can_|current_|email_portal_role|my_active|salon_member_is_active|location_distance))/.test(name)) continue;
+  if (!/returns/.test(name) && !/\(/.test(name)) continue;
+  if (!/job_assert_authenticated|job_is_admin|job_current_role|job_is_active_salon_member|job_can_manage_application|job_my_active_salon_ids|job_can_open_inquiry|auth\.uid\(\)/.test(body)) {
+    guardless.push(name);
+  }
+}
+check('every procedure carries a server-side authorization guard', guardless.length === 0, guardless.join(', '));
+
 // Writes into the marketplace go through RPCs: no client insert policy may
 // exist for membership, plan enablement or postings.
 for (const table of ['job_salon_members', 'job_salon_profiles', 'job_posts']) {

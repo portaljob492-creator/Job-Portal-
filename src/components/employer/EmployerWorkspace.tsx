@@ -59,6 +59,7 @@ interface EmployerWorkspaceProps {
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
+  onJobAction?: (jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') => void;
   onLogout: () => void;
 }
 
@@ -74,9 +75,11 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   onSendMessage,
   onStartConversation,
   onUpdateAvatar,
+  onJobAction,
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'candidates' | 'interviews' | 'messages' | 'analytics' | 'profile'>('dashboard');
+  const [openJobMenu, setOpenJobMenu] = useState<string | null>(null);
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
   const [showApprovalConfirmation, setShowApprovalConfirmation] = useState(false);
@@ -436,12 +439,29 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   
               <div className="flex flex-col gap-4">
                 {jobs.map((job) => {
+                  // Mirrors the server state machine: draft/rejected can be sent
+                  // for approval, approved can be paused or closed, paused can be
+                  // resumed or closed. Every action is a targeted RPC.
+                  const status = job.approvalStatus || 'draft';
+                  const jobActions: { action: 'submit' | 'pause' | 'resume' | 'close'; label: string }[] =
+                    status === 'draft' || status === 'rejected'
+                      ? [{ action: 'submit', label: 'Submit for approval' }]
+                      : status === 'approved'
+                        ? [{ action: 'pause', label: 'Pause applications' }, { action: 'close', label: 'Close this position' }]
+                        : status === 'paused'
+                          ? [{ action: 'resume', label: 'Resume applications' }, { action: 'close', label: 'Close this position' }]
+                          : [];
                   const jobApplicants = applicants.filter((a) => a.appliedJobId === job.id);
                   const shortlisted = jobApplicants.filter(a => a.status === 'Shortlisted').length;
                   const interviewing = jobApplicants.filter(a => a.status === 'Interview Scheduled').length;
                   const statusLabel = job.approvalStatus === 'pending_approval' ? 'Pending Admin Approval · Max 24 Hours'
                     : job.approvalStatus === 'rejected' ? 'Rejected · Changes Required'
-                    : job.approvalStatus === 'approved' ? 'Approved · Live' : (job.approvalStatus || 'Draft');
+                    : job.approvalStatus === 'approved' ? 'Approved · Live'
+                    : job.approvalStatus === 'paused' ? 'Paused · Not accepting applications'
+                    : job.approvalStatus === 'closed' ? 'Closed'
+                    : job.approvalStatus === 'expired' ? 'Expired'
+                    : job.approvalStatus === 'archived' ? 'Archived'
+                    : (job.approvalStatus || 'Draft');
                   const pending = job.approvalStatus === 'pending_approval';
                   
                   return (
@@ -452,17 +472,40 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                       <div className="flex justify-between items-start mb-2">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${pending ? 'text-amber-900 bg-amber-100' : job.approvalStatus === 'rejected' ? 'text-rose-700 bg-rose-50' : 'text-emerald-700 bg-emerald-50'}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${pending ? 'bg-amber-500' : job.approvalStatus === 'rejected' ? 'bg-rose-500' : 'bg-emerald-500'}`}></span> {statusLabel}
+                            <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${pending ? 'text-amber-900 bg-amber-100' : job.approvalStatus === 'rejected' ? 'text-rose-700 bg-rose-50' : job.approvalStatus === 'approved' ? 'text-emerald-700 bg-emerald-50' : 'text-[#594047] bg-[#f1edec]'}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${pending ? 'bg-amber-500' : job.approvalStatus === 'rejected' ? 'bg-rose-500' : job.approvalStatus === 'approved' ? 'bg-emerald-500' : 'bg-[#8a7a80]'}`}></span> {statusLabel}
                             </span>
                             <span className="text-xs text-[#594047]">{job.postedDate}</span>
                           </div>
                           <h2 className="text-[18px] font-semibold text-[#1c1b1b] leading-tight">{job.title}</h2>
                           <p className="text-sm text-[#594047] mt-1 truncate max-w-full">{job.location} • {job.jobType} • {job.salary}</p>
                         </div>
-                        <button disabled={pending} title={pending ? 'Editing is locked during admin review' : 'Job actions'} className="text-[#594047] p-1 hover:bg-[#f1edec] rounded-full transition-colors cursor-pointer shrink-0 disabled:cursor-not-allowed disabled:opacity-40">
-                          <MoreVertical className="w-5 h-5" />
-                        </button>
+                        <div className="relative shrink-0">
+                          <button
+                            disabled={pending || !jobActions.length}
+                            title={pending ? 'Editing is locked during admin review' : 'Job actions'}
+                            onClick={() => setOpenJobMenu((current) => (current === job.id ? null : job.id))}
+                            className="text-[#594047] p-1 hover:bg-[#f1edec] rounded-full transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <MoreVertical className="w-5 h-5" />
+                          </button>
+                          {openJobMenu === job.id && (
+                            <div className="absolute right-0 top-9 z-20 w-56 bg-white border border-[#e8e8e8] rounded-xl shadow-lg py-1">
+                              {jobActions.map((action) => (
+                                <button
+                                  key={action.action}
+                                  onClick={() => {
+                                    setOpenJobMenu(null);
+                                    onJobAction?.(job.id, action.action);
+                                  }}
+                                  className="w-full text-left px-4 py-2.5 text-[13px] font-medium text-[#1c1b1b] hover:bg-[#f7f2f2] transition-colors cursor-pointer"
+                                >
+                                  {action.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                       
                       <div className="flex flex-wrap gap-4 md:gap-6 mt-4 pt-4 border-t border-[#e8e8e8]">

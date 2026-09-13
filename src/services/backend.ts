@@ -1165,10 +1165,22 @@ export async function createSupportTicket(input: {
 }
 
 /** Employer job-lifecycle actions (approved <-> paused, or closed for good). */
-export async function setJobLifecycleState(jobId: string, action: 'pause' | 'resume' | 'close') {
-  const rpcName = action === 'pause' ? 'pause_job' : action === 'resume' ? 'resume_job' : 'close_job';
+export async function setJobLifecycleState(jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') {
+  const rpcName = action === 'submit' ? 'submit_job_for_approval'
+    : action === 'pause' ? 'pause_job'
+    : action === 'resume' ? 'resume_job'
+    : 'close_job';
   const { error } = await requireSupabase().rpc(rpcName, { target_job_id: jobId });
   if (error) throw error;
+}
+
+/**
+ * Employer sends a draft (or a rejected posting) to the admin queue. Without
+ * this call a new posting stays a draft forever and never reaches moderation,
+ * because `create_job_post` inserts drafts by design.
+ */
+export async function submitJobForApproval(jobId: string) {
+  await setJobLifecycleState(jobId, 'submit');
 }
 
 export async function createConversationRecord(input: {

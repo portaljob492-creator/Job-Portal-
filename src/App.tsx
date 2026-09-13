@@ -25,6 +25,7 @@ import {
   completeSeekerOnboarding,
   createApplication,
   createConversationRecord,
+  setJobLifecycleState,
   createJob,
   deleteAlert,
   getUserRole,
@@ -702,6 +703,22 @@ export default function App() {
     }
   };
 
+  const handleJobAction = (jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') => {
+    // Moderation and lifecycle changes go through the RPCs, so the server
+    // decides who may do what and what the status becomes.
+    const labels: Record<typeof action, string> = {
+      submit: 'Unable to submit this job for approval.',
+      pause: 'Unable to pause this job.',
+      resume: 'Unable to resume this job.',
+      close: 'Unable to close this position.',
+    };
+    void setJobLifecycleState(jobId, action)
+      .then(async () => {
+        if (currentUserId) await hydrateWorkspace(currentUserId);
+      })
+      .catch((error) => setBackendError(mapBackendError(error, labels[action])));
+  };
+
   const handleStartConversation = (jobId: string, targetSeekerName?: string, targetSalonName?: string): string => {
     const job = jobs.find((j) => j.id === jobId);
 
@@ -1073,6 +1090,7 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
               onUpdateAvatar={handleAvatarUpdate}
+              onJobAction={handleJobAction}
               onLogout={handleLogout}
             />
           )}

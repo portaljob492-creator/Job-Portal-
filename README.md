@@ -74,7 +74,26 @@ Migrations are under `supabase/migrations/`:
 20260913000200_jobs_rls_policy_hardening.sql
 20260913000300_jobs_query_performance.sql
 20260913000400_jobs_rpc_automation.sql
+20260913000500_jobs_integration_hardening.sql
 ```
+
+`20260913000500_jobs_integration_hardening.sql` closes the frontend/backend
+gaps the integration audit found. Candidate search gains full-text search: a
+generated `search_vector` column over headline/bio/city/state with a GIN index,
+and `search_job_candidates()` now takes a text query, an experience floor and
+orders by relevance (`websearch_to_tsquery`, so typed input can never raise).
+Storage gains the three legitimate readers that were missing — an administrator
+reviewing an employer verification or a support attachment, and a salon member
+looking at the photo of somebody who applied to their posting — while private
+buckets stay private for everyone else, resumes included. `publish_job()` is
+revoked from clients (it is a deprecated alias of the admin-only `approve_job()`).
+The employer dashboard finally drives moderation through the procedures: each
+job card offers *Submit for approval* (the resubmit path a rejected posting
+needs), *Pause*, *Resume* and *Close*, each mapped to its RPC and followed by a
+workspace refresh. Authorization is no longer assumed to be a client concern:
+`test:db` asserts that every procedure callable by a signed-in user carries a
+server-side guard and that anonymous requests can reach nothing but the three
+policy helpers.
 
 `20260913000400_jobs_rpc_automation.sql` moves the last workflows that the
 browser still assembled from several writes into single transactions:

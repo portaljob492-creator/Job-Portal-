@@ -130,6 +130,10 @@ await db.exec(`
   -- Production grants these through schema default privileges; the policies (not
   -- the grants) are what must keep user rows private, so model that faithfully.
   grant select, insert, update, delete on public.notifications, public.push_subscriptions to anon, authenticated;
+  -- Supabase grants on storage.objects the same way; the RLS policies, not the
+  -- grants, are what keep private buckets private.
+  grant select on storage.objects to anon;
+  grant select, insert, update, delete on storage.objects to authenticated;
 
   alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
   alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
@@ -1004,6 +1008,166 @@ const expiryAgain = await rpc(admin, `select * from public.job_expire_stale_jobs
 check('expiry automation is idempotent',
   expiryAgain.rows[0].expired_jobs === 0 && expiryAgain.rows[0].closed_applications === 0,
   JSON.stringify(expiryAgain.rows[0]));
+
+// ---------------------------------------------------------------------------
+// 11. Integration: authorization on every RPC, search, storage readers
+// ---------------------------------------------------------------------------
+// Holding the anon key must not be enough to reach a privileged procedure: the
+// only anon-executable functions left are the three a policy needs to evaluate.
+// Extension-owned functions (pg_trgm helpers) read no tables; exclude them so
+// the check is about this application's surface.
+const anonRpc = await db.query(`
+  select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f'
+     and has_function_privilege('anon', p.oid, 'EXECUTE')
+     and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+   order by p.proname`);
+const anonNames = anonRpc.rows.map((r) => r.proname);
+check('anon can only execute the helpers its policies need',
+  anonNames.every((name) => ['job_is_admin', 'job_is_active_salon_member', 'job_my_active_salon_ids', 'job_email_portal_role'].includes(name)),
+  anonNames.join(', '));
+
+// Authorization is enforced in the database, not on client routes: every
+// callable procedure must carry a guard. This invariant is what stops a future
+// procedure from shipping without one.
+const extensionOwned = new Set((await db.query(`
+  select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')`)).rows.map((r) => r.proname));
+const unguardedRpc = [];
+for (const row of (await db.query(`
+  select p.proname, pg_get_functiondef(p.oid) as def
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f'
+     and has_function_privilege('authenticated', p.oid, 'EXECUTE')`)).rows) {
+  const pureHelper = /^job_(assert|is_|can_|current_|email_portal_role|my_active|salon_member_is_active|location_distance)/.test(row.proname)
+    || extensionOwned.has(row.proname);
+  const guarded = /job_assert_authenticated|job_is_admin|job_current_role|job_is_active_salon_member|job_can_manage_application|job_my_active_salon_ids|job_can_open_inquiry|auth\.uid\(\)/.test(row.def);
+  if (!guarded && !pureHelper) unguardedRpc.push(row.proname);
+}
+check('every client-callable procedure enforces authorization', unguardedRpc.length === 0, unguardedRpc.join(', '));
+
+// The privileged alias is not reachable from a client any more, and the admin
+// path refuses everybody else.
+const publishAttempt = await caught(employer, `select public.publish_job('${job}')`);
+check('publish_job is not callable by an employer',
+  /permission denied|ROLE_NOT_ALLOWED/.test(publishAttempt.error ?? ''), publishAttempt.error || 'allowed');
+const approveAttempt = await caught(employer, `select public.approve_job('${job}')`);
+check('approve_job refuses a non-admin', /ROLE_NOT_ALLOWED/.test(approveAttempt.error ?? ''), approveAttempt.error || 'allowed');
+
+// Candidate search: opt-in only, relevance ordered, and filtered by experience.
+const searchAsCandidate = await caught(seeker, `select * from public.search_job_candidates(p_query => 'stylist')`);
+check('candidate search refuses a job seeker', /ROLE_NOT_ALLOWED/.test(searchAsCandidate.error ?? ''), searchAsCandidate.error || 'allowed');
+await db.exec(`update public.job_seeker_profiles
+  set headline = 'Senior colourist', bio = 'Balayage and precision cutting specialist.', profile_visibility = 'employers'
+  where user_id = '${seeker}'`);
+const searchHit = await rpc(employer, `select candidate_id, headline from public.search_job_candidates(p_query => 'balayage colourist')`);
+check('full-text search matches the profile text',
+  searchHit.rows.some((row) => row.candidate_id && row.headline === 'Senior colourist'), JSON.stringify(searchHit.rows));
+const searchMiss = await rpc(employer, `select candidate_id from public.search_job_candidates(p_query => 'welding underwater')`);
+check('full-text search returns nothing for an unrelated query', searchMiss.rows.length === 0, `${searchMiss.rows.length} rows`);
+const searchHidden = await rpc(employer, `select candidate_id from public.search_job_candidates(p_query => 'outsider profile')`);
+check('candidate search never leaves the opted-in visibility', searchHidden.rows.length === 0, `${searchHidden.rows.length} rows`);
+const searchExperience = await rpc(employer, `select candidate_id from public.search_job_candidates(p_min_experience_months => 500)`);
+check('experience filter excludes junior profiles',
+  searchExperience.rows.every((row) => row.candidate_id !== seeker), JSON.stringify(searchExperience.rows));
+check('candidate search has a GIN index on the generated column',
+  (await db.query(`select 1 from pg_indexes where schemaname='public' and indexname='job_candidate_search_idx'`)).rows.length === 1);
+
+// Storage: the new readers exist, and private buckets stay private for anon.
+for (const policy of ['job_verification_admin_read', 'job_support_admin_read', 'job_profile_media_applicant_read']) {
+  const found = (await db.query(`select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname='${policy}'`)).rows.length === 1;
+  check(`storage policy ${policy} exists`, found);
+}
+await db.exec(`
+  insert into storage.objects(id, bucket_id, name, owner) values
+    ('00000000-0000-4000-8000-0000deadbeef','job-resumes','${seeker}/resume.pdf','${seeker}'),
+    ('00000000-0000-4000-8000-0000deadbeee','job-profile-media','${seeker}/avatar.png','${seeker}');
+  set role anon;
+`);
+let anonStorage;
+try {
+  anonStorage = (await db.query(`select count(*)::int as n from storage.objects where bucket_id in ('job-resumes','job-profile-media')`)).rows[0].n;
+} catch (error) { anonStorage = -1; }
+await db.exec(`reset role;`);
+check('anon cannot read a private resume or avatar', anonStorage === 0 || anonStorage === -1, String(anonStorage));
+const ownerStorage = (await db.query(`
+  select count(*)::int as n from storage.objects
+   where bucket_id in ('job-resumes','job-profile-media') and (storage.foldername(name))[1] = '${seeker}'`)).rows[0].n;
+check('the owner still sees their own files in the policy shape', ownerStorage === 2, `${ownerStorage} rows`);
+
+// A resume is readable by the employer only through the application that
+// attached it: the storage policy joins storage.objects to job_candidate_resumes
+// and the posting's salon membership.
+const resumeRow = (await rpc(seeker, `insert into public.job_candidate_resumes(candidate_id, storage_path, original_filename, mime_type, file_size, is_primary)
+  values ((select id from public.job_seeker_profiles where user_id='${seeker}'),'${seeker}/resume.pdf','resume.pdf','application/pdf',1024,true) returning id`)) ;
+const resumeId = resumeRow.rows?.[0]?.id;
+const linkedJob = (await rpc(employer, `select public.create_job_post(
+  '${salonId}', null, 'Resume Access Role', 'Hair',
+  'A posting used to check who may read an attached resume.', 'full_time') as id`)).rows[0].id;
+await rpc(admin, `select public.approve_job('${linkedJob}')`);
+await rpc(seeker, `select public.submit_job_application('${linkedJob}', '${resumeId}')`);
+const employerResume = await asUser(employer, () =>
+  db.query(`select count(*)::int as n from storage.objects where bucket_id='job-resumes' and name='${seeker}/resume.pdf'`));
+check('the employer can read the resume attached to an application they own',
+  employerResume.rows[0].n === 1, `${employerResume.rows[0].n} rows`);
+const strangerResume = await asUser(employerB, () =>
+  db.query(`select count(*)::int as n from storage.objects where bucket_id='job-resumes' and name='${seeker}/resume.pdf'`));
+check('another salon cannot read that resume', strangerResume.rows[0].n === 0, `${strangerResume.rows[0].n} rows`);
+const candidateResume = await asUser(candidateB, () =>
+  db.query(`select count(*)::int as n from storage.objects where bucket_id='job-resumes' and name='${seeker}/resume.pdf'`));
+check('another candidate cannot read that resume', candidateResume.rows[0].n === 0, `${candidateResume.rows[0].n} rows`);
+
+// ---------------------------------------------------------------------------
+// 12. Moderation lifecycle the employer dashboard now drives
+// ---------------------------------------------------------------------------
+// The UI gained these actions in this change; the state machine they call is
+// verified here so a UI action can never point at a transition the database
+// refuses (or worse, one it allows for the wrong person).
+const lifecycleJob = (await rpc(employer, `select public.create_job_post(
+  '${salonId}', null, 'Lifecycle Role', 'Hair',
+  'A posting used to walk the moderation lifecycle end to end.', 'full_time') as id`)).rows[0].id;
+const lifecycleStatus = async () => (await db.query(`select status from public.job_posts where id='${lifecycleJob}'`)).rows[0].status;
+// Creating a posting auto-submits it (the status default is pending_approval),
+// which is why the dashboard's moderation action matters for the resubmit path.
+check('a new posting goes straight into the admin queue', (await lifecycleStatus()) === 'pending_approval', await lifecycleStatus());
+
+const wrongPause = await caught(employer, `select public.pause_job('${lifecycleJob}')`);
+check('a posting under review cannot be paused', /INVALID_JOB_TRANSITION/.test(wrongPause.error ?? ''), wrongPause.error || 'allowed');
+const foreignSubmit = await caught(employerB, `select public.submit_job_for_approval('${lifecycleJob}')`);
+check('another salon cannot submit this posting for approval',
+  /INVALID_JOB_TRANSITION|SALON_ACCESS_DENIED/.test(foreignSubmit.error ?? ''), foreignSubmit.error || 'allowed');
+const doubleSubmit = await caught(employer, `select public.submit_job_for_approval('${lifecycleJob}')`);
+check('submitting a posting already under review is refused',
+  /INVALID_JOB_TRANSITION/.test(doubleSubmit.error ?? ''), doubleSubmit.error || 'allowed');
+
+// Rejection -> the employer edits and resubmits. This is the action the
+// dashboard was missing: without it a rejected posting was stuck forever.
+await rpc(admin, `select public.reject_job('${lifecycleJob}', 'Please add the salary range.')`);
+check('an admin rejection marks the posting rejected', (await lifecycleStatus()) === 'rejected', await lifecycleStatus());
+const foreignResubmit = await caught(employerB, `select public.submit_job_for_approval('${lifecycleJob}')`);
+check('another salon cannot resubmit a rejected posting',
+  /INVALID_JOB_TRANSITION|SALON_ACCESS_DENIED/.test(foreignResubmit.error ?? ''), foreignResubmit.error || 'allowed');
+await rpc(employer, `select public.submit_job_for_approval('${lifecycleJob}')`);
+check('the employer can resubmit a rejected posting', (await lifecycleStatus()) === 'pending_approval', await lifecycleStatus());
+
+await rpc(admin, `select public.approve_job('${lifecycleJob}')`);
+check('an admin approval makes the posting live', (await lifecycleStatus()) === 'approved', await lifecycleStatus());
+const strangerPause = await caught(employerB, `select public.pause_job('${lifecycleJob}')`);
+check('another salon cannot pause this posting', /INVALID_JOB_TRANSITION/.test(strangerPause.error ?? ''), strangerPause.error || 'allowed');
+
+await rpc(employer, `select public.pause_job('${lifecycleJob}')`);
+check('the employer can pause a live posting', (await lifecycleStatus()) === 'paused', await lifecycleStatus());
+await rpc(employer, `select public.resume_job('${lifecycleJob}')`);
+check('the employer can resume a paused posting', (await lifecycleStatus()) === 'approved', await lifecycleStatus());
+await rpc(employer, `select public.close_job('${lifecycleJob}')`);
+check('the employer can close a posting', (await lifecycleStatus()) === 'closed', await lifecycleStatus());
+const resumeClosed = await caught(employer, `select public.resume_job('${lifecycleJob}')`);
+check('a closed posting cannot be resumed', /INVALID_JOB_TRANSITION/.test(resumeClosed.error ?? ''), resumeClosed.error || 'allowed');
+
+// A posting under review must never be visible to the public while it waits.
+const draftVisibility = (await db.query(`
+  select count(*)::int as n from public.public_job_listings where id = '${lifecycleJob}'`)).rows[0].n;
+check('a closed posting is not listed publicly', draftVisibility === 0, `${draftVisibility} rows`);
 
 // ---------------------------------------------------------------------------
 // Report
