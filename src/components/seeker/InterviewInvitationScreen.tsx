@@ -7,6 +7,8 @@ interface InterviewInvitationScreenProps {
   applications: Application[];
   selectedApplication?: Application | null;
   onUpdateApplicationStatus?: (applicationId: string, status: Application['status'], notes?: string, interviewDate?: string) => void;
+  /** Persists the candidate's answer through `accept_interview` / `decline_interview` / `request_interview_reschedule`. */
+  onInterviewResponse?: (applicationId: string, action: 'accept' | 'decline' | 'reschedule', reason?: string) => void;
   onBack: () => void;
   onNavigateTab?: (tab: 'explore' | 'applications' | 'saved' | 'messages' | 'profile') => void;
 }
@@ -16,6 +18,7 @@ export const InterviewInvitationScreen: React.FC<InterviewInvitationScreenProps>
   applications,
   selectedApplication,
   onUpdateApplicationStatus,
+  onInterviewResponse,
   onBack,
   onNavigateTab,
 }) => {
@@ -76,6 +79,9 @@ export const InterviewInvitationScreen: React.FC<InterviewInvitationScreenProps>
     if (onUpdateApplicationStatus && activeApp.id !== 'mock-app') {
       onUpdateApplicationStatus(activeApp.id, 'Interview Scheduled', 'Interview accepted. Looking forward to meeting you!');
     }
+    if (onInterviewResponse && activeApp.id !== 'mock-app') {
+      onInterviewResponse(activeApp.id, 'accept');
+    }
     showToast('Interview invitation accepted successfully!', 'success');
   };
 
@@ -83,6 +89,9 @@ export const InterviewInvitationScreen: React.FC<InterviewInvitationScreenProps>
     setInvitationStatus('declined');
     if (onUpdateApplicationStatus && activeApp.id !== 'mock-app') {
       onUpdateApplicationStatus(activeApp.id, 'Under Review', 'Declined current interview invitation. Awaiting further updates.');
+    }
+    if (onInterviewResponse && activeApp.id !== 'mock-app') {
+      onInterviewResponse(activeApp.id, 'decline', 'Declined by candidate');
     }
     showToast('You have declined the interview invitation.', 'info');
   };
@@ -102,6 +111,13 @@ export const InterviewInvitationScreen: React.FC<InterviewInvitationScreenProps>
         activeApp.id, 
         'Under Review', 
         `Reschedule requested. Proposed time: ${formattedProposedTime}. Reason: ${rescheduleReason || 'None'}`
+      );
+    }
+    if (onInterviewResponse && activeApp.id !== 'mock-app') {
+      onInterviewResponse(
+        activeApp.id,
+        'reschedule',
+        `Proposed time: ${formattedProposedTime}. Reason: ${rescheduleReason || 'None'}`,
       );
     }
     showToast(`Reschedule request sent for ${formattedProposedTime}!`, 'success');

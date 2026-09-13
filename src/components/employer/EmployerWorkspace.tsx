@@ -50,6 +50,12 @@ interface EmployerWorkspaceProps {
   userProfile: UserProfile;
   onAddJob: (newJob: JobPosting) => Promise<void> | void;
   onUpdateApplicantStatus: (applicantId: string, status: Applicant['status']) => void;
+  /** Sends the offer through the backend (`send_job_offer`) for this applicant. */
+  onSendOffer?: (
+    applicantId: string,
+    details: { jobRole: string; salary?: string; employmentType?: string; joiningDate?: string; offerNotes?: string },
+    interviewId?: string,
+  ) => void;
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
@@ -64,6 +70,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   userProfile,
   onAddJob,
   onUpdateApplicantStatus,
+  onSendOffer,
   onSendMessage,
   onStartConversation,
   onUpdateAvatar,
@@ -814,8 +821,10 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           applicant={offeringApplicant}
           onClose={() => setOfferingApplicant(null)}
           onSendOffer={(details) => {
-            // Update the applicant status to 'Offer Extended' or 'Hired'
-            onUpdateApplicantStatus(offeringApplicant.id, 'Hired');
+            // The backend records the offer and moves the application to
+            // `offer_sent`; the candidate acceptance is what later unlocks
+            // 'Hired' on this applicant.
+            onSendOffer?.(offeringApplicant.id, details);
             setHiredOfferDetails(details);
             setHiredApplicant(offeringApplicant);
             setOfferingApplicant(null);

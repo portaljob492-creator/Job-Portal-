@@ -59,6 +59,10 @@ export interface Application {
   interviewDate?: string;
   expectedSalary?: string;
   availability?: string;
+  /** Latest interview row for this application (workflow RPCs need its id). */
+  interviewId?: string;
+  /** Latest active offer row for this application (workflow RPCs need its id). */
+  offerId?: string;
 }
 
 export interface Applicant {

@@ -247,6 +247,17 @@ function mapApplication(row: any): Application {
   const interviews = arrays<any>(row.interviews).sort(
     (a, b) => new Date(b.scheduled_start).getTime() - new Date(a.scheduled_start).getTime(),
   );
+  // The workflow RPCs are keyed by interview/offer id, so the newest row of each
+  // kind travels with the application (newest first, completed/closed excluded
+  // where the action would no longer be valid).
+  const openInterview = interviews.find((item) =>
+    ['requested', 'confirmed', 'reschedule_requested', 'rescheduled'].includes(String(item.status)),
+  );
+  const offers = arrays<any>(row.offers).sort(
+    (a, b) => new Date(b.sent_at || 0).getTime() - new Date(a.sent_at || 0).getTime(),
+  );
+  const activeOffer = offers.find((item) => ['sent', 'accepted'].includes(String(item.status)));
+  const latestInterview = offers.length > 0 && !activeOffer ? undefined : openInterview ?? interviews[0];
   return {
     id: row.id,
     jobId: row.job_id,
@@ -262,6 +273,8 @@ function mapApplication(row: any): Application {
       : undefined,
     expectedSalary: row.expected_salary == null ? undefined : `₹${Number(row.expected_salary).toLocaleString('en-IN')}`,
     availability: row.available_from || undefined,
+    interviewId: latestInterview?.id || undefined,
+    offerId: activeOffer?.id || undefined,
   };
 }
 
@@ -660,7 +673,7 @@ export interface WorkspaceData {
 
 export async function loadWorkspace(user: User, role: UserRole): Promise<WorkspaceData> {
   const client = requireSupabase();
-  const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*)`;
+  const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
 
   const [profileResult, candidateResult, membershipResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult] = await Promise.all([
     client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).single(),
@@ -951,6 +964,149 @@ export async function updateApplicationStatus(applicationId: string, status: App
   if (status === 'Offer Extended') {
     throw new Error('Use the offer form to send salary, joining date, and offer terms.');
   }
+}
+
+/**
+ * Employer sends an offer. The backend moves the application to `offer_sent`,
+ * which is what the candidate's offer screen reacts to.
+ */
+export interface JobOfferInput {
+  jobRole: string;
+  salary?: string | number | null;
+  employmentType?: string | null;
+  joiningDate?: string | null;
+  offerNotes?: string | null;
+  expiresAt?: string | null;
+}
+
+const numericOrNull = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(String(value).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+export async function sendJobOffer(applicationId: string, input: JobOfferInput) {
+  const { data, error } = await requireSupabase().rpc('send_job_offer', {
+    target_application_id: applicationId,
+    p_job_role: input.jobRole,
+    p_salary: numericOrNull(input.salary),
+    p_employment_type: input.employmentType || null,
+    p_joining_date: input.joiningDate || null,
+    p_offer_notes: input.offerNotes || null,
+    p_expires_at: input.expiresAt || null,
+  });
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Sending an offer is only allowed once the interview stage is finished. When
+ * the employer has already run a confirmed interview, this closes it out so the
+ * offer step is reachable without the candidate having to press anything else.
+ */
+export async function completeInterviewStage(applicationId: string, interviewId?: string) {
+  const client = requireSupabase();
+  const targetId =
+    interviewId ||
+    (await client
+      .from('job_interview_requests')
+      .select('id,status')
+      .eq('application_id', applicationId)
+      .eq('status', 'confirmed')
+      .order('scheduled_start', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    ).data?.id;
+  if (!targetId) return false;
+  const { error } = await client.rpc('complete_interview', { target_interview_id: targetId });
+  if (error) throw error;
+  return true;
+}
+
+export type InterviewResponse = 'accept' | 'decline' | 'reschedule';
+
+/** Candidate responds to an interview invitation. */
+export async function respondToInterview(
+  interviewId: string,
+  response: InterviewResponse,
+  reason?: string,
+) {
+  const client = requireSupabase();
+  if (response === 'accept') {
+    const { error } = await client.rpc('accept_interview', { target_interview_id: interviewId });
+    if (error) throw error;
+    return;
+  }
+  if (response === 'decline') {
+    const { error } = await client.rpc('decline_interview', {
+      target_interview_id: interviewId,
+      p_reason: reason || null,
+    });
+    if (error) throw error;
+    return;
+  }
+  const { error } = await client.rpc('request_interview_reschedule', {
+    target_interview_id: interviewId,
+    p_reason: reason || 'Candidate requested a new time.',
+  });
+  if (error) throw error;
+}
+
+/** Candidate accepts or declines a job offer. */
+export async function respondToJobOffer(offerId: string, response: 'accept' | 'decline') {
+  const rpcName = response === 'accept' ? 'accept_job_offer' : 'decline_job_offer';
+  const { error } = await requireSupabase().rpc(rpcName, { target_offer_id: offerId });
+  if (error) throw error;
+}
+
+/** Candidate withdraws an application. A pending offer must be declined first. */
+export async function withdrawApplication(applicationId: string, reason?: string) {
+  const { error } = await requireSupabase().rpc('withdraw_application', {
+    target_application_id: applicationId,
+    p_reason: reason || null,
+  });
+  if (error) throw error;
+}
+
+/** Employer submits salon verification documents for admin review. */
+export async function submitEmployerVerification(input: {
+  salonId: string;
+  businessProofPath: string;
+  identityProofPath: string;
+  salonProofPath?: string | null;
+}) {
+  const { data, error } = await requireSupabase().rpc('submit_employer_verification', {
+    target_salon_id: input.salonId,
+    p_business_proof_path: input.businessProofPath,
+    p_identity_proof_path: input.identityProofPath,
+    p_salon_proof_path: input.salonProofPath || null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Opens a support ticket for the signed-in user. */
+export async function createSupportTicket(input: {
+  issueType: string;
+  subject: string;
+  description: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+}) {
+  const { data, error } = await requireSupabase().rpc('create_job_support_ticket', {
+    p_issue_type: input.issueType,
+    p_subject: input.subject,
+    p_description: input.description,
+    p_priority: input.priority || 'normal',
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Employer job-lifecycle actions (approved <-> paused, or closed for good). */
+export async function setJobLifecycleState(jobId: string, action: 'pause' | 'resume' | 'close') {
+  const rpcName = action === 'pause' ? 'pause_job' : action === 'resume' ? 'resume_job' : 'close_job';
+  const { error } = await requireSupabase().rpc(rpcName, { target_job_id: jobId });
+  if (error) throw error;
 }
 
 export async function createConversationRecord(input: {

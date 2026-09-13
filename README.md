@@ -69,7 +69,17 @@ Migrations are under `supabase/migrations/`:
 20260808170800_jobs_permanent_portal_roles.sql
 20260808170900_jobs_admin_approval.sql
 20260810090000_jobs_location_sync.sql
+20260913000000_jobs_backend_completion.sql
 ```
+
+`20260913000000_jobs_backend_completion.sql` is the authoritative final state for
+everything the admin-approval model changed: it re-points the application and
+public-location gates at the live `approved` status, keeps one active offer per
+application (a withdrawn or declined offer can be replaced), pins the strict
+`job_register_role`, makes the signup trigger independent of trigger ordering,
+adds the missing foreign-key/hot-path indexes and tightens helper execute
+rights. Earlier migration files are historical records — never edit an applied
+migration, add a new one.
 
 They are recorded in `supabase_migrations.schema_migrations` on staging. For another linked project:
 
@@ -124,10 +134,24 @@ Private documents use stable storage paths; clients should request short-lived s
 ```bash
 npm run lint          # tsc --noEmit
 npm run build         # vite build
+npm run test:contract # frontend/backend contract (offline, no credentials)
+npm run test:db       # replays every migration on a real PostgreSQL (offline)
 npm run test:location # auth + location sync checks (offline, no credentials)
 npm run test:reset    # password policy, recovery-token parsing, reset CLI (offline)
 npm run test:pwa      # build + PWA artifact checks
 ```
+
+`npm run test:db` boots an in-process PostgreSQL (PGlite), applies every file in
+`supabase/migrations` in order on top of a minimal Supabase bootstrap (roles,
+`auth.users`, `auth.uid()`, `storage.objects`, the realtime publication and the
+shared Nexora tables) and then drives the real workflows as the `authenticated`
+role: create job → admin approval → apply → shortlist → interview → offer →
+hire, plus cross-user access attempts, storage buckets/policies and the realtime
+publication. It is the fastest way to prove a backend change before deploying.
+
+`npm run test:contract` proves the app and the SQL still agree: every `.rpc()`
+call the frontend makes must exist in the migrations with matching argument
+names, every table must be RLS-protected, and no secret may reach the bundle.
 
 `npm run test:location` executes the real modules (`src/lib/supabase.ts`,
 `src/routing.ts`, `src/lib/authErrors.ts`, `src/services/locationSync.ts`) with

@@ -26,6 +26,8 @@ interface JobOfferScreenProps {
   applications: Application[];
   selectedApplication: Application | null;
   onUpdateApplicationStatus: (appId: string, status: 'Submitted' | 'Under Review' | 'Interview Scheduled' | 'Offer Extended' | 'Accepted' | 'Declined', notes?: string) => void;
+  /** Persists the answer through `accept_job_offer` / `decline_job_offer`. */
+  onOfferResponse?: (appId: string, action: 'accept' | 'decline', reason?: string) => void;
   onBack: () => void;
   onNavigateTab?: (tab: 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile') => void;
 }
@@ -35,6 +37,7 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
   applications,
   selectedApplication,
   onUpdateApplicationStatus,
+  onOfferResponse,
   onBack,
   onNavigateTab,
 }) => {
@@ -73,7 +76,8 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
 
   const handleAccept = () => {
     setOfferState('accepted');
-    onUpdateApplicationStatus(activeApp.id, 'Offer Extended', 'Offer Accepted! Thank you.');
+    onUpdateApplicationStatus(activeApp.id, 'Accepted', 'Offer accepted. Thank you!');
+    onOfferResponse?.(activeApp.id, 'accept');
     setShowToast(true);
     setTimeout(() => {
       setShowToast(false);
@@ -82,7 +86,8 @@ export const JobOfferScreen: React.FC<JobOfferScreenProps> = ({
 
   const handleDeclineConfirm = () => {
     setOfferState('declined');
-    onUpdateApplicationStatus(activeApp.id, 'Offer Extended', `Offer Declined. Reason: ${declineReason || 'None specified'}`);
+    onUpdateApplicationStatus(activeApp.id, 'Declined', `Offer declined. Reason: ${declineReason || 'None specified'}`);
+    onOfferResponse?.(activeApp.id, 'decline', declineReason);
     setShowDeclineModal(false);
   };
 

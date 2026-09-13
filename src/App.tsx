@@ -21,6 +21,7 @@ import {
   applyPendingOAuthRole,
   authBackend,
   completeEmployerOnboarding,
+  completeInterviewStage,
   completeSeekerOnboarding,
   createApplication,
   createConversationRecord,
@@ -31,7 +32,10 @@ import {
   loadWorkspace,
   markAllAlertsRead,
   RecoverySessionLostError,
+  respondToInterview,
+  respondToJobOffer,
   saveProfile,
+  sendJobOffer,
   sendMessageRecord,
   setBookmark,
   updateAlertRead,
@@ -581,8 +585,87 @@ export default function App() {
     );
   };
 
-  const handleSendMessage = (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => {
-    const newMsg: ChatMessage = {
+  /**
+   * Employer sends an offer. The interview stage is closed first when a
+   * confirmed interview exists, because `send_job_offer` only accepts an
+   * application in the `interview_completed` state.
+   */
+  const handleSendOffer = (
+    applicantId: string,
+    details: { jobRole: string; salary?: string; employmentType?: string; joiningDate?: string; offerNotes?: string },
+    interviewId?: string,
+  ) => {
+    if (!currentUserId) return;
+    void (async () => {
+      try {
+        await completeInterviewStage(applicantId, interviewId);
+        await sendJobOffer(applicantId, {
+          jobRole: details.jobRole,
+          salary: details.salary,
+          employmentType: details.employmentType,
+          joiningDate: details.joiningDate,
+          offerNotes: details.offerNotes,
+        });
+        setApplicants((prev) =>
+          prev.map((a) => (a.id === applicantId ? { ...a, status: 'Offer Extended' } : a)),
+        );
+      } catch (error) {
+        setBackendError(error instanceof Error ? error.message : 'Unable to send the offer.');
+      }
+    })();
+  };
+
+  /** Candidate answers an interview invitation (accept / decline / reschedule). */
+  const handleInterviewResponse = (applicationId: string, action: 'accept' | 'decline' | 'reschedule', reason?: string) => {
+    if (!currentUserId) return;
+    const application = applications.find((app) => app.id === applicationId);
+    setApplications((prev) =>
+      prev.map((app) =>
+        app.id === applicationId
+          ? {
+              ...app,
+              status: action === 'accept' ? 'Interview Scheduled' : 'Under Review',
+              notes:
+                action === 'decline'
+                  ? 'Declined current interview invitation. Awaiting further updates.'
+                  : action === 'reschedule'
+                    ? 'Reschedule requested with the hiring team.'
+                    : 'Interview accepted. Looking forward to meeting you!',
+            }
+          : app,
+      ),
+    );
+    if (!application?.interviewId) return;
+    void respondToInterview(application.interviewId, action, reason).catch((error) =>
+      setBackendError(error instanceof Error ? error.message : 'Unable to update the interview.'),
+    );
+  };
+
+  /** Candidate answers a job offer. Hiring is completed by the employer. */
+  const handleOfferResponse = (applicationId: string, action: 'accept' | 'decline', reason?: string) => {
+    if (!currentUserId) return;
+    const application = applications.find((app) => app.id === applicationId);
+    setApplications((prev) =>
+      prev.map((app) =>
+        app.id === applicationId
+          ? {
+              ...app,
+              status: action === 'accept' ? 'Accepted' : 'Declined',
+              notes:
+                action === 'accept'
+                  ? 'Offer accepted. Thank you!'
+                  : `Offer declined. Reason: ${reason || 'None specified'}`,
+            }
+          : app,
+      ),
+    );
+    if (!application?.offerId) return;
+    void respondToJobOffer(application.offerId, action).catch((error) =>
+      setBackendError(error instanceof Error ? error.message : 'Unable to update the job offer.'),
+    );
+  };
+
+  const handleSendMessage = (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => {    const newMsg: ChatMessage = {
       id: currentUserId ? crypto.randomUUID() : `msg-${Date.now()}`,
       conversationId,
       senderRole: userRole,
@@ -985,6 +1068,7 @@ export default function App() {
               userProfile={userProfile}
               onAddJob={handleAddJob}
               onUpdateApplicantStatus={handleUpdateApplicantStatus}
+              onSendOffer={handleSendOffer}
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
               onUpdateAvatar={handleAvatarUpdate}
@@ -1020,6 +1104,7 @@ export default function App() {
               prev.map((app) => (app.id === appId ? { ...app, status, notes } : app))
             );
           }}
+          onInterviewResponse={handleInterviewResponse}
           onBack={() => {
             setSeekerInitialTab('applications');
             setScreen('main_app');
@@ -1042,6 +1127,7 @@ export default function App() {
               prev.map((app) => (app.id === appId ? { ...app, status, notes } : app))
             );
           }}
+          onOfferResponse={handleOfferResponse}
           onBack={() => {
             setSeekerInitialTab('applications');
             setScreen('main_app');
