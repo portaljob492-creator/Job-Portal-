@@ -60,6 +60,8 @@ import { SupportScreen } from './components/seeker/SupportScreen';
 import { SettingsScreen } from './components/seeker/SettingsScreen';
 import { EmployerOnboardingStep1Screen } from './components/employer/EmployerOnboardingStep1Screen';
 import { EmployerOnboardingStep2Screen } from './components/employer/EmployerOnboardingStep2Screen';
+import { LogoutConfirmationModal } from './components/auth/LogoutConfirmationModal';
+import { SupabaseConfigWarning } from './components/auth/SupabaseConfigWarning';
 import { PwaInstallButton } from './components/pwa/PwaInstallButton';
 import { AdminLoginScreen } from './components/admin/AdminLoginScreen';
 import { AdminJobsScreen } from './components/admin/AdminJobsScreen';
@@ -80,6 +82,7 @@ export default function App() {
   /** Email shared between login → reset → login so it is never retyped. */
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
   // Application Data States
   const [jobs, setJobs] = useState<JobPosting[]>(INITIAL_JOBS);
@@ -710,6 +713,11 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    setIsLogoutModalOpen(true);
+  };
+
+  const confirmLogout = () => {
+    setIsLogoutModalOpen(false);
     if (currentUserId) {
       void authBackend.signOut().catch((error) =>
         setBackendError(error instanceof Error ? error.message : 'Unable to sign out.'),
@@ -732,6 +740,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#fdf8f8] font-sans antialiased">
+      {!isSupabaseConfigured && <SupabaseConfigWarning />}
       {backendError && (
         <div role="alert" className="fixed top-3 left-1/2 -translate-x-1/2 z-[100] w-[min(92vw,560px)] rounded-xl border border-rose-200 bg-white px-4 py-3 shadow-xl flex items-start gap-3">
           <p className="flex-1 text-xs font-semibold text-rose-700">{backendError}</p>
@@ -742,6 +751,12 @@ export default function App() {
       )}
 
       <PwaInstallButton />
+
+      <LogoutConfirmationModal
+        isOpen={isLogoutModalOpen}
+        onConfirm={confirmLogout}
+        onCancel={() => setIsLogoutModalOpen(false)}
+      />
 
       {screen === 'admin_login' && <AdminLoginScreen onLogin={handleAdminLogin} onBack={() => setScreen('welcome')} />}
       {screen === 'admin_jobs' && <AdminJobsScreen onLogout={() => void authBackend.signOut()} />}

@@ -3,6 +3,7 @@ import { JobPosting, Application, UserProfile, Conversation, ChatMessage, Portfo
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
 import { MessagingCenter } from '../messaging/MessagingCenter';
 import { PortfolioGallery } from '../profile/PortfolioGallery';
+import { BeautyNews } from './BeautyNews';
 import { ResumePreview } from './ResumePreview';
 import { SeekerProfileTab } from './SeekerProfileTab';
 import { INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from '../../data/mockData';
@@ -694,6 +695,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
         {/* TAB 1: EXPLORE JOBS FEED */}
         {activeTab === 'feed' && (
           <div className="flex flex-col gap-6">
+            <BeautyNews />
             {/* Real-Time Job Match Push Alert Banner */}
             {unreadAlertsCount > 0 && (
               <div className="bg-gradient-to-r from-[#8e004b] via-[#a30058] to-[#e2007c] text-white rounded-2xl p-4 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-white/20">
