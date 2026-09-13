@@ -29,11 +29,7 @@
   ],
   "rewrites": [
     {
-      "source": "/app/jobs",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/app/jobs/:path*",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]
