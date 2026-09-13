@@ -196,4 +196,32 @@ await check('both signup screens wire the throttle countdown', () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// 5. A wrong portal tab routes to the account's portal instead of failing
+// ---------------------------------------------------------------------------
+
+await check('login screen follows the account instead of the clicked tab', () => {
+  const screen = read('src/components/auth/LoginScreen.tsx');
+  assert.ok(screen.includes('onResolvePortalRole'), 'accepts the portal lookup');
+  assert.ok(screen.includes('isLikelyEmail(candidate)'), 'only looks up plausible addresses');
+  assert.ok(screen.includes('setActiveRole(resolved)'), 'moves the tab onto the resolved portal');
+  assert.ok(screen.includes('is registered as'), 'explains the switch instead of doing it silently');
+  assert.ok(screen.includes("resolved === 'admin'"), 'admin emails get the admin sign-in card');
+});
+
+await check('the app routes sign-in to the portal the backend resolved', () => {
+  const app = read('src/App.tsx');
+  assert.ok(app.includes('const { user, portalRole } = await authBackend.signIn'), 'reads the resolved portal');
+  assert.ok(app.includes('enterAuthenticatedPortal(user.id, portalRole ?? selectedRole)'), 'routes on it');
+  assert.ok(app.includes('onResolvePortalRole={handleResolvePortalRole}'), 'wires the login screen lookup');
+});
+
+await check('sign-up still refuses to reassign an email to the other portal', () => {
+  const backend = read('src/services/backend.ts');
+  const signUp = backend.slice(backend.indexOf('async signUp(input: SignUpInput)'), backend.indexOf('async signIn(email'));
+  assert.ok(signUp.includes('throw new PortalRoleMismatchError'), 'signup keeps the structured mismatch');
+  const signIn = backend.slice(backend.indexOf('async signIn(email'), backend.indexOf('async signInAdmin(email'));
+  assert.ok(!/existingRole !== requestedBackendRole/.test(signIn), 'sign-in no longer gates on the clicked tab');
+});
+
 console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));

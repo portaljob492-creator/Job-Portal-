@@ -74,13 +74,18 @@ export function portalRoleLabel(role: UserRole): string {
   return 'Job Seeker';
 }
 
+/** Indefinite article for a portal label ("a Job Seeker", "an Employer"). */
+export function portalRoleArticle(role: UserRole): string {
+  return role === 'seeker' ? 'a' : 'an';
+}
+
 /**
  * Friendly message for a portal role conflict. Mirrors the copy used by the
  * backend (`job_register_role` raising `PORTAL_ROLE_MISMATCH:<role>`).
  */
 export function roleMismatchMessage(existingRole: UserRole): string {
   const label = portalRoleLabel(existingRole);
-  const article = existingRole === 'seeker' ? 'a' : 'an';
+  const article = portalRoleArticle(existingRole);
   return `This email is already registered as ${article} ${label}. Please sign in through the ${label} portal.`;
 }
 

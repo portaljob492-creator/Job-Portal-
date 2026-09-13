@@ -18,6 +18,7 @@
     "test:vercel": "npm run build && node scripts/test-vercel-spa-routes.mjs",
     "test:sprint1": "tsx scripts/test-sprint1.mjs",
     "test:auth": "tsx scripts/test-auth-hardening.mjs",
+    "test:signin": "tsx scripts/test-portal-signin.mjs",
     "test:reset": "tsx scripts/test-password-reset.mjs",
     "test:db": "node scripts/test-backend-db.mjs",
     "test:contract": "node scripts/test-backend-contract.mjs",

@@ -1,15 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { UserRole } from '../../types';
-import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound, Mail, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound, Mail, ShieldCheck, Info } from 'lucide-react';
 import {
   formatRetryCountdown,
   isAuthRateLimitError,
   isPasswordSignInBlockedError,
   isPortalRoleMismatchError,
+  portalRoleArticle,
   portalRoleLabel,
+  PortalRoleMismatchError,
   type PasswordSignInBlockedError,
-  type PortalRoleMismatchError,
 } from '../../lib/authErrors';
+import { isLikelyEmail, normalizeEmail } from '../../lib/email';
 import { jobPortalPath, loginPathWithPrefill } from '../../routing';
 
 interface LoginScreenProps {
@@ -18,6 +20,13 @@ interface LoginScreenProps {
   onSignUp: () => void;
   /** Receives the email already typed so the reset screen starts pre-filled. */
   onForgotPassword: (email: string) => void;
+  /**
+   * Portal role permanently assigned to an email, or null when it is unknown.
+   * Used to move the portal tab onto the account being signed in to, so picking
+   * the wrong tab is a routing detail instead of a failed sign-in. Best-effort:
+   * returning null simply leaves the tab where the user put it.
+   */
+  onResolvePortalRole?: (email: string) => Promise<UserRole | null>;
   /**
    * Sends a password-reset email directly from the inline recovery card
    * (no navigation). Called when the user taps "Email a reset link to …".
@@ -53,6 +62,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   onSignUp,
   onForgotPassword,
   onSendResetLink,
+  onResolvePortalRole,
   initialEmail = '',
 }) => {
   const prefill = readLoginPrefill();
@@ -60,6 +70,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [activeRole, setActiveRole] = useState<UserRole>(prefill.role ?? 'seeker');
+  /** Mirror of `activeRole` for async lookups that must not re-run on a switch. */
+  const activeRoleRef = useRef<UserRole>(prefill.role ?? 'seeker');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
@@ -69,12 +81,83 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [resetLink, setResetLink] = useState<{ email: string; state: 'idle' | 'sending' | 'sent' | 'error'; message?: string } | null>(null);
   /** Seconds left on a sign-in throttle. The submit stays disabled so attempts are not burned. */
   const [cooldown, setCooldown] = useState(0);
+  /**
+   * Portal the typed email is permanently registered to, and whether the tab was
+   * moved to match it. Rendered as an explainer so an auto-switched tab never
+   * looks like the form changed by itself.
+   */
+  const [portalHint, setPortalHint] = useState<{ email: string; role: 'seeker' | 'employer'; switched: boolean } | null>(null);
 
   useEffect(() => {
     if (cooldown <= 0) return;
     const timer = typeof window !== 'undefined' ? window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000) : 0;
     return () => { if (typeof window !== 'undefined') window.clearInterval(timer); };
   }, [cooldown]);
+
+  /**
+   * Follows the account instead of the clicked tab: once the typed address
+   * resolves to a portal, the tab moves to it (and says so). This is the
+   * proactive half of the fix — the sign-in itself also resolves the real
+   * portal, so a wrong tab can no longer fail a login either way.
+   *
+   * Debounced and best-effort: an unknown address, a failed lookup or an
+   * offline moment just leaves the tab alone. `activeRole` is read through a
+   * ref so the switch this effect performs does not re-trigger the lookup.
+   */
+  useEffect(() => {
+    activeRoleRef.current = activeRole;
+  }, [activeRole]);
+
+  useEffect(() => {
+    if (!onResolvePortalRole) return;
+    const candidate = normalizeEmail(email);
+    if (!isLikelyEmail(candidate)) {
+      setPortalHint(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        let resolved: UserRole | null = null;
+        try {
+          resolved = await onResolvePortalRole(candidate);
+        } catch {
+          resolved = null;
+        }
+        if (cancelled) return;
+        const tabAtLookup = activeRoleRef.current;
+        if (resolved === 'admin') {
+          // Admins have no tab here: reuse the structured card, which routes to
+          // the admin sign-in with the email carried over.
+          setPortalHint(null);
+          setRoleMismatch((current) => current ?? new PortalRoleMismatchError({
+            email: candidate,
+            requestedRole: tabAtLookup,
+            existingRole: 'admin',
+          }));
+          return;
+        }
+        if (resolved !== 'seeker' && resolved !== 'employer') {
+          setPortalHint(null);
+          return;
+        }
+        const switched = resolved !== tabAtLookup;
+        setPortalHint({ email: candidate, role: resolved, switched });
+        if (switched) {
+          setActiveRole(resolved);
+          // Stale failure copy belongs to the tab the user was on, not to the
+          // portal they are about to sign in to.
+          setError(null);
+          setSignInBlocked(null);
+          setRoleMismatch(null);
+        }
+      })();
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [email, onResolvePortalRole]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,8 +344,37 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           </button>
         </div>
         <p className="-mt-4 text-center text-[11px] font-medium text-[#475569]">
-          Each email is permanently linked to one portal type.
+          Each email is permanently linked to one portal type — type your email and we&apos;ll switch you to the right one.
         </p>
+
+        {/* Portal the typed email belongs to. Explains an auto-switched tab and
+            offers the switch when the user moved the tab back by hand. */}
+        {portalHint && (
+          <div
+            role="status"
+            className="-mt-3 rounded-xl border border-[#c7d2fe] bg-[#eef2ff] px-3.5 py-2.5 flex items-start gap-2"
+          >
+            <Info className="w-3.5 h-3.5 mt-0.5 text-[#4f46e5] shrink-0" />
+            <p className="text-[11px] font-medium text-[#4338ca] leading-relaxed flex-1">
+              {portalHint.email} is registered as {portalRoleArticle(portalHint.role)}{' '}
+              {portalRoleLabel(portalHint.role)} account.
+              {portalHint.role === activeRole
+                ? portalHint.switched
+                  ? ` We've switched you to the ${portalRoleLabel(portalHint.role)} portal.`
+                  : " You're on the right portal."
+                : ''}
+            </p>
+            {portalHint.role !== activeRole && (
+              <button
+                type="button"
+                onClick={() => handleTabSwitch(portalHint.role)}
+                className="shrink-0 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-[11px] font-bold px-3 py-1 transition-colors cursor-pointer"
+              >
+                Switch
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Form Card */}
         <div className="bg-white rounded-2xl shadow-[0_4px_16px_rgba(15,23,42,0.06)] border border-[#cbd5e1]/40 p-5 flex flex-col gap-4">
