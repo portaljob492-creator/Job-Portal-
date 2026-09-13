@@ -73,6 +73,24 @@ Migrations are under `supabase/migrations/`:
 20260913000100_jobs_schema_integrity.sql
 20260913000200_jobs_rls_policy_hardening.sql
 20260913000300_jobs_query_performance.sql
+20260913000400_jobs_rpc_automation.sql
+```
+
+`20260913000400_jobs_rpc_automation.sql` moves the last workflows that the
+browser still assembled from several writes into single transactions:
+`job_save_profile()` writes the profile and the role-specific row together,
+`job_open_conversation()` resolves the participants on the server (a salon member
+must name a candidate who applied; anybody else opens their own inquiry about a
+live posting) instead of the browser reading the membership table and scanning
+the salon's applicant list, and `job_send_message()` checks the sender against
+the conversation inside the same transaction that inserts the message and
+updates the unread counters. Closing a posting now notifies the candidates whose
+applications it closes, and `job_expire_stale_jobs()` automates expiry — schedule
+it (service role, or an administrator) so postings past `expires_at` leave the
+pipeline and both sides are told:
+
+```sql
+select public.job_expire_stale_jobs();   -- returns (expired_jobs, closed_applications)
 ```
 
 `20260913000300_jobs_query_performance.sql` makes the hot read paths answer
@@ -195,6 +213,11 @@ publication. It is the fastest way to prove a backend change before deploying.
 membership helper exists and is callable from inside policies, no policy or
 hot-path RPC falls back to a per-row membership call, the approval-queue index
 is present, and anonymous visitors can still read the approved listings.
+
+The atomic-procedure guarantees are pinned too: both halves of a profile save
+land together, a conversation can only name participants the caller may talk to,
+a stranger cannot post into a thread, and the expiry procedure is idempotent and
+refuses a non-administrator.
 
 `npm run test:contract` proves the app and the SQL still agree: every `.rpc()`
 call the frontend makes must exist in the migrations with matching argument

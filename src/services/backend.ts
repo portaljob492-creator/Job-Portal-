@@ -779,27 +779,18 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   };
 }
 
-export async function saveProfile(userId: string, profile: UserProfile) {
-  const client = requireSupabase();
-  const { error } = await client.from('profiles').update({
-    full_name: profile.name,
-    phone: profile.phone || null,
-    avatar_path: profile.avatarUrl || null,
-  }).eq('id', userId);
+export async function saveProfile(_userId: string, profile: UserProfile) {
+  // One transaction for `profiles` and the role-specific row, so a failure can
+  // never leave the account half-updated.
+  const { error } = await requireSupabase().rpc('job_save_profile', {
+    p_full_name: profile.name,
+    p_phone: profile.phone || null,
+    p_avatar_path: profile.avatarUrl || null,
+    p_headline: profile.role === 'seeker' ? profile.primaryRole || null : null,
+    p_bio: profile.role === 'seeker' ? profile.bio || null : null,
+    p_display_name: profile.role === 'employer' ? profile.contactPerson || profile.name : null,
+  });
   if (error) throw error;
-
-  if (profile.role === 'seeker') {
-    const { error: candidateError } = await client.from('job_seeker_profiles').update({
-      headline: profile.primaryRole || null,
-      bio: profile.bio || null,
-    }).eq('user_id', userId);
-    if (candidateError) throw candidateError;
-  } else {
-    const { error: employerError } = await client.from('job_employer_profiles').update({
-      display_name: profile.contactPerson || profile.name,
-    }).eq('user_id', userId);
-    if (employerError) throw employerError;
-  }
 }
 
 export async function setBookmark(userId: string, jobId: string, bookmarked: boolean) {
@@ -988,6 +979,12 @@ const backendErrorMessages: Record<string, string> = {
   ROLE_NOT_ALLOWED: 'This account is not allowed to perform that action.',
   VALIDATION_ERROR: 'Please check the details you entered and try again.',
   ACCOUNT_NOT_ACTIVE: 'This account is not active. Contact support if this is unexpected.',
+  CONVERSATION_ACCESS_DENIED: 'You do not have access to this conversation.',
+  CONVERSATION_NOT_FOUND: 'That conversation is no longer available.',
+  CANDIDATE_NOT_FOUND: 'That candidate has not applied to this job.',
+  PROFILE_NOT_FOUND: 'Your profile could not be found. Please sign in again.',
+  JOB_EXPIRED: 'This posting has expired and is no longer accepting applications.',
+  FOREIGN_RESUME: 'Choose a resume that belongs to your profile.',
 };
 
 const looksLikeRawSql = /violates|constraint|relation "|column "|pg_|sqlstate|permission denied for|syntax error/i;
@@ -1181,42 +1178,25 @@ export async function createConversationRecord(input: {
   jobId: string;
   targetSeekerEmail?: string;
 }) {
-  const client = requireSupabase();
-  const { data: job, error: jobError } = await client.from('job_posts').select('salon_id').eq('id', input.jobId).single();
-  if (jobError) throw jobError;
-
-  let candidateUserId = input.role === 'seeker' ? input.userId : '';
-  let employerUserId = input.role === 'employer' ? input.userId : '';
-  if (!employerUserId) {
-    const { data: member, error } = await client.from('job_salon_members').select('user_id').eq('salon_id', job.salon_id).eq('status', 'active').order('created_at').limit(1).single();
-    if (error) throw error;
-    employerUserId = member.user_id;
-  }
-  if (!candidateUserId && input.targetSeekerEmail) {
-    const { data: cards, error } = await client.rpc('get_job_applicant_cards');
-    if (error) throw error;
-    candidateUserId = arrays<any>(cards).find((card) => card.email === input.targetSeekerEmail)?.candidate_user_id || '';
-  }
-  if (!candidateUserId || !employerUserId) throw new Error('Unable to identify conversation participants.');
-
-  const { error } = await client.from('job_conversations').upsert({
-    id: input.id,
-    job_id: input.jobId,
-    candidate_user_id: candidateUserId,
-    employer_user_id: employerUserId,
-    status: 'inquiry',
-    last_message: 'Conversation started',
-  }, { onConflict: 'job_id,candidate_user_id,employer_user_id' });
+  // Participants are resolved on the server: one call instead of a job lookup,
+  // a membership lookup and a full applicant-card scan, and the row can only
+  // name participants the caller is actually allowed to talk to.
+  const { error } = await requireSupabase().rpc('job_open_conversation', {
+    p_job_id: input.jobId,
+    p_conversation_id: input.id,
+    p_candidate_email: input.targetSeekerEmail || null,
+  });
   if (error) throw error;
 }
 
-export async function sendMessageRecord(userId: string, message: ChatMessage) {
-  const { error } = await requireSupabase().from('job_messages').insert({
-    id: message.id,
-    conversation_id: message.conversationId,
-    sender_user_id: userId,
-    body: message.text,
-    attachment: message.attachment || null,
+export async function sendMessageRecord(_userId: string, message: ChatMessage) {
+  // The sender is taken from the session inside the RPC, so a forged user id in
+  // the payload cannot post as somebody else.
+  const { error } = await requireSupabase().rpc('job_send_message', {
+    p_conversation_id: message.conversationId,
+    p_body: message.text,
+    p_attachment: message.attachment || null,
+    p_message_id: message.id,
   });
   if (error) throw error;
 }

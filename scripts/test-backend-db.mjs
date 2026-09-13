@@ -884,6 +884,128 @@ const strangerCards = await asUser(seeker, async () => {
 check('applicant list RPC still refuses a candidate', /ROLE_NOT_ALLOWED/.test(strangerCards.error ?? ''), 'not refused');
 
 // ---------------------------------------------------------------------------
+// 10. Atomic procedures: the multi-step workflows commit or fail as one unit
+// ---------------------------------------------------------------------------
+const caught = (userId, sql) => asUser(userId, async () => {
+  try { return { rows: (await db.query(sql)).rows }; }
+  catch (error) { return { error: error.message }; }
+});
+
+// job_save_profile: profile and role-specific row in one transaction, and only
+// the row matching the caller's own role.
+const profileSave = await rpc(seeker, `select public.job_save_profile(
+  'Seeker Renamed','9990001111','/avatar/seeker.png','Senior Stylist','Ten years of colour work.')`);
+const savedRow = (await db.query(`
+  select p.full_name, p.phone, p.avatar_path, c.headline, c.bio
+    from public.profiles p join public.job_seeker_profiles c on c.user_id = p.id
+   where p.id = '${seeker}'`)).rows[0];
+check('profile save writes both tables in one call',
+  savedRow.full_name === 'Seeker Renamed' && savedRow.phone === '9990001111'
+  && savedRow.headline === 'Senior Stylist' && savedRow.bio === 'Ten years of colour work.',
+  JSON.stringify(savedRow));
+const employerUntouched = (await db.query(`select full_name from public.profiles where id='${employer}'`)).rows[0].full_name;
+check('profile save cannot touch another account', employerUntouched === 'Employer', employerUntouched);
+const employerSave = await rpc(employer, `select public.job_save_profile('Employer Renamed', null, null, 'Lead Stylist', 'should not be written', 'Salon Owner')`);
+const employerRow = (await db.query(`
+  select p.full_name, e.display_name from public.profiles p
+    join public.job_employer_profiles e on e.user_id = p.id where p.id='${employer}'`)).rows[0];
+const seekerRowAfter = (await db.query(`select headline from public.job_seeker_profiles where user_id='${seeker}'`)).rows[0].headline;
+check('profile save only writes the caller role row',
+  employerRow.full_name === 'Employer Renamed' && employerRow.display_name === 'Salon Owner'
+  && seekerRowAfter === 'Senior Stylist', `${JSON.stringify(employerRow)} / ${seekerRowAfter}`);
+const badSave = await caught(seeker, `select public.job_save_profile('  ')`);
+check('profile save rejects an empty name', /VALIDATION_ERROR/.test(badSave.error ?? ''), badSave.error);
+
+// job_open_conversation: participants resolved on the server.
+const employerCrossOpen = await caught(employerB, `select public.job_open_conversation('${job}', null, 'seeker@example.com')`);
+check('an employer from another salon cannot open a thread on this job',
+  /ROLE_NOT_ALLOWED/.test(employerCrossOpen.error ?? ''), employerCrossOpen.error || 'allowed');
+const strangerThread = await caught(employerB, `select public.job_open_conversation('${jobB}', null, 'candidateb@example.com')`);
+check('a salon member cannot open a thread with a candidate who never applied',
+  /CANDIDATE_NOT_FOUND/.test(strangerThread.error ?? ''), strangerThread.error || 'allowed');
+const notLive = await caught(seeker, `select public.job_open_conversation('${pendingJobForInquiry}')`);
+check('a candidate cannot open an inquiry about a job that is not listable',
+  /JOB_NOT_PUBLISHED/.test(notLive.error ?? ''), notLive.error || 'allowed');
+const opened = await rpc(seeker, `select (public.job_open_conversation('${job}')).id as id`);
+const openedAgain = await rpc(seeker, `select (public.job_open_conversation('${job}')).id as id`);
+check('opening a conversation is idempotent', opened.rows[0].id === openedAgain.rows[0].id,
+  `${opened.rows[0].id} vs ${openedAgain.rows[0].id}`);
+const openedByEmployer = await rpc(employer, `select (public.job_open_conversation('${job}', null, 'seeker@example.com')).id as id`);
+check('a salon member can open the thread for an applicant', Boolean(openedByEmployer.rows[0].id));
+const strandedConversation = openedByEmployer.rows[0].id;
+const conversationParticipants = (await db.query(`
+  select candidate_user_id, employer_user_id from public.job_conversations where id='${strandedConversation}'`)).rows[0];
+check('the conversation names the caller and the applicant, not the browser payload',
+  conversationParticipants.candidate_user_id === seeker && conversationParticipants.employer_user_id === employer,
+  JSON.stringify(conversationParticipants));
+
+// job_send_message: participant check, insert and counters in one transaction.
+const sentMessage = await rpc(seeker, `select (public.job_send_message('${strandedConversation}','Hello, is the role still open?')).id as id`);
+check('a participant can send a message', Boolean(sentMessage.rows[0].id));
+const unreadAfterSend = (await db.query(`
+  select candidate_unread_count, employer_unread_count, last_message
+    from public.job_conversations where id='${strandedConversation}'`)).rows[0];
+check('sending updates the conversation counters in the same transaction',
+  unreadAfterSend.employer_unread_count === 1 && unreadAfterSend.candidate_unread_count === 0
+  && unreadAfterSend.last_message === 'Hello, is the role still open?', JSON.stringify(unreadAfterSend));
+const foreignMessage = await caught(candidateB, `select public.job_send_message('${strandedConversation}','I am not in this thread')`);
+check('a stranger cannot post into a conversation',
+  /CONVERSATION_ACCESS_DENIED/.test(foreignMessage.error ?? ''), foreignMessage.error || 'allowed');
+const emptyMessage = await caught(seeker, `select public.job_send_message('${strandedConversation}','   ')`);
+check('an empty message is refused before it reaches the table',
+  /VALIDATION_ERROR/.test(emptyMessage.error ?? ''), emptyMessage.error);
+
+// close_job notifies the candidates whose applications it closes. A fresh
+// posting is used because the pipeline job's application is already terminal.
+const closableJob = (await rpc(employer, `select public.create_job_post(
+  '${salonId}', null, 'Closable Role', 'Hair',
+  'A posting used to prove that closing it closes and notifies applicants.', 'full_time') as id`)).rows[0].id;
+await rpc(admin, `select public.approve_job('${closableJob}')`);
+await rpc(seeker, `select public.submit_job_application('${closableJob}')`);
+await rpc(employer, `select public.close_job('${closableJob}')`);
+const closedApplications = (await db.query(`
+  select status, count(*)::int as n from public.job_applications where job_id='${closableJob}' group by status`)).rows;
+check('closing a posting closes every open application',
+  closedApplications.some((row) => row.status === 'position_closed' && row.n === 1), JSON.stringify(closedApplications));
+const closedNotifications = (await db.query(`
+  select count(*)::int as n from public.job_notifications
+   where type='position_closed' and user_id='${seeker}'
+     and entity_id in (select id from public.job_applications where job_id='${closableJob}')`)).rows[0].n;
+check('closing a posting notifies the affected candidates', closedNotifications === 1, `${closedNotifications} notifications`);
+
+// job_expire_stale_jobs: scheduled maintenance, idempotent and admin/service only.
+const expiringJob = (await rpc(employer, `select public.create_job_post(
+  '${salonId}', null, 'Expiring Role', 'Hair',
+  'A posting that will be past its expiry date for the automation test.', 'full_time') as id`)).rows[0].id;
+await rpc(admin, `select public.approve_job('${expiringJob}')`);
+await rpc(seeker, `select public.submit_job_application('${expiringJob}')`);
+// The table requires expires_at > created_at, so backdate both.
+await db.exec(`update public.job_posts
+  set created_at = now() - interval '10 days', expires_at = now() - interval '1 day'
+  where id='${expiringJob}'`);
+const notAdmin = await caught(seeker, `select * from public.job_expire_stale_jobs()`);
+check('expiry automation refuses a non-admin caller', /ROLE_NOT_ALLOWED/.test(notAdmin.error ?? ''), notAdmin.error || 'allowed');
+const expiryRun = await rpc(admin, `select * from public.job_expire_stale_jobs()`);
+check('expiry automation expires the stale posting and closes its applications',
+  expiryRun.rows[0].expired_jobs >= 1 && expiryRun.rows[0].closed_applications >= 1, JSON.stringify(expiryRun.rows[0]));
+const expiredState = (await db.query(`
+  select p.status as job_status, a.status as application_status
+    from public.job_posts p join public.job_applications a on a.job_id = p.id
+   where p.id='${expiringJob}'`)).rows[0];
+check('the expired posting leaves the pipeline',
+  expiredState.job_status === 'expired' && expiredState.application_status === 'position_closed',
+  JSON.stringify(expiredState));
+const expiredNotice = (await db.query(`
+  select count(*)::int as n from public.job_notifications
+   where user_id='${seeker}' and type='position_closed'
+     and entity_id in (select id from public.job_applications where job_id='${expiringJob}')`)).rows[0].n;
+check('the candidate is told the position closed', expiredNotice === 1, `${expiredNotice} notifications`);
+const expiryAgain = await rpc(admin, `select * from public.job_expire_stale_jobs()`);
+check('expiry automation is idempotent',
+  expiryAgain.rows[0].expired_jobs === 0 && expiryAgain.rows[0].closed_applications === 0,
+  JSON.stringify(expiryAgain.rows[0]));
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 const failed = results.filter((r) => !r.ok);

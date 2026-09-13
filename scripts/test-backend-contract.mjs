@@ -49,7 +49,9 @@ const sql = migrations
 // definition is accepted because omitted parameters keep their defaults.
 const signatures = {};
 const finalFunctionBody = {};
-for (const match of sql.matchAll(/create or replace function public\.([a-z_]+)\s*\((.*?)\)\s*returns.*?\$\$(.*?)\$\$;/gis)) {
+// Bodies may be quoted with $$ or a tagged delimiter such as $fn$; the tag is
+// captured so the regex cannot stop at the wrong place.
+for (const match of sql.matchAll(/create or replace function public\.([a-z_]+)\s*\((.*?)\)\s*returns.*?\$([a-z_]*)\$(.*?)\$\3\$;/gis)) {
   const [, name, params, body] = match;
   signatures[name] = signatures[name] || new Set();
   finalFunctionBody[name] = body;
@@ -115,6 +117,7 @@ check('no deployed policy gates on the retired published status', stalePolicies.
 // ---------------------------------------------------------------------------
 // 3. Coverage: RLS, storage, realtime, indexes
 // ---------------------------------------------------------------------------
+const frontendSources = sourceFiles.map((file) => read(file)).join('\n');
 const createdTables = [...sql.matchAll(/create table (?:if not exists )?(?:public\.)?([a-z_]+)/gi)].map((m) => m[1]);
 const rlsTables = new Set(
   [...sql.matchAll(/alter table (?:public\.)?([a-z_]+) enable row level security/gi)].map((m) => m[1]),
@@ -182,6 +185,21 @@ check('applicant list RPC filters by the salon set',
   && !/job_is_active_salon_member/.test(latestApplicantCards));
 check('admin approval queue keeps its partial index',
   /job_posts_pending_approval_idx[\s\S]*?where status = 'pending_approval'/.test(sql));
+
+// Multi-table workflows must be stored procedures, not sequences of client
+// writes: a failure halfway through used to leave the account or thread
+// half-written.
+for (const fn of ['job_save_profile', 'job_open_conversation', 'job_send_message', 'job_expire_stale_jobs']) {
+  check(`${fn} is declared`, new RegExp(`function public\\.${fn}\\s*\\(`).test(sql));
+}
+const clientWrites = [
+  ['profiles', 'update'], ['job_seeker_profiles', 'update'], ['job_employer_profiles', 'update'],
+  ['job_conversations', 'upsert'], ['job_conversations', 'insert'], ['job_messages', 'insert'],
+];
+const directWrites = clientWrites.filter(([table, verb]) =>
+  new RegExp(`from\\(['"]${table}['"]\\)[\\s\\S]{0,40}\\.${verb}\\(`).test(frontendSources));
+check('multi-table workflows no longer write from the browser',
+  directWrites.length === 0, directWrites.map(([t, v]) => `${t}.${v}`).join(', '));
 
 // Writes into the marketplace go through RPCs: no client insert policy may
 // exist for membership, plan enablement or postings.
