@@ -92,16 +92,16 @@ export const EmployerInterviewsTab: React.FC<EmployerInterviewsTabProps> = ({
   return (
     <div className="flex flex-col w-full h-full pb-24 md:pb-0">
       <div className="flex justify-between items-center mb-6 px-5 md:px-0">
-        <h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">Interviews</h2>
+        <h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#4f46e5]">Interviews</h2>
         <div className="flex items-center gap-2">
-          <button className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full active:scale-95 flex items-center justify-center" aria-label="Search interviews">
+          <button className="text-[#4f46e5] hover:bg-[#e2e8f0] transition-colors p-2 rounded-full active:scale-95 flex items-center justify-center" aria-label="Search interviews">
             <Search className="w-6 h-6" />
           </button>
         </div>
       </div>
 
       {/* Tab Bar */}
-      <div className="flex overflow-x-auto hide-scrollbar border-b border-[#e0bec6] mb-6 mx-5 md:mx-0">
+      <div className="flex overflow-x-auto hide-scrollbar border-b border-[#cbd5e1] mb-6 mx-5 md:mx-0">
         {SUB_TABS.map((tab) => {
           const count = rows.filter((row) => statusForTab(row.interview.status) === tab).length;
           return (
@@ -110,8 +110,8 @@ export const EmployerInterviewsTab: React.FC<EmployerInterviewsTabProps> = ({
               onClick={() => { setActiveSubTab(tab); setActionError(null); setReschedulingId(null); }}
               className={`px-4 py-3 text-[13px] font-medium whitespace-nowrap border-b-2 transition-colors cursor-pointer ${
                 activeSubTab === tab
-                  ? 'text-[#8e004b] border-[#8e004b]'
-                  : 'text-[#594047] border-transparent hover:text-[#8e004b]'
+                  ? 'text-[#4f46e5] border-[#4f46e5]'
+                  : 'text-[#475569] border-transparent hover:text-[#4f46e5]'
               }`}
             >
               {tab} ({count})
@@ -129,7 +129,7 @@ export const EmployerInterviewsTab: React.FC<EmployerInterviewsTabProps> = ({
       {/* Interview Cards List */}
       <div className="flex flex-col gap-4 px-5 md:px-0">
         {visible.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center text-[#594047]">
+          <div className="flex flex-col items-center justify-center py-12 text-center text-[#475569]">
             <span className="material-symbols-outlined text-4xl mb-4 opacity-50">event_busy</span>
             <p className="text-[16px]">No {activeSubTab.toLowerCase()} interviews at the moment.</p>
             {activeSubTab === 'Requested' && (
@@ -146,34 +146,34 @@ export const EmployerInterviewsTab: React.FC<EmployerInterviewsTabProps> = ({
             const canReschedule = onRescheduleInterview && ['requested', 'confirmed', 'reschedule_requested', 'rescheduled'].includes(interview.status);
             const canComplete = onCompleteInterview && interview.status === 'confirmed';
             return (
-              <article key={interview.id} className="bg-white rounded-lg border border-[#e0bec6] shadow-[0_4px_12px_rgba(90,63,71,0.05)] p-4 flex flex-col gap-2">
+              <article key={interview.id} className="bg-white rounded-lg border border-[#cbd5e1] shadow-[0_4px_12px_rgba(15,23,42,0.05)] p-4 flex flex-col gap-2">
                 <div className="flex justify-between items-start">
                   <div className="flex gap-3 items-center">
                     {applicant.avatarUrl ? (
-                      <img src={applicant.avatarUrl} alt={applicant.name} className="w-12 h-12 rounded-full object-cover border border-[#e0bec6]" />
+                      <img src={applicant.avatarUrl} alt={applicant.name} className="w-12 h-12 rounded-full object-cover border border-[#cbd5e1]" />
                     ) : (
-                      <div className="w-12 h-12 rounded-full bg-[#f2dde9] text-[#8e004b] font-bold flex items-center justify-center text-lg">
+                      <div className="w-12 h-12 rounded-full bg-[#ede9fe] text-[#4f46e5] font-bold flex items-center justify-center text-lg">
                         {applicant.name.charAt(0)}
                       </div>
                     )}
                     <div>
-                      <h3 className="text-[18px] font-semibold text-[#1c1b1b]">{applicant.name}</h3>
-                      <p className="text-[13px] font-medium text-[#594047]">{applicant.appliedJobTitle}</p>
+                      <h3 className="text-[18px] font-semibold text-[#0f172a]">{applicant.name}</h3>
+                      <p className="text-[13px] font-medium text-[#475569]">{applicant.appliedJobTitle}</p>
                     </div>
                   </div>
-                  <span className="px-3 py-1 bg-[#f2dde9] text-[#241820] rounded-full text-[13px] font-medium capitalize">
+                  <span className="px-3 py-1 bg-[#ede9fe] text-[#1e1b4b] rounded-full text-[13px] font-medium capitalize">
                     {interview.status.replace(/_/g, ' ')}
                   </span>
                 </div>
 
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div className="flex items-center gap-2 text-[#594047]">
+                  <div className="flex items-center gap-2 text-[#475569]">
                     <Calendar className="w-[18px] h-[18px] shrink-0" />
                     <span className="text-[13px] font-medium">
                       {formatInterviewDateTime(interview.scheduledStart)} · {interview.durationMinutes} min
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-[#594047]">
+                  <div className="flex items-center gap-2 text-[#475569]">
                     <TypeIcon className="w-[18px] h-[18px] shrink-0" />
                     <span className="text-[13px] font-medium truncate">
                       {interviewTypeLabel(interview.interviewType)}
@@ -184,60 +184,60 @@ export const EmployerInterviewsTab: React.FC<EmployerInterviewsTabProps> = ({
                 </div>
 
                 {interview.interviewType === 'video' && interview.meetingUrl && (
-                  <a href={interview.meetingUrl} target="_blank" rel="noreferrer" className="text-[13px] font-semibold text-[#b50062] hover:underline truncate">
+                  <a href={interview.meetingUrl} target="_blank" rel="noreferrer" className="text-[13px] font-semibold text-[#6d28d9] hover:underline truncate">
                     Join meeting link
                   </a>
                 )}
                 {interview.candidateMessage && (
-                  <p className="text-[13px] text-[#594047] bg-[#fdf8f8] border border-[#e0bec6]/40 rounded-lg px-3 py-2">
-                    <span className="font-semibold text-[#1c1b1b]">Candidate: </span>{interview.candidateMessage}
+                  <p className="text-[13px] text-[#475569] bg-[#f8fafc] border border-[#cbd5e1]/40 rounded-lg px-3 py-2">
+                    <span className="font-semibold text-[#0f172a]">Candidate: </span>{interview.candidateMessage}
                   </p>
                 )}
 
                 {expanded && (
-                  <div className="text-[13px] text-[#594047] space-y-1 border-t border-[#e6e1e1] pt-3 mt-1">
-                    {interview.locationText && <p><span className="font-semibold text-[#1c1b1b]">Location: </span>{interview.locationText}</p>}
-                    {interview.employerMessage && <p><span className="font-semibold text-[#1c1b1b]">Your note: </span>{interview.employerMessage}</p>}
-                    <p><span className="font-semibold text-[#1c1b1b]">Contact: </span>{applicant.email}{applicant.phone ? ` · ${applicant.phone}` : ''}</p>
+                  <div className="text-[13px] text-[#475569] space-y-1 border-t border-[#e2e8f0] pt-3 mt-1">
+                    {interview.locationText && <p><span className="font-semibold text-[#0f172a]">Location: </span>{interview.locationText}</p>}
+                    {interview.employerMessage && <p><span className="font-semibold text-[#0f172a]">Your note: </span>{interview.employerMessage}</p>}
+                    <p><span className="font-semibold text-[#0f172a]">Contact: </span>{applicant.email}{applicant.phone ? ` · ${applicant.phone}` : ''}</p>
                   </div>
                 )}
 
                 {rescheduling && (
-                  <div className="flex flex-col sm:flex-row gap-2 border-t border-[#e6e1e1] pt-3 mt-1">
+                  <div className="flex flex-col sm:flex-row gap-2 border-t border-[#e2e8f0] pt-3 mt-1">
                     <input
                       type="datetime-local"
                       value={newStart}
                       onChange={(e) => setNewStart(e.target.value)}
-                      className="flex-1 h-10 bg-white border border-[#e0bec6]/60 rounded-lg px-3 text-[13px] text-[#1c1b1b] outline-none focus:ring-2 focus:ring-[#8e004b]"
+                      className="flex-1 h-10 bg-white border border-[#cbd5e1]/60 rounded-lg px-3 text-[13px] text-[#0f172a] outline-none focus:ring-2 focus:ring-[#4f46e5]"
                       aria-label="New interview date and time"
                     />
                     <button
                       onClick={() => submitReschedule(row)}
                       disabled={pending || !newStart}
-                      className="px-4 h-10 bg-[#8e004b] text-white text-[13px] font-semibold rounded-full hover:bg-[#b90064] transition-colors disabled:opacity-60 cursor-pointer"
+                      className="px-4 h-10 bg-[#4f46e5] text-white text-[13px] font-semibold rounded-full hover:bg-[#6d28d9] transition-colors disabled:opacity-60 cursor-pointer"
                     >
                       {pending ? 'Saving…' : 'Save new time'}
                     </button>
                     <button
                       onClick={() => setReschedulingId(null)}
-                      className="px-4 h-10 bg-white border border-[#e0bec6] text-[13px] font-medium rounded-full hover:bg-[#ece7e7] transition-colors cursor-pointer"
+                      className="px-4 h-10 bg-white border border-[#cbd5e1] text-[13px] font-medium rounded-full hover:bg-[#e2e8f0] transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>
                   </div>
                 )}
 
-                <div className="flex gap-3 mt-2 pt-3 border-t border-[#e6e1e1]">
+                <div className="flex gap-3 mt-2 pt-3 border-t border-[#e2e8f0]">
                   <button
                     onClick={() => setExpandedId(expanded ? null : interview.id)}
-                    className="flex-1 bg-white border border-[#e0bec6] text-[#1c1b1b] text-[13px] font-medium py-2 rounded-full hover:bg-[#ece7e7] transition-colors flex justify-center items-center gap-1 cursor-pointer"
+                    className="flex-1 bg-white border border-[#cbd5e1] text-[#0f172a] text-[13px] font-medium py-2 rounded-full hover:bg-[#e2e8f0] transition-colors flex justify-center items-center gap-1 cursor-pointer"
                   >
                     {expanded ? 'Hide' : 'View'} <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
                   </button>
                   {canReschedule && !rescheduling && (
                     <button
                       onClick={() => startReschedule(row)}
-                      className="flex-1 bg-white border border-[#e0bec6] text-[#1c1b1b] text-[13px] font-medium py-2 rounded-full hover:bg-[#ece7e7] transition-colors cursor-pointer"
+                      className="flex-1 bg-white border border-[#cbd5e1] text-[#0f172a] text-[13px] font-medium py-2 rounded-full hover:bg-[#e2e8f0] transition-colors cursor-pointer"
                     >
                       Reschedule
                     </button>
@@ -246,7 +246,7 @@ export const EmployerInterviewsTab: React.FC<EmployerInterviewsTabProps> = ({
                     <button
                       onClick={() => submitComplete(row)}
                       disabled={pending}
-                      className="flex-1 bg-[#e2007c] text-white text-[13px] font-medium py-2 rounded-full hover:bg-[#b90064] transition-colors disabled:opacity-60 cursor-pointer"
+                      className="flex-1 bg-[#7c3aed] text-white text-[13px] font-medium py-2 rounded-full hover:bg-[#6d28d9] transition-colors disabled:opacity-60 cursor-pointer"
                     >
                       {pending ? 'Saving…' : 'Complete'}
                     </button>

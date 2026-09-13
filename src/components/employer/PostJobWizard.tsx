@@ -30,8 +30,8 @@ interface PostJobWizardProps {
 type InterviewMode = NonNullable<JobPosting['interviewMode']>;
 type PostingStatus = NonNullable<JobPosting['postingStatus']>;
 
-const inputClass = 'w-full rounded-lg border border-[#e0bec6] bg-[#fdf8f8] px-4 py-3 text-base text-[#1c1b1b] outline-none transition-all placeholder:text-[#8c7077] focus:border-[#8e004b] focus:bg-white focus:ring-1 focus:ring-[#8e004b]';
-const labelClass = 'text-[13px] font-semibold text-[#1c1b1b]';
+const inputClass = 'w-full rounded-lg border border-[#cbd5e1] bg-[#f8fafc] px-4 py-3 text-base text-[#0f172a] outline-none transition-all placeholder:text-[#64748b] focus:border-[#4f46e5] focus:bg-white focus:ring-1 focus:ring-[#4f46e5]';
+const labelClass = 'text-[13px] font-semibold text-[#0f172a]';
 
 function Field({ label, id, children }: { label: string; id: string; children: React.ReactNode }) {
   return (
@@ -237,8 +237,8 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
   const renderStep1 = () => (
     <div className="space-y-6 animate-in fade-in duration-200">
       <div>
-        <h2 className="text-xl font-semibold text-[#1c1b1b]">Job details</h2>
-        <p className="mt-1 text-sm text-[#594047]">Tell candidates about the role and your business.</p>
+        <h2 className="text-xl font-semibold text-[#0f172a]">Job details</h2>
+        <p className="mt-1 text-sm text-[#475569]">Tell candidates about the role and your business.</p>
       </div>
       <Field label="Job Title" id="job-title">
         <input id="job-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Senior Hair Stylist" className={inputClass} />
@@ -252,7 +252,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
             <select id="job-category" value={category} onChange={(event) => setCategory(event.target.value as JobPosting['category'])} className={`${inputClass} appearance-none pr-10`}>
               {(['Hair', 'Skincare', 'Nails', 'Lashes & Brows', 'Massage', 'Management'] as JobPosting['category'][]).map((value) => <option key={value}>{value}</option>)}
             </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#594047]" />
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#475569]" />
           </div>
         </Field>
         <Field label="Job Role" id="job-role">
@@ -268,8 +268,8 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
   const renderStep2 = () => (
     <div className="space-y-7 animate-in fade-in duration-200">
       <div>
-        <h2 className="text-xl font-semibold text-[#1c1b1b]">Requirements and salary</h2>
-        <p className="mt-1 text-sm text-[#594047]">Set clear experience, skill and pay expectations.</p>
+        <h2 className="text-xl font-semibold text-[#0f172a]">Requirements and salary</h2>
+        <p className="mt-1 text-sm text-[#475569]">Set clear experience, skill and pay expectations.</p>
       </div>
       <Field label="Skills Required" id="skill-input">
         <div className="flex gap-2">
@@ -281,12 +281,12 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
             placeholder="Type a skill and press Enter"
             className={inputClass}
           />
-          <button type="button" onClick={() => addSkill(skillInput)} className="rounded-lg bg-[#ffd9e2] px-4 text-[#8e004b] hover:bg-[#ffcbd9]" aria-label="Add skill"><Plus className="h-5 w-5" /></button>
+          <button type="button" onClick={() => addSkill(skillInput)} className="rounded-lg bg-[#ede9fe] px-4 text-[#4f46e5] hover:bg-[#ddd6fe]" aria-label="Add skill"><Plus className="h-5 w-5" /></button>
         </div>
         {skills.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-2">
             {skills.map((skill) => (
-              <span key={skill} className="inline-flex items-center gap-1 rounded-full border border-[#ffb0c8] bg-[#ffd9e2] px-3 py-1.5 text-[13px] font-semibold text-[#3e001e]">
+              <span key={skill} className="inline-flex items-center gap-1 rounded-full border border-[#c4b5fd] bg-[#ede9fe] px-3 py-1.5 text-[13px] font-semibold text-[#312e81]">
                 {skill}
                 <button type="button" onClick={() => setSkills((current) => current.filter((item) => item !== skill))} aria-label={`Remove ${skill}`}><X className="h-4 w-4" /></button>
               </span>
@@ -294,17 +294,17 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
           </div>
         )}
       </Field>
-      <section className="rounded-xl border border-[#e0bec6] bg-white p-4">
+      <section className="rounded-xl border border-[#cbd5e1] bg-white p-4">
         <h3 className={labelClass}>Experience Required</h3>
         <div className="mt-3 grid grid-cols-2 gap-4">
           <Field label="Minimum years" id="minimum-experience"><input id="minimum-experience" type="number" min="0" max="50" value={minExp} onChange={(event) => setMinExp(event.target.value)} className={inputClass} /></Field>
           <Field label="Maximum years" id="maximum-experience"><input id="maximum-experience" type="number" min="0" max="50" value={maxExp} onChange={(event) => setMaxExp(event.target.value)} className={inputClass} /></Field>
         </div>
-        <label className="mt-4 flex cursor-pointer items-center gap-3 text-sm font-medium text-[#594047]">
-          <input type="checkbox" checked={freshersAllowed} onChange={(event) => setFreshersAllowed(event.target.checked)} className="h-4 w-4 accent-[#e2007c]" /> Freshers can apply
+        <label className="mt-4 flex cursor-pointer items-center gap-3 text-sm font-medium text-[#475569]">
+          <input type="checkbox" checked={freshersAllowed} onChange={(event) => setFreshersAllowed(event.target.checked)} className="h-4 w-4 accent-[#7c3aed]" /> Freshers can apply
         </label>
       </section>
-      <section className="rounded-xl border border-[#e0bec6] bg-white p-4">
+      <section className="rounded-xl border border-[#cbd5e1] bg-white p-4">
         <h3 className={labelClass}>Salary Range</h3>
         <div className="mt-3 grid grid-cols-2 gap-4">
           <Field label="Minimum" id="minimum-salary"><input id="minimum-salary" type="number" min="0" value={minSalary} onChange={(event) => setMinSalary(event.target.value)} placeholder="20000" className={inputClass} /></Field>
@@ -314,7 +314,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
           {(['monthly', 'daily', 'hourly', 'commission'] as const).map((value) => (
             <label key={value} className="cursor-pointer">
               <input type="radio" name="pay-type" value={value} checked={payType === value} onChange={() => setPayType(value)} className="peer sr-only" />
-              <span className="inline-flex rounded-full border border-[#e0bec6] px-4 py-2 text-[13px] font-medium capitalize text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">{value}</span>
+              <span className="inline-flex rounded-full border border-[#cbd5e1] px-4 py-2 text-[13px] font-medium capitalize text-[#475569] peer-checked:border-[#4f46e5] peer-checked:bg-[#ede9fe] peer-checked:text-[#4f46e5]">{value}</span>
             </label>
           ))}
         </div>
@@ -325,7 +325,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
           {(['Full-time', 'Part-time', 'Contract', 'Commission'] as JobPosting['jobType'][]).map((value) => (
             <label key={value} className="cursor-pointer">
               <input type="radio" name="job-type" checked={jobType === value} onChange={() => setJobType(value)} className="peer sr-only" />
-              <span className="inline-flex rounded-full border border-[#e0bec6] px-4 py-2 text-[13px] font-medium text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">{value === 'Commission' ? 'Freelance' : value}</span>
+              <span className="inline-flex rounded-full border border-[#cbd5e1] px-4 py-2 text-[13px] font-medium text-[#475569] peer-checked:border-[#4f46e5] peer-checked:bg-[#ede9fe] peer-checked:text-[#4f46e5]">{value === 'Commission' ? 'Freelance' : value}</span>
             </label>
           ))}
         </div>
@@ -336,8 +336,8 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
   const renderStep3 = () => (
     <div className="space-y-7 animate-in fade-in duration-200">
       <div>
-        <h2 className="text-xl font-semibold text-[#1c1b1b]">Location and openings</h2>
-        <p className="mt-1 text-sm text-[#594047]">Help candidates understand where the work happens.</p>
+        <h2 className="text-xl font-semibold text-[#0f172a]">Location and openings</h2>
+        <p className="mt-1 text-sm text-[#475569]">Help candidates understand where the work happens.</p>
       </div>
       <div>
         <h3 className={labelClass}>Workplace Type</h3>
@@ -345,7 +345,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
           {([['on_site', 'On-site'], ['hybrid', 'Hybrid'], ['remote', 'Remote']] as const).map(([value, label]) => (
             <label key={value} className="cursor-pointer">
               <input type="radio" name="workplace-type" checked={workplaceType === value} onChange={() => { setWorkplaceType(value); if (value === 'remote' && !workLocation) setWorkLocation('Remote'); }} className="peer sr-only" />
-              <span className="flex justify-center rounded-lg border border-[#e0bec6] bg-white px-2 py-4 text-sm font-medium text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">{label}</span>
+              <span className="flex justify-center rounded-lg border border-[#cbd5e1] bg-white px-2 py-4 text-sm font-medium text-[#475569] peer-checked:border-[#4f46e5] peer-checked:bg-[#ede9fe] peer-checked:text-[#4f46e5]">{label}</span>
             </label>
           ))}
         </div>
@@ -366,8 +366,8 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
   const renderStep4 = () => (
     <div className="space-y-7 animate-in fade-in duration-200">
       <div>
-        <h2 className="text-xl font-semibold text-[#1c1b1b]">Contact and publishing</h2>
-        <p className="mt-1 text-sm text-[#594047]">Set the contact details, interview mode and job status.</p>
+        <h2 className="text-xl font-semibold text-[#0f172a]">Contact and publishing</h2>
+        <p className="mt-1 text-sm text-[#475569]">Set the contact details, interview mode and job status.</p>
       </div>
       <Field label="Contact Person" id="contact-person"><input id="contact-person" value={contactPerson} onChange={(event) => setContactPerson(event.target.value)} placeholder="Full name" className={inputClass} /></Field>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -380,18 +380,18 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
           {([['in_person', 'In-person'], ['video', 'Video'], ['phone', 'Phone'], ['hybrid', 'Hybrid']] as const).map(([value, label]) => (
             <label key={value} className="cursor-pointer">
               <input type="radio" name="interview-mode" checked={interviewMode === value} onChange={() => setInterviewMode(value)} className="peer sr-only" />
-              <span className="flex justify-center rounded-lg border border-[#e0bec6] bg-white px-2 py-3 text-[13px] font-medium text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">{label}</span>
+              <span className="flex justify-center rounded-lg border border-[#cbd5e1] bg-white px-2 py-3 text-[13px] font-medium text-[#475569] peer-checked:border-[#4f46e5] peer-checked:bg-[#ede9fe] peer-checked:text-[#4f46e5]">{label}</span>
             </label>
           ))}
         </div>
       </div>
-      <section className="rounded-xl border border-[#e0bec6] bg-white p-4">
+      <section className="rounded-xl border border-[#cbd5e1] bg-white p-4">
         <h3 className={labelClass}>Status: Draft / Published</h3>
         <div className="mt-3 grid grid-cols-2 gap-3">
           {([['draft', 'Draft'], ['published', 'Published']] as const).map(([value, label]) => (
             <label key={value} className="cursor-pointer">
               <input type="radio" name="posting-status" checked={postingStatus === value} onChange={() => setPostingStatus(value)} className="peer sr-only" />
-              <span className="flex flex-col rounded-lg border border-[#e0bec6] p-4 text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">
+              <span className="flex flex-col rounded-lg border border-[#cbd5e1] p-4 text-[#475569] peer-checked:border-[#4f46e5] peer-checked:bg-[#ede9fe] peer-checked:text-[#4f46e5]">
                 <strong className="text-sm">{label}</strong>
                 <span className="mt-1 text-xs">{value === 'published' ? 'Visible to candidates immediately' : 'Keep private and publish later'}</span>
               </span>
@@ -405,14 +405,14 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
   const renderStep5 = () => (
     <div className="space-y-6 animate-in fade-in duration-200">
       <div>
-        <h2 className="text-xl font-semibold text-[#1c1b1b]">Review your job post</h2>
-        <p className="mt-1 text-sm text-[#594047]">Confirm the details before saving them to your account.</p>
+        <h2 className="text-xl font-semibold text-[#0f172a]">Review your job post</h2>
+        <p className="mt-1 text-sm text-[#475569]">Confirm the details before saving them to your account.</p>
       </div>
-      <section className="overflow-hidden rounded-xl border border-[#e0bec6] bg-white shadow-sm">
-        <div className="bg-gradient-to-r from-[#ffd9e2] to-[#ffcbd9] p-6">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-white text-[#e2007c] shadow-sm"><Store className="h-6 w-6" /></div>
-          <h3 className="text-xl font-bold text-[#3e001e]">{title}</h3>
-          <p className="mt-1 text-sm font-medium text-[#594047]">{businessName} · {jobRole}</p>
+      <section className="overflow-hidden rounded-xl border border-[#cbd5e1] bg-white shadow-sm">
+        <div className="bg-gradient-to-r from-[#ede9fe] to-[#ddd6fe] p-6">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-white text-[#7c3aed] shadow-sm"><Store className="h-6 w-6" /></div>
+          <h3 className="text-xl font-bold text-[#312e81]">{title}</h3>
+          <p className="mt-1 text-sm font-medium text-[#475569]">{businessName} · {jobRole}</p>
         </div>
         <dl className="grid gap-4 p-5 sm:grid-cols-2">
           {[
@@ -426,8 +426,8 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
             ['Status', postingStatus === 'published' ? 'Published' : 'Draft'],
           ].map(([label, value]) => (
             <div key={label}>
-              <dt className="text-xs font-semibold uppercase tracking-wide text-[#8c7077]">{label}</dt>
-              <dd className="mt-1 text-sm font-semibold capitalize text-[#1c1b1b]">{value}</dd>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-[#64748b]">{label}</dt>
+              <dd className="mt-1 text-sm font-semibold capitalize text-[#0f172a]">{value}</dd>
             </div>
           ))}
         </dl>
@@ -442,10 +442,10 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
       <div className="flex min-h-full flex-1 flex-col items-center justify-center py-10 animate-in zoom-in-95 duration-300">
         <div className="flex h-24 w-24 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-14 w-14" /></div>
         <div className="mt-6 text-center">
-          <h1 className="text-2xl font-bold text-[#8e004b]">{initialJob ? 'Your job post has been updated successfully.' : published ? 'Your job post has been published successfully.' : 'Your job post has been saved as a draft.'}</h1>
-          <p className="mt-2 text-sm text-[#594047]">{published ? 'Candidates can now find and apply to this role.' : 'You can publish this job later from My Posted Jobs.'}</p>
+          <h1 className="text-2xl font-bold text-[#4f46e5]">{initialJob ? 'Your job post has been updated successfully.' : published ? 'Your job post has been published successfully.' : 'Your job post has been saved as a draft.'}</h1>
+          <p className="mt-2 text-sm text-[#475569]">{published ? 'Candidates can now find and apply to this role.' : 'You can publish this job later from My Posted Jobs.'}</p>
         </div>
-        <dl className="mt-7 w-full rounded-xl border border-[#e0bec6] bg-white p-5 shadow-sm">
+        <dl className="mt-7 w-full rounded-xl border border-[#cbd5e1] bg-white p-5 shadow-sm">
           {[
             ['Job Title', savedJob?.title || title],
             ['Location', savedJob?.location || displayLocation],
@@ -453,31 +453,31 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
             ['Job Status', published ? 'Published' : 'Draft'],
             ['Posted Date', postedDate],
           ].map(([label, value]) => (
-            <div key={label} className="flex items-start justify-between gap-4 border-b border-[#f1edec] py-3 last:border-0">
-              <dt className="text-sm font-medium text-[#594047]">{label}</dt>
-              <dd className="text-right text-sm font-bold text-[#1c1b1b]">{value}</dd>
+            <div key={label} className="flex items-start justify-between gap-4 border-b border-[#f1f5f9] py-3 last:border-0">
+              <dt className="text-sm font-medium text-[#475569]">{label}</dt>
+              <dd className="text-right text-sm font-bold text-[#0f172a]">{value}</dd>
             </div>
           ))}
         </dl>
         <div className="mt-7 grid w-full gap-3 sm:grid-cols-2">
-          <button type="button" onClick={onViewJobPosts} className="rounded-full bg-[#e2007c] px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#b50062]">View My Job Posts</button>
-          <button type="button" onClick={resetForAnotherJob} className="rounded-full border border-[#e0bec6] bg-white px-5 py-3 text-sm font-bold text-[#8e004b] hover:bg-[#f1edec]">Post Another Job</button>
-          <button type="button" onClick={onViewApplications} className="rounded-full border border-[#e0bec6] bg-white px-5 py-3 text-sm font-bold text-[#8e004b] hover:bg-[#f1edec] sm:col-span-2">View Applications</button>
+          <button type="button" onClick={onViewJobPosts} className="rounded-full bg-[#7c3aed] px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#6d28d9]">View My Job Posts</button>
+          <button type="button" onClick={resetForAnotherJob} className="rounded-full border border-[#cbd5e1] bg-white px-5 py-3 text-sm font-bold text-[#4f46e5] hover:bg-[#f1f5f9]">Post Another Job</button>
+          <button type="button" onClick={onViewApplications} className="rounded-full border border-[#cbd5e1] bg-white px-5 py-3 text-sm font-bold text-[#4f46e5] hover:bg-[#f1f5f9] sm:col-span-2">View Applications</button>
         </div>
       </div>
     );
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-[#fdf8f8] animate-in slide-in-from-bottom-4 duration-300">
+    <div className="fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-[#f8fafc] animate-in slide-in-from-bottom-4 duration-300">
       {step !== 6 && (
-        <header className="sticky top-0 z-50 bg-[#fdf8f8] shadow-sm">
+        <header className="sticky top-0 z-50 bg-[#f8fafc] shadow-sm">
           <div className="relative mx-auto flex h-16 w-full max-w-2xl items-center justify-between px-5">
-            <button type="button" onClick={step > 1 ? () => { setValidationError(null); setStep((current) => current - 1); } : onClose} className="-ml-2 rounded-full p-2 text-[#594047] hover:bg-[#ece7e7]" aria-label={step > 1 ? 'Previous step' : 'Close post job form'}><ArrowLeft className="h-6 w-6" /></button>
-            <h1 className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold text-[#8e004b]">{initialJob ? 'Edit Job' : 'Post a Job'}</h1>
-            <span className="text-[13px] font-medium text-[#594047]">Step {step}/{totalSteps}</span>
+            <button type="button" onClick={step > 1 ? () => { setValidationError(null); setStep((current) => current - 1); } : onClose} className="-ml-2 rounded-full p-2 text-[#475569] hover:bg-[#e2e8f0]" aria-label={step > 1 ? 'Previous step' : 'Close post job form'}><ArrowLeft className="h-6 w-6" /></button>
+            <h1 className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold text-[#4f46e5]">{initialJob ? 'Edit Job' : 'Post a Job'}</h1>
+            <span className="text-[13px] font-medium text-[#475569]">Step {step}/{totalSteps}</span>
           </div>
-          <div className="h-1 w-full bg-[#e6e1e1]"><div className="h-full bg-[#e2007c] transition-all" style={{ width: `${(step / totalSteps) * 100}%` }} /></div>
+          <div className="h-1 w-full bg-[#e2e8f0]"><div className="h-full bg-[#7c3aed] transition-all" style={{ width: `${(step / totalSteps) * 100}%` }} /></div>
         </header>
       )}
 
@@ -490,14 +490,14 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
         {step === 6 && renderConfirmation()}
 
         {step !== 6 && (
-          <div className="mt-auto border-t border-[#e0bec6]/50 pt-6">
+          <div className="mt-auto border-t border-[#cbd5e1]/50 pt-6">
             {(validationError || submitError) && <div role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{validationError || submitError}</div>}
             <button
               type="button"
               onClick={step < totalSteps ? handleNext : () => void handleComplete()}
               disabled={isSubmitting}
               aria-busy={isSubmitting}
-              className="flex w-full items-center justify-center gap-2 rounded-full bg-[#e2007c] py-4 text-lg font-semibold text-white shadow-sm transition-all hover:bg-[#b50062] disabled:cursor-wait disabled:opacity-70"
+              className="flex w-full items-center justify-center gap-2 rounded-full bg-[#7c3aed] py-4 text-lg font-semibold text-white shadow-sm transition-all hover:bg-[#6d28d9] disabled:cursor-wait disabled:opacity-70"
             >
               {step < totalSteps ? <>Continue <ArrowRight className="h-5 w-5" /></> : isSubmitting ? <><Loader2 className="h-5 w-5 animate-spin" /> {initialJob ? 'Saving changes…' : 'Posting job…'}</> : <><BriefcaseBusiness className="h-5 w-5" /> {initialJob ? 'Save Changes' : 'Post Job'}</>}
             </button>

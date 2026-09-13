@@ -59,35 +59,35 @@ export const ConfirmEmailScreen: React.FC<ConfirmEmailScreenProps> = ({
   };
 
   return (
-    <div className="bg-[#fcf9f8] text-[#1c1b1b] min-h-screen flex flex-col font-sans antialiased">
-      <header className="sticky top-0 bg-white shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex justify-between items-center px-5 h-16 w-full z-50 border-b border-[#e6e1e1]">
+    <div className="bg-[#eef2ff] text-[#0f172a] min-h-screen flex flex-col font-sans antialiased">
+      <header className="sticky top-0 bg-white shadow-[0_4px_12px_rgba(15,23,42,0.05)] flex justify-between items-center px-5 h-16 w-full z-50 border-b border-[#e2e8f0]">
         <button
           type="button"
           onClick={onBackToLogin}
           aria-label="Back to sign in"
-          className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full flex items-center justify-center cursor-pointer"
+          className="text-[#4f46e5] hover:bg-[#e2e8f0] transition-colors p-2 rounded-full flex items-center justify-center cursor-pointer"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <span className="text-[13px] font-semibold text-[#594047]">Confirm your email</span>
+        <span className="text-[13px] font-semibold text-[#475569]">Confirm your email</span>
         <span className="w-9" />
       </header>
 
       <main className="flex-1 flex items-center justify-center px-5 py-10">
-        <div className="w-full max-w-md bg-white rounded-2xl border border-[#e6e1e1] shadow-[0_4px_12px_rgba(90,63,71,0.05)] p-6 md:p-8">
-          <div className="w-14 h-14 rounded-full bg-[#f2dde9] flex items-center justify-center mb-5">
-            <MailCheck className="w-7 h-7 text-[#8e004b]" />
+        <div className="w-full max-w-md bg-white rounded-2xl border border-[#e2e8f0] shadow-[0_4px_12px_rgba(15,23,42,0.05)] p-6 md:p-8">
+          <div className="w-14 h-14 rounded-full bg-[#ede9fe] flex items-center justify-center mb-5">
+            <MailCheck className="w-7 h-7 text-[#4f46e5]" />
           </div>
 
-          <h1 className="text-[22px] font-semibold tracking-tight text-[#1c1b1b] mb-2">
+          <h1 className="text-[22px] font-semibold tracking-tight text-[#0f172a] mb-2">
             Check your inbox
           </h1>
-          <p className="text-[14px] text-[#594047] leading-relaxed mb-1">
+          <p className="text-[14px] text-[#475569] leading-relaxed mb-1">
             Your {role === 'seeker' ? 'job seeker' : 'employer'} account has been created. We sent a
             confirmation link to
           </p>
-          <p className="text-[14px] font-semibold text-[#8e004b] break-all mb-4">{email}</p>
-          <p className="text-[13px] text-[#594047] leading-relaxed mb-6">
+          <p className="text-[14px] font-semibold text-[#4f46e5] break-all mb-4">{email}</p>
+          <p className="text-[13px] text-[#475569] leading-relaxed mb-6">
             Open that link in this browser to finish signing in and continue your setup. The link
             expires after a while, so request a new one if it stops working.
           </p>
@@ -107,7 +107,7 @@ export const ConfirmEmailScreen: React.FC<ConfirmEmailScreenProps> = ({
             type="button"
             onClick={() => void handleResend()}
             disabled={isResending || cooldown > 0}
-            className="w-full bg-[#e2007c] text-white py-3 rounded-full text-[14px] font-semibold hover:bg-[#b50062] transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full bg-[#7c3aed] text-white py-3 rounded-full text-[14px] font-semibold hover:bg-[#6d28d9] transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isResending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             {cooldown > 0
@@ -118,12 +118,12 @@ export const ConfirmEmailScreen: React.FC<ConfirmEmailScreenProps> = ({
           <button
             type="button"
             onClick={onBackToLogin}
-            className="w-full mt-3 text-[#8e004b] py-3 rounded-full text-[14px] font-semibold hover:bg-[#f7f2f2] transition-colors cursor-pointer"
+            className="w-full mt-3 text-[#4f46e5] py-3 rounded-full text-[14px] font-semibold hover:bg-[#f8fafc] transition-colors cursor-pointer"
           >
             Back to sign in
           </button>
 
-          <p className="mt-5 text-[12px] text-[#594047] leading-relaxed">
+          <p className="mt-5 text-[12px] text-[#475569] leading-relaxed">
             Already confirmed on another device? Sign in with your email and password — no
             confirmation is needed twice.
           </p>

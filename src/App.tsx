@@ -56,6 +56,7 @@ import {
 import { MEDIA_BUCKETS, deleteMediaObject, isStoragePath, resolveStorageUrls } from './lib/storageMedia';
 import type { InterviewSchedulePayload } from './lib/interviewSchedule';
 import { formatInterviewDateTime } from './lib/interviewSchedule';
+import { JobsWorkspaceSkeleton } from './components/ui/JobsSkeleton';
 
 type SeekerWorkspaceTab = 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
 const normalizeSeekerTab = (tab: string): SeekerWorkspaceTab => tab === 'explore' ? 'feed' : tab as SeekerWorkspaceTab;
@@ -1105,19 +1106,10 @@ export default function App() {
     }
   };
 
-  if (isBackendLoading) {
-    return (
-      <div className="min-h-screen bg-[#fdf8f8] flex items-center justify-center text-[#8e004b]">
-        <div className="text-center space-y-3">
-          <div className="mx-auto h-9 w-9 rounded-full border-4 border-[#ffd9e2] border-t-[#e2007c] animate-spin" />
-          <p className="text-sm font-semibold">Loading your workspace…</p>
-        </div>
-      </div>
-    );
-  }
+  if (isBackendLoading) return <JobsWorkspaceSkeleton />;
 
   return (
-    <div className="min-h-screen bg-[#fdf8f8] font-sans antialiased">
+    <div className="min-h-screen bg-[#f8fafc] font-sans antialiased">
       {!isSupabaseConfigured && <SupabaseConfigWarning />}
       {backendError && (
         <div role="alert" className="fixed top-3 left-1/2 -translate-x-1/2 z-[100] w-[min(92vw,560px)] rounded-xl border border-rose-200 bg-white px-4 py-3 shadow-xl flex items-start gap-3">

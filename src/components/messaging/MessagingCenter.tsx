@@ -225,22 +225,22 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
       ];
 
   return (
-    <div className="bg-white rounded-3xl border border-[#e0bec6]/50 shadow-xl overflow-hidden flex flex-col md:flex-row h-[780px] max-h-[85vh] w-full relative">
+    <div className="bg-white rounded-3xl border border-[#cbd5e1]/50 shadow-xl overflow-hidden flex flex-col md:flex-row h-[780px] max-h-[85vh] w-full relative">
       {/* LEFT SIDEBAR: CONVERSATION LIST */}
-      <div className="w-full md:w-80 lg:w-96 border-b md:border-b-0 md:border-r border-[#e0bec6]/40 flex flex-col bg-[#fdf8f8]">
+      <div className="w-full md:w-80 lg:w-96 border-b md:border-b-0 md:border-r border-[#cbd5e1]/40 flex flex-col bg-[#f8fafc]">
         {/* Header & Search */}
-        <div className="p-4 border-b border-[#e0bec6]/30 space-y-3">
+        <div className="p-4 border-b border-[#cbd5e1]/30 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center font-bold">
+              <div className="w-8 h-8 rounded-full bg-[#ede9fe] text-[#4f46e5] flex items-center justify-center font-bold">
                 <MessageSquare className="w-4 h-4" />
               </div>
-              <h2 className="text-base font-bold text-[#1c1b1b]">Messages</h2>
+              <h2 className="text-base font-bold text-[#0f172a]">Messages</h2>
             </div>
             {onClose && (
               <button
                 onClick={onClose}
-                className="p-1.5 text-[#594047] hover:bg-[#f1edec] rounded-full transition-colors cursor-pointer"
+                className="p-1.5 text-[#475569] hover:bg-[#f1f5f9] rounded-full transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -249,22 +249,22 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
 
           {/* Search Box */}
           <div className="relative">
-            <Search className="w-4 h-4 text-[#8c7077] absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-[#64748b] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Search salon or candidate..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-white rounded-xl border border-[#e0bec6]/60 text-xs text-[#1c1b1b] focus:outline-none focus:ring-2 focus:ring-[#e2007c]/30"
+              className="w-full pl-9 pr-3 py-2 bg-white rounded-xl border border-[#cbd5e1]/60 text-xs text-[#0f172a] focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/30"
             />
           </div>
 
           {/* Filter Tabs */}
-          <div className="flex gap-1 p-1 bg-[#f1edec] rounded-xl text-[11px] font-bold">
+          <div className="flex gap-1 p-1 bg-[#f1f5f9] rounded-xl text-[11px] font-bold">
             <button
               onClick={() => setFilterTab('all')}
               className={`flex-1 py-1 rounded-lg transition-colors cursor-pointer ${
-                filterTab === 'all' ? 'bg-white text-[#8e004b] shadow-2xs' : 'text-[#594047]'
+                filterTab === 'all' ? 'bg-white text-[#4f46e5] shadow-2xs' : 'text-[#475569]'
               }`}
             >
               All
@@ -272,7 +272,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
             <button
               onClick={() => setFilterTab('unread')}
               className={`flex-1 py-1 rounded-lg transition-colors cursor-pointer ${
-                filterTab === 'unread' ? 'bg-white text-[#8e004b] shadow-2xs' : 'text-[#594047]'
+                filterTab === 'unread' ? 'bg-white text-[#4f46e5] shadow-2xs' : 'text-[#475569]'
               }`}
             >
               Unread
@@ -280,7 +280,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
             <button
               onClick={() => setFilterTab('interviews')}
               className={`flex-1 py-1 rounded-lg transition-colors cursor-pointer ${
-                filterTab === 'interviews' ? 'bg-white text-[#8e004b] shadow-2xs' : 'text-[#594047]'
+                filterTab === 'interviews' ? 'bg-white text-[#4f46e5] shadow-2xs' : 'text-[#475569]'
               }`}
             >
               Interviews
@@ -289,10 +289,10 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
         </div>
 
         {/* Conversation Items List */}
-        <div className="flex-1 overflow-y-auto divide-y divide-[#e0bec6]/20">
+        <div className="flex-1 overflow-y-auto divide-y divide-[#cbd5e1]/20">
           {filteredConversations.length === 0 ? (
-            <div className="p-8 text-center text-[#594047] space-y-2">
-              <MessageSquare className="w-8 h-8 text-[#8c7077] mx-auto opacity-50" />
+            <div className="p-8 text-center text-[#475569] space-y-2">
+              <MessageSquare className="w-8 h-8 text-[#64748b] mx-auto opacity-50" />
               <p className="text-xs font-semibold">No messages found</p>
             </div>
           ) : (
@@ -311,12 +311,12 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
                   }}
                   className={`w-full p-3.5 text-left transition-all flex items-start gap-3 cursor-pointer ${
                     isSelected
-                      ? 'bg-[#ffd9e2]/40 border-l-4 border-[#e2007c]'
+                      ? 'bg-[#ede9fe]/40 border-l-4 border-[#7c3aed]'
                       : 'hover:bg-white/80'
                   }`}
                 >
                   <div className="relative">
-                    <div className="w-11 h-11 rounded-full bg-[#f1edec] border border-[#e0bec6]/50 overflow-hidden flex items-center justify-center font-bold text-[#8e004b] text-base shrink-0 shadow-2xs">
+                    <div className="w-11 h-11 rounded-full bg-[#f1f5f9] border border-[#cbd5e1]/50 overflow-hidden flex items-center justify-center font-bold text-[#4f46e5] text-base shrink-0 shadow-2xs">
                       {displayAvatar ? (
                         <img
                           src={displayAvatar}
@@ -334,17 +334,17 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                      <h4 className="text-xs font-bold text-[#1c1b1b] truncate">{displayTitle}</h4>
-                      <span className="text-[10px] font-semibold text-[#8c7077] shrink-0">
+                      <h4 className="text-xs font-bold text-[#0f172a] truncate">{displayTitle}</h4>
+                      <span className="text-[10px] font-semibold text-[#64748b] shrink-0">
                         {conv.lastMessageTime}
                       </span>
                     </div>
 
-                    <p className="text-[11px] font-medium text-[#e2007c] truncate mb-1">
+                    <p className="text-[11px] font-medium text-[#7c3aed] truncate mb-1">
                       {conv.jobTitle}
                     </p>
 
-                    <p className="text-[11px] text-[#594047] truncate leading-tight">
+                    <p className="text-[11px] text-[#475569] truncate leading-tight">
                       {conv.lastMessage}
                     </p>
 
@@ -363,7 +363,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
                       )}
 
                       {unread > 0 && (
-                        <span className="bg-[#e2007c] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                        <span className="bg-[#7c3aed] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
                           {unread}
                         </span>
                       )}
@@ -380,9 +380,9 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
       {currentConv ? (
         <div className="flex-1 flex flex-col bg-white">
           {/* Chat Header */}
-          <div className="p-4 border-b border-[#e0bec6]/40 bg-[#fdf8f8] flex items-center justify-between gap-3 shadow-2xs">
+          <div className="p-4 border-b border-[#cbd5e1]/40 bg-[#f8fafc] flex items-center justify-between gap-3 shadow-2xs">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#f1edec] border border-[#e0bec6]/60 overflow-hidden flex items-center justify-center font-bold text-[#8e004b] text-base shrink-0 shadow-2xs">
+              <div className="w-10 h-10 rounded-full bg-[#f1f5f9] border border-[#cbd5e1]/60 overflow-hidden flex items-center justify-center font-bold text-[#4f46e5] text-base shrink-0 shadow-2xs">
                 {currentRole === 'seeker' ? (
                   currentConv.salonLogo ? (
                     <img
@@ -392,7 +392,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <Building2 className="w-5 h-5 text-[#8e004b]" />
+                    <Building2 className="w-5 h-5 text-[#4f46e5]" />
                   )
                 ) : currentConv.seekerAvatar ? (
                   <img
@@ -402,19 +402,19 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <User className="w-5 h-5 text-[#8e004b]" />
+                  <User className="w-5 h-5 text-[#4f46e5]" />
                 )}
               </div>
 
               <div>
-                <h3 className="text-sm font-bold text-[#1c1b1b] flex items-center gap-2">
+                <h3 className="text-sm font-bold text-[#0f172a] flex items-center gap-2">
                   <span>{currentRole === 'seeker' ? currentConv.salonName : currentConv.seekerName}</span>
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Active Now
                   </span>
                 </h3>
-                <p className="text-xs text-[#594047] font-medium flex items-center gap-1">
-                  <Briefcase className="w-3 h-3 text-[#e2007c]" />
+                <p className="text-xs text-[#475569] font-medium flex items-center gap-1">
+                  <Briefcase className="w-3 h-3 text-[#7c3aed]" />
                   <span>Re: {currentConv.jobTitle}</span>
                 </p>
               </div>
@@ -425,7 +425,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
               {currentRole === 'employer' && (
                 <button
                   onClick={() => setShowScheduleModal(true)}
-                  className="px-3.5 py-1.5 bg-[#e2007c] hover:bg-[#b90064] text-white text-xs font-bold rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-1.5 bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-xs font-bold rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   <Calendar className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Schedule Interview</span>
@@ -438,7 +438,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
                   e.preventDefault();
                   alert(`Direct phone connection to ${currentRole === 'seeker' ? currentConv.salonName : currentConv.seekerName}: (555) 019-2831`);
                 }}
-                className="p-2 bg-white border border-[#e0bec6]/60 rounded-full text-[#8e004b] hover:bg-[#ffd9e2]/50 transition-colors cursor-pointer"
+                className="p-2 bg-white border border-[#cbd5e1]/60 rounded-full text-[#4f46e5] hover:bg-[#ede9fe]/50 transition-colors cursor-pointer"
                 title="Call Candidate/Salon"
               >
                 <PhoneCall className="w-4 h-4" />
@@ -448,28 +448,28 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
 
           {/* Job Banner Context Card inside chat */}
           {currentJob && (
-            <div className="bg-[#ffd9e2]/30 px-4 py-2 border-b border-[#e0bec6]/30 flex items-center justify-between text-xs text-[#594047]">
+            <div className="bg-[#ede9fe]/30 px-4 py-2 border-b border-[#cbd5e1]/30 flex items-center justify-between text-xs text-[#475569]">
               <div className="flex items-center gap-2 truncate">
-                <Sparkles className="w-3.5 h-3.5 text-[#e2007c] shrink-0" />
-                <span className="font-bold text-[#1c1b1b]">{currentJob.title}</span>
-                <span className="text-[11px] text-[#8e004b] font-semibold">{currentJob.salary}</span>
+                <Sparkles className="w-3.5 h-3.5 text-[#7c3aed] shrink-0" />
+                <span className="font-bold text-[#0f172a]">{currentJob.title}</span>
+                <span className="text-[11px] text-[#4f46e5] font-semibold">{currentJob.salary}</span>
               </div>
-              <span className="text-[10px] font-bold bg-white text-[#8e004b] px-2 py-0.5 rounded-full border border-[#e0bec6]/40 shrink-0">
+              <span className="text-[10px] font-bold bg-white text-[#4f46e5] px-2 py-0.5 rounded-full border border-[#cbd5e1]/40 shrink-0">
                 {currentJob.jobType}
               </span>
             </div>
           )}
 
           {/* Messages Stream */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gradient-to-b from-white to-[#fdf8f8]">
+          <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gradient-to-b from-white to-[#f8fafc]">
             <div className="text-center my-2">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#8c7077] bg-[#f1edec] px-3 py-1 rounded-full border border-[#e0bec6]/30">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#64748b] bg-[#f1f5f9] px-3 py-1 rounded-full border border-[#cbd5e1]/30">
                 Direct Beauty Workspace Chat
               </span>
             </div>
 
             {currentMessages.length === 0 ? (
-              <div className="text-center py-12 text-[#594047]">
+              <div className="text-center py-12 text-[#475569]">
                 <p className="text-xs font-semibold">Start the conversation with {currentRole === 'seeker' ? currentConv.salonName : currentConv.seekerName}!</p>
               </div>
             ) : (
@@ -482,15 +482,15 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
                     className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1`}
                   >
                     <div className="flex items-center gap-1.5 px-1">
-                      <span className="text-[10px] font-bold text-[#8c7077]">{m.senderName}</span>
-                      <span className="text-[9px] text-[#8c7077]">{m.timestamp}</span>
+                      <span className="text-[10px] font-bold text-[#64748b]">{m.senderName}</span>
+                      <span className="text-[9px] text-[#64748b]">{m.timestamp}</span>
                     </div>
 
                     <div
                       className={`max-w-[85%] sm:max-w-[75%] p-3.5 rounded-2xl text-xs leading-relaxed shadow-2xs ${
                         isMe
-                          ? 'bg-[#8e004b] text-white rounded-tr-none'
-                          : 'bg-[#f1edec] text-[#1c1b1b] rounded-tl-none border border-[#e0bec6]/40'
+                          ? 'bg-[#4f46e5] text-white rounded-tr-none'
+                          : 'bg-[#f1f5f9] text-[#0f172a] rounded-tl-none border border-[#cbd5e1]/40'
                       }`}
                     >
                       <p className="whitespace-pre-wrap">{m.text}</p>
@@ -528,15 +528,15 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
           </div>
 
           {/* Quick Smart Reply Suggestions */}
-          <div className="px-4 py-2 bg-[#fdf8f8] border-t border-[#e0bec6]/30 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-            <span className="text-[10px] font-bold text-[#8c7077] shrink-0 flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-[#e2007c]" /> Quick Replies:
+          <div className="px-4 py-2 bg-[#f8fafc] border-t border-[#cbd5e1]/30 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <span className="text-[10px] font-bold text-[#64748b] shrink-0 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-[#7c3aed]" /> Quick Replies:
             </span>
             {quickReplies.map((reply, idx) => (
               <button
                 key={idx}
                 onClick={() => handleQuickReply(reply)}
-                className="text-[10px] font-semibold bg-white text-[#8e004b] border border-[#e0bec6]/60 hover:border-[#e2007c] hover:bg-[#ffd9e2]/40 px-2.5 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer shrink-0"
+                className="text-[10px] font-semibold bg-white text-[#4f46e5] border border-[#cbd5e1]/60 hover:border-[#7c3aed] hover:bg-[#ede9fe]/40 px-2.5 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer shrink-0"
               >
                 {reply}
               </button>
@@ -545,8 +545,8 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
 
           {/* Attached File Bar preview */}
           {attachedFile && (
-            <div className="px-4 py-1.5 bg-[#ffd9e2]/50 border-t border-[#e0bec6]/30 flex items-center justify-between text-xs">
-              <span className="text-[#8e004b] font-bold flex items-center gap-1">
+            <div className="px-4 py-1.5 bg-[#ede9fe]/50 border-t border-[#cbd5e1]/30 flex items-center justify-between text-xs">
+              <span className="text-[#4f46e5] font-bold flex items-center gap-1">
                 <Paperclip className="w-3.5 h-3.5" /> Attached: {attachedFile.name}
               </span>
               <button
@@ -566,12 +566,12 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
           {/* Message Input Box */}
           <form
             onSubmit={handleSend}
-            className="p-3 bg-white border-t border-[#e0bec6]/40 flex items-center gap-2"
+            className="p-3 bg-white border-t border-[#cbd5e1]/40 flex items-center gap-2"
           >
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-2.5 text-[#594047] hover:bg-[#f1edec] rounded-full transition-colors cursor-pointer shrink-0"
+              className="p-2.5 text-[#475569] hover:bg-[#f1f5f9] rounded-full transition-colors cursor-pointer shrink-0"
               title="Attach photo, resume, or portfolio document"
             >
               <Paperclip className="w-5 h-5" />
@@ -589,23 +589,23 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
               placeholder={`Write a message to ${currentRole === 'seeker' ? currentConv.salonName : currentConv.seekerName}...`}
               value={messageText}
               onChange={(e) => setMessageText(e.target.value)}
-              className="flex-1 bg-[#f1edec]/70 px-4 py-2.5 rounded-full border border-[#e0bec6]/50 text-xs text-[#1c1b1b] focus:outline-none focus:ring-2 focus:ring-[#e2007c]/40"
+              className="flex-1 bg-[#f1f5f9]/70 px-4 py-2.5 rounded-full border border-[#cbd5e1]/50 text-xs text-[#0f172a] focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/40"
             />
 
             <button
               type="submit"
               disabled={(!messageText.trim() && !attachedFile) || isSending}
-              className="p-2.5 bg-[#e2007c] hover:bg-[#b90064] disabled:opacity-40 text-white rounded-full shadow-md transition-all cursor-pointer shrink-0"
+              className="p-2.5 bg-[#7c3aed] hover:bg-[#6d28d9] disabled:opacity-40 text-white rounded-full shadow-md transition-all cursor-pointer shrink-0"
             >
               <Send className="w-4 h-4" />
             </button>
           </form>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-[#594047] space-y-3">
-          <MessageSquare className="w-12 h-12 text-[#e0bec6]" />
-          <h3 className="text-base font-bold text-[#1c1b1b]">Select a conversation to start chatting</h3>
-          <p className="text-xs text-[#8c7077] max-w-xs">
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-[#475569] space-y-3">
+          <MessageSquare className="w-12 h-12 text-[#cbd5e1]" />
+          <h3 className="text-base font-bold text-[#0f172a]">Select a conversation to start chatting</h3>
+          <p className="text-xs text-[#64748b] max-w-xs">
             Connect directly regarding open beauty positions, model tests, and interview schedules.
           </p>
         </div>

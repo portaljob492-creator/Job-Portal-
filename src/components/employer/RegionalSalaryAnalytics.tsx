@@ -89,28 +89,28 @@ export const RegionalSalaryAnalytics: React.FC<RegionalSalaryAnalyticsProps> = (
   const salaryCoverage = filteredJobs.length ? Math.round((salaryValues.length / filteredJobs.length) * 100) : 0;
 
   return (
-    <div className="space-y-6 rounded-3xl border border-[#e0bec6]/60 bg-white p-6 shadow-sm">
-      <div className="flex flex-col justify-between gap-4 border-b border-[#e0bec6]/40 pb-4 md:flex-row md:items-center">
+    <div className="space-y-6 rounded-3xl border border-[#cbd5e1]/60 bg-white p-6 shadow-sm">
+      <div className="flex flex-col justify-between gap-4 border-b border-[#cbd5e1]/40 pb-4 md:flex-row md:items-center">
         <div>
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#ffd9e2] text-[#8e004b]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#ede9fe] text-[#4f46e5]">
               <TrendingUp className="h-4 w-4" />
             </div>
-            <h3 className="text-lg font-bold text-[#1c1b1b]">Salary insights from your job posts</h3>
+            <h3 className="text-lg font-bold text-[#0f172a]">Salary insights from your job posts</h3>
           </div>
-          <p className="mt-1 text-xs text-[#594047]">Calculated only from the currently loaded postings—no estimated market data.</p>
+          <p className="mt-1 text-xs text-[#475569]">Calculated only from the currently loaded postings—no estimated market data.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1.5 rounded-2xl border border-[#e0bec6] bg-[#fdf8f8] px-3 py-1.5">
-            <MapPin className="h-3.5 w-3.5 text-[#8e004b]" />
+          <label className="flex items-center gap-1.5 rounded-2xl border border-[#cbd5e1] bg-[#f8fafc] px-3 py-1.5">
+            <MapPin className="h-3.5 w-3.5 text-[#4f46e5]" />
             <span className="sr-only">Location</span>
-            <select value={selectedRegion} onChange={(event) => setSelectedRegion(event.target.value)} className="cursor-pointer bg-transparent text-xs font-bold text-[#1c1b1b] focus:outline-none">
+            <select value={selectedRegion} onChange={(event) => setSelectedRegion(event.target.value)} className="cursor-pointer bg-transparent text-xs font-bold text-[#0f172a] focus:outline-none">
               {regions.map((region) => <option key={region} value={region}>{region}</option>)}
             </select>
           </label>
-          <label className="rounded-2xl border border-[#e0bec6] bg-[#fdf8f8] px-3 py-1.5">
+          <label className="rounded-2xl border border-[#cbd5e1] bg-[#f8fafc] px-3 py-1.5">
             <span className="sr-only">Category</span>
-            <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)} className="cursor-pointer bg-transparent text-xs font-bold text-[#1c1b1b] focus:outline-none">
+            <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)} className="cursor-pointer bg-transparent text-xs font-bold text-[#0f172a] focus:outline-none">
               {categories.map((category) => <option key={category} value={category}>{category === 'All' ? 'All specialties' : category}</option>)}
             </select>
           </label>
@@ -118,44 +118,44 @@ export const RegionalSalaryAnalytics: React.FC<RegionalSalaryAnalyticsProps> = (
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-[#ffd9e2] bg-[#fdf8f8] p-4 shadow-2xs">
-          <div className="mb-1 flex items-center justify-between text-[#8e004b]"><span className="text-[11px] font-bold uppercase tracking-wider">Median monthly salary</span><IndianRupee className="h-4 w-4" /></div>
-          <p className="text-xl font-extrabold text-[#1c1b1b]">{median == null ? 'Not available' : `₹${Math.round(median).toLocaleString('en-IN')}`}</p>
-          <p className="mt-1 text-[11px] text-[#594047]">From {salaryValues.length} post{salaryValues.length === 1 ? '' : 's'} with salary data</p>
+        <div className="rounded-2xl border border-[#ede9fe] bg-[#f8fafc] p-4 shadow-2xs">
+          <div className="mb-1 flex items-center justify-between text-[#4f46e5]"><span className="text-[11px] font-bold uppercase tracking-wider">Median monthly salary</span><IndianRupee className="h-4 w-4" /></div>
+          <p className="text-xl font-extrabold text-[#0f172a]">{median == null ? 'Not available' : `₹${Math.round(median).toLocaleString('en-IN')}`}</p>
+          <p className="mt-1 text-[11px] text-[#475569]">From {salaryValues.length} post{salaryValues.length === 1 ? '' : 's'} with salary data</p>
         </div>
-        <div className="rounded-2xl border border-[#ffd9e2] bg-[#fdf8f8] p-4 shadow-2xs">
-          <div className="mb-1 flex items-center justify-between text-[#8e004b]"><span className="text-[11px] font-bold uppercase tracking-wider">Most-posted specialty</span><Award className="h-4 w-4" /></div>
-          <p className="truncate text-sm font-bold text-[#1c1b1b]">{topCategory}</p>
-          <p className="mt-1 text-[11px] text-[#594047]">Within the selected filters</p>
+        <div className="rounded-2xl border border-[#ede9fe] bg-[#f8fafc] p-4 shadow-2xs">
+          <div className="mb-1 flex items-center justify-between text-[#4f46e5]"><span className="text-[11px] font-bold uppercase tracking-wider">Most-posted specialty</span><Award className="h-4 w-4" /></div>
+          <p className="truncate text-sm font-bold text-[#0f172a]">{topCategory}</p>
+          <p className="mt-1 text-[11px] text-[#475569]">Within the selected filters</p>
         </div>
-        <div className="rounded-2xl border border-[#ffd9e2] bg-[#fdf8f8] p-4 shadow-2xs">
-          <div className="mb-1 flex items-center justify-between text-[#8e004b]"><span className="text-[11px] font-bold uppercase tracking-wider">Openings represented</span><Building2 className="h-4 w-4" /></div>
-          <p className="text-xl font-extrabold text-[#1c1b1b]">{openings}</p>
-          <p className="mt-1 text-[11px] text-[#594047]">Across {filteredJobs.length} loaded post{filteredJobs.length === 1 ? '' : 's'}</p>
+        <div className="rounded-2xl border border-[#ede9fe] bg-[#f8fafc] p-4 shadow-2xs">
+          <div className="mb-1 flex items-center justify-between text-[#4f46e5]"><span className="text-[11px] font-bold uppercase tracking-wider">Openings represented</span><Building2 className="h-4 w-4" /></div>
+          <p className="text-xl font-extrabold text-[#0f172a]">{openings}</p>
+          <p className="mt-1 text-[11px] text-[#475569]">Across {filteredJobs.length} loaded post{filteredJobs.length === 1 ? '' : 's'}</p>
         </div>
-        <div className="rounded-2xl border border-[#ffd9e2] bg-[#fdf8f8] p-4 shadow-2xs">
-          <div className="mb-1 flex items-center justify-between text-[#8e004b]"><span className="text-[11px] font-bold uppercase tracking-wider">Salary coverage</span><TrendingUp className="h-4 w-4" /></div>
-          <p className="text-xl font-extrabold text-[#1c1b1b]">{salaryCoverage}%</p>
-          <p className="mt-1 text-[11px] text-[#594047]">Posts containing a numeric salary range</p>
+        <div className="rounded-2xl border border-[#ede9fe] bg-[#f8fafc] p-4 shadow-2xs">
+          <div className="mb-1 flex items-center justify-between text-[#4f46e5]"><span className="text-[11px] font-bold uppercase tracking-wider">Salary coverage</span><TrendingUp className="h-4 w-4" /></div>
+          <p className="text-xl font-extrabold text-[#0f172a]">{salaryCoverage}%</p>
+          <p className="mt-1 text-[11px] text-[#475569]">Posts containing a numeric salary range</p>
         </div>
       </div>
 
-      <div className="space-y-3 rounded-2xl border border-[#e0bec6]/40 bg-[#fdf8f8] p-5">
-        <h4 className="text-xs font-bold uppercase tracking-wider text-[#1c1b1b]">Monthly salary distribution</h4>
+      <div className="space-y-3 rounded-2xl border border-[#cbd5e1]/40 bg-[#f8fafc] p-5">
+        <h4 className="text-xs font-bold uppercase tracking-wider text-[#0f172a]">Monthly salary distribution</h4>
         {salaryValues.length ? (
           <div className="h-72 w-full pt-2">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={distribution} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0bec6" opacity={0.4} vertical={false} />
-                <XAxis dataKey="range" tick={{ fill: '#1c1b1b', fontSize: 11, fontWeight: 700 }} axisLine={{ stroke: '#e0bec6' }} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fill: '#8c7077', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(value) => [`${value} listing${Number(value) === 1 ? '' : 's'}`, 'Postings']} contentStyle={{ borderRadius: '12px', borderColor: '#e0bec6', fontSize: '12px' }} />
-                <Bar dataKey="listings" name="Postings" fill="#8e004b" radius={[6, 6, 0, 0]} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" opacity={0.4} vertical={false} />
+                <XAxis dataKey="range" tick={{ fill: '#0f172a', fontSize: 11, fontWeight: 700 }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip formatter={(value) => [`${value} listing${Number(value) === 1 ? '' : 's'}`, 'Postings']} contentStyle={{ borderRadius: '12px', borderColor: '#cbd5e1', fontSize: '12px' }} />
+                <Bar dataKey="listings" name="Postings" fill="#4f46e5" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         ) : (
-          <div className="py-16 text-center text-sm text-[#594047]">No numeric salary data matches these filters.</div>
+          <div className="py-16 text-center text-sm text-[#475569]">No numeric salary data matches these filters.</div>
         )}
       </div>
 

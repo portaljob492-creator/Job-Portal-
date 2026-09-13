@@ -155,7 +155,7 @@ export const PwaInstallButton: React.FC = () => {
           disabled={isInstalling}
           aria-label="Install Nexora Jobs app"
           style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
-          className="fixed bottom-20 right-4 z-[90] flex items-center gap-2 rounded-full bg-[#8e004b] px-4 py-3 text-sm font-extrabold text-white shadow-[0_8px_24px_rgba(142,0,75,0.28)] transition-all hover:bg-[#b50062] hover:shadow-xl active:scale-95 disabled:cursor-wait disabled:opacity-70 sm:bottom-4"
+          className="fixed bottom-20 right-4 z-[90] flex items-center gap-2 rounded-full bg-[#4f46e5] px-4 py-3 text-sm font-extrabold text-white shadow-[0_8px_24px_rgba(79,70,229,0.28)] transition-all hover:bg-[#6d28d9] hover:shadow-xl active:scale-95 disabled:cursor-wait disabled:opacity-70 sm:bottom-4"
         >
           {isInstalling ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           <span>{isInstalling ? 'Preparing install…' : 'Install App'}</span>
@@ -164,28 +164,28 @@ export const PwaInstallButton: React.FC = () => {
 
       {showHelp && !isInstalled && (
         <div className="fixed inset-0 z-[150] flex items-end justify-center bg-black/45 p-4 backdrop-blur-sm sm:items-center">
-          <div role="dialog" aria-modal="true" aria-labelledby="pwa-install-title" className="w-full max-w-lg rounded-3xl border border-[#e0bec6] bg-white p-5 shadow-2xl sm:p-6">
+          <div role="dialog" aria-modal="true" aria-labelledby="pwa-install-title" className="w-full max-w-lg rounded-3xl border border-[#cbd5e1] bg-white p-5 shadow-2xl sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3">
                 <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="Nexora Jobs" className="h-12 w-12 rounded-xl" />
                 <div>
-                  <h2 id="pwa-install-title" className="text-lg font-extrabold text-[#1c1b1b]">Install Nexora Jobs</h2>
-                  <p className="text-xs text-[#594047]">Choose your device below and follow its install method.</p>
+                  <h2 id="pwa-install-title" className="text-lg font-extrabold text-[#0f172a]">Install Nexora Jobs</h2>
+                  <p className="text-xs text-[#475569]">Choose your device below and follow its install method.</p>
                 </div>
               </div>
-              <button type="button" onClick={() => setShowHelp(false)} aria-label="Close install instructions" className="rounded-full p-2 text-[#594047] hover:bg-[#f1edec]">
+              <button type="button" onClick={() => setShowHelp(false)} aria-label="Close install instructions" className="rounded-full p-2 text-[#475569] hover:bg-[#f1f5f9]">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="mt-5 grid grid-cols-3 gap-1 rounded-2xl bg-[#f1edec] p-1">
+            <div className="mt-5 grid grid-cols-3 gap-1 rounded-2xl bg-[#f1f5f9] p-1">
               {platformTabs.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setSelectedPlatform(tab.id)}
                   className={`flex min-h-11 items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] font-bold transition-all sm:text-xs ${
-                    selectedPlatform === tab.id ? 'bg-white text-[#8e004b] shadow-sm' : 'text-[#594047] hover:text-[#1c1b1b]'
+                    selectedPlatform === tab.id ? 'bg-white text-[#4f46e5] shadow-sm' : 'text-[#475569] hover:text-[#0f172a]'
                   }`}
                 >
                   {tab.icon}
@@ -194,48 +194,48 @@ export const PwaInstallButton: React.FC = () => {
               ))}
             </div>
 
-            <div className="mt-4 min-h-44 rounded-2xl bg-[#fdf8f8] p-4 text-sm text-[#594047]">
+            <div className="mt-4 min-h-44 rounded-2xl bg-[#f8fafc] p-4 text-sm text-[#475569]">
               {selectedPlatform === 'ios' ? (
                 <div className="space-y-4">
-                  <p className="font-bold text-[#1c1b1b]">Install on iPhone or iPad</p>
-                  <div className="flex items-start gap-3"><Share2 className="mt-0.5 h-5 w-5 shrink-0 text-[#8e004b]" /><span>Open this site in <strong>Safari</strong>, then tap the <strong>Share</strong> button.</span></div>
-                  <div className="flex items-start gap-3"><Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-[#8e004b]" /><span>Scroll and choose <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>.</span></div>
+                  <p className="font-bold text-[#0f172a]">Install on iPhone or iPad</p>
+                  <div className="flex items-start gap-3"><Share2 className="mt-0.5 h-5 w-5 shrink-0 text-[#4f46e5]" /><span>Open this site in <strong>Safari</strong>, then tap the <strong>Share</strong> button.</span></div>
+                  <div className="flex items-start gap-3"><Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-[#4f46e5]" /><span>Scroll and choose <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>.</span></div>
                   <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">Apple does not allow websites to open the install prompt directly; Safari's Add to Home Screen action is required.</p>
                 </div>
               ) : selectedPlatform === 'android' ? (
                 <div className="space-y-4">
-                  <p className="font-bold text-[#1c1b1b]">Install on Android</p>
+                  <p className="font-bold text-[#0f172a]">Install on Android</p>
                   {installPrompt && (
-                    <button type="button" onClick={() => runNativeInstall(installPrompt)} disabled={isInstalling} className="flex w-full items-center justify-center gap-2 rounded-full bg-[#e2007c] py-3 font-extrabold text-white hover:bg-[#8e004b] disabled:opacity-60">
+                    <button type="button" onClick={() => runNativeInstall(installPrompt)} disabled={isInstalling} className="flex w-full items-center justify-center gap-2 rounded-full bg-[#7c3aed] py-3 font-extrabold text-white hover:bg-[#4f46e5] disabled:opacity-60">
                       <Download className="h-4 w-4" /> Install Now
                     </button>
                   )}
-                  <div className="flex items-start gap-3"><MoreVertical className="mt-0.5 h-5 w-5 shrink-0 text-[#8e004b]" /><span>If no prompt appears, open Chrome's menu and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</span></div>
-                  <div className="flex items-start gap-3"><Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-[#8e004b]" /><span>Confirm <strong>Install</strong>. The app will appear in your launcher.</span></div>
+                  <div className="flex items-start gap-3"><MoreVertical className="mt-0.5 h-5 w-5 shrink-0 text-[#4f46e5]" /><span>If no prompt appears, open Chrome's menu and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</span></div>
+                  <div className="flex items-start gap-3"><Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-[#4f46e5]" /><span>Confirm <strong>Install</strong>. The app will appear in your launcher.</span></div>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <p className="font-bold text-[#1c1b1b]">Install on desktop Chrome or Edge</p>
+                  <p className="font-bold text-[#0f172a]">Install on desktop Chrome or Edge</p>
                   {installPrompt && (
-                    <button type="button" onClick={() => runNativeInstall(installPrompt)} disabled={isInstalling} className="flex w-full items-center justify-center gap-2 rounded-full bg-[#e2007c] py-3 font-extrabold text-white hover:bg-[#8e004b] disabled:opacity-60">
+                    <button type="button" onClick={() => runNativeInstall(installPrompt)} disabled={isInstalling} className="flex w-full items-center justify-center gap-2 rounded-full bg-[#7c3aed] py-3 font-extrabold text-white hover:bg-[#4f46e5] disabled:opacity-60">
                       <Download className="h-4 w-4" /> Install Now
                     </button>
                   )}
-                  <div className="flex items-start gap-3"><Download className="mt-0.5 h-5 w-5 shrink-0 text-[#8e004b]" /><span>Click the install icon in the address bar, or open the browser menu and choose <strong>Install Nexora Jobs</strong>.</span></div>
+                  <div className="flex items-start gap-3"><Download className="mt-0.5 h-5 w-5 shrink-0 text-[#4f46e5]" /><span>Click the install icon in the address bar, or open the browser menu and choose <strong>Install Nexora Jobs</strong>.</span></div>
                 </div>
               )}
             </div>
 
             {!installPrompt && selectedPlatform !== 'ios' && (
-              <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-[#e0bec6] bg-white px-3 py-2 text-[11px] text-[#594047]">
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-[#cbd5e1] bg-white px-3 py-2 text-[11px] text-[#475569]">
                 <span>{workerReady === 'ready' ? 'App is ready. If the native prompt is hidden, refresh once or use the browser menu.' : 'Preparing offline installation support…'}</span>
-                <button type="button" onClick={() => typeof window !== 'undefined' && window.location.reload()} className="flex shrink-0 items-center gap-1 font-bold text-[#8e004b] hover:underline">
+                <button type="button" onClick={() => typeof window !== 'undefined' && window.location.reload()} className="flex shrink-0 items-center gap-1 font-bold text-[#4f46e5] hover:underline">
                   <RefreshCw className="h-3.5 w-3.5" /> Refresh
                 </button>
               </div>
             )}
 
-            <button type="button" onClick={() => setShowHelp(false)} className="mt-5 w-full rounded-full border border-[#8e004b] py-3 text-sm font-extrabold text-[#8e004b] hover:bg-[#ffd9e2]/40">
+            <button type="button" onClick={() => setShowHelp(false)} className="mt-5 w-full rounded-full border border-[#4f46e5] py-3 text-sm font-extrabold text-[#4f46e5] hover:bg-[#ede9fe]/40">
               Close
             </button>
           </div>

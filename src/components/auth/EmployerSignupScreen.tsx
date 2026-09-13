@@ -83,18 +83,18 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
   };
 
   return (
-    <div className="bg-[#fcf9f8] text-[#1c1b1b] min-h-screen flex flex-col font-sans antialiased selection:bg-[#ffd9e2] selection:text-[#8e004b] relative overflow-hidden">
+    <div className="bg-[#eef2ff] text-[#0f172a] min-h-screen flex flex-col font-sans antialiased selection:bg-[#ede9fe] selection:text-[#4f46e5] relative overflow-hidden">
       {/* TopAppBar */}
-      <header className="flex justify-between items-center px-5 h-16 w-full z-50 bg-[#fdf8f8] shadow-[0_4px_12px_rgba(90,63,71,0.05)] sticky top-0">
+      <header className="flex justify-between items-center px-5 h-16 w-full z-50 bg-[#f8fafc] shadow-[0_4px_12px_rgba(15,23,42,0.05)] sticky top-0">
         <button
           type="button"
           onClick={onBack}
           aria-label="Go back"
-          className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full flex items-center justify-center cursor-pointer"
+          className="text-[#4f46e5] hover:bg-[#e2e8f0] transition-colors p-2 rounded-full flex items-center justify-center cursor-pointer"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-xl font-bold text-[#8e004b]">Nexora Jobs</h1>
+        <h1 className="text-xl font-bold text-[#4f46e5]">Nexora Jobs</h1>
         <div className="w-9" />
       </header>
 
@@ -102,16 +102,16 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
       <main className="flex-grow px-5 py-8 flex flex-col items-center justify-center relative z-10">
         {/* Animated Background Accents */}
         <div className="absolute inset-0 z-[-1] overflow-hidden opacity-30 pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-[#ffb0c8] blur-[100px]" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-[#f2dde9] blur-[120px]" />
+          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-[#c4b5fd] blur-[100px]" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-[#ede9fe] blur-[120px]" />
         </div>
 
         <div className="w-full max-w-md glass-card rounded-2xl p-6 sm:p-8">
           <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-[#1c1b1b] mb-1">
+            <h2 className="text-2xl font-bold text-[#0f172a] mb-1">
               Register Business
             </h2>
-            <p className="text-sm text-[#594047]">
+            <p className="text-sm text-[#475569]">
               Find top talent for your salon or spa.
             </p>
           </div>
@@ -119,7 +119,7 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {/* Business Name Field */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-[#1c1b1b]" htmlFor="businessName">
+              <label className="text-xs font-semibold text-[#0f172a]" htmlFor="businessName">
                 Business Name
               </label>
               <input
@@ -129,13 +129,13 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
                 onChange={(e) => setBusinessName(e.target.value)}
                 placeholder="e.g. Nexora Beauty Group"
                 required
-                className="bg-[#f0edec] border-transparent focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] rounded-lg px-4 py-3 text-sm text-[#1c1b1b] transition-colors outline-none placeholder:text-[#594047]/60"
+                className="bg-[#f1f5f9] border-transparent focus:bg-white focus:border-[#4f46e5] focus:ring-1 focus:ring-[#4f46e5] rounded-lg px-4 py-3 text-sm text-[#0f172a] transition-colors outline-none placeholder:text-[#475569]/60"
               />
             </div>
 
             {/* Contact Person Field */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-[#1c1b1b]" htmlFor="contactPerson">
+              <label className="text-xs font-semibold text-[#0f172a]" htmlFor="contactPerson">
                 Contact Person
               </label>
               <input
@@ -145,13 +145,13 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
                 onChange={(e) => setContactPerson(e.target.value)}
                 placeholder="Full Name"
                 required
-                className="bg-[#f0edec] border-transparent focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] rounded-lg px-4 py-3 text-sm text-[#1c1b1b] transition-colors outline-none placeholder:text-[#594047]/60"
+                className="bg-[#f1f5f9] border-transparent focus:bg-white focus:border-[#4f46e5] focus:ring-1 focus:ring-[#4f46e5] rounded-lg px-4 py-3 text-sm text-[#0f172a] transition-colors outline-none placeholder:text-[#475569]/60"
               />
             </div>
 
             {/* Business Email Field */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-[#1c1b1b]" htmlFor="businessEmail">
+              <label className="text-xs font-semibold text-[#0f172a]" htmlFor="businessEmail">
                 Business Email
               </label>
               <input
@@ -161,13 +161,13 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
                 onChange={(e) => setBusinessEmail(e.target.value)}
                 placeholder="hello@nexorabeauty.com"
                 required
-                className="bg-[#f0edec] border-transparent focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] rounded-lg px-4 py-3 text-sm text-[#1c1b1b] transition-colors outline-none placeholder:text-[#594047]/60"
+                className="bg-[#f1f5f9] border-transparent focus:bg-white focus:border-[#4f46e5] focus:ring-1 focus:ring-[#4f46e5] rounded-lg px-4 py-3 text-sm text-[#0f172a] transition-colors outline-none placeholder:text-[#475569]/60"
               />
             </div>
 
             {/* Password Field */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-[#1c1b1b]" htmlFor="password">
+              <label className="text-xs font-semibold text-[#0f172a]" htmlFor="password">
                 Password
               </label>
               <div className="relative">
@@ -180,19 +180,19 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
                   aria-describedby="employer-password-hint"
                   autoComplete="new-password"
                   required
-                  className="w-full bg-[#f0edec] border-transparent focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] rounded-lg px-4 py-3 text-sm text-[#1c1b1b] transition-colors outline-none placeholder:text-[#594047]/60 pr-10"
+                  className="w-full bg-[#f1f5f9] border-transparent focus:bg-white focus:border-[#4f46e5] focus:ring-1 focus:ring-[#4f46e5] rounded-lg px-4 py-3 text-sm text-[#0f172a] transition-colors outline-none placeholder:text-[#475569]/60 pr-10"
                 />
                 <button
                   type="button"
                   aria-label="Toggle password visibility"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#594047] hover:text-[#8e004b] transition-colors cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#475569] hover:text-[#4f46e5] transition-colors cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <p id="employer-password-hint" className="text-[11px] leading-relaxed text-[#594047]">
-                Example: <strong className="text-[#8e004b]">Nexora@123</strong> — use 8+ characters with uppercase, lowercase and a number. Create your own unique password.
+              <p id="employer-password-hint" className="text-[11px] leading-relaxed text-[#475569]">
+                Example: <strong className="text-[#4f46e5]">Nexora@123</strong> — use 8+ characters with uppercase, lowercase and a number. Create your own unique password.
               </p>
             </div>
 
@@ -203,10 +203,10 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
                 type="checkbox"
                 checked={agreeTerms}
                 onChange={(e) => setAgreeTerms(e.target.checked)}
-                className="mt-0.5 w-4 h-4 text-[#8e004b] bg-white border-[#8c7077] rounded focus:ring-[#8e004b]"
+                className="mt-0.5 w-4 h-4 text-[#4f46e5] bg-white border-[#64748b] rounded focus:ring-[#4f46e5]"
               />
-              <label className="text-xs text-[#594047] leading-tight" htmlFor="terms">
-                I agree to the <a href="#" className="text-[#8e004b] hover:underline font-medium">Terms & Conditions</a> and <a href="#" className="text-[#8e004b] hover:underline font-medium">Privacy Policy</a>.
+              <label className="text-xs text-[#475569] leading-tight" htmlFor="terms">
+                I agree to the <a href="#" className="text-[#4f46e5] hover:underline font-medium">Terms & Conditions</a> and <a href="#" className="text-[#4f46e5] hover:underline font-medium">Privacy Policy</a>.
               </label>
             </div>
 
@@ -222,7 +222,7 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => onSwitchPortal?.(roleMismatch.existingRole, roleMismatch.email || businessEmail)}
-                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
                 >
                   <UserCheck className="w-3.5 h-3.5" />
                   Switch to {portalRoleLabel(roleMismatch.existingRole)} Portal
@@ -236,8 +236,8 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
               disabled={!agreeTerms || isSubmitting || cooldown > 0}
               className={`w-full h-12 rounded-full font-bold text-sm tracking-wide transition-all duration-200 mt-2 flex items-center justify-center gap-2 shadow-md cursor-pointer ${
                 agreeTerms && !isSubmitting && cooldown <= 0
-                  ? 'bg-[#e6007e] text-white hover:bg-[#b50062] active:scale-[0.98]'
-                  : 'bg-[#e6e1e1] text-[#594047] opacity-60 cursor-not-allowed'
+                  ? 'bg-[#7c3aed] text-white hover:bg-[#6d28d9] active:scale-[0.98]'
+                  : 'bg-[#e2e8f0] text-[#475569] opacity-60 cursor-not-allowed'
               }`}
             >
               <span>{isSubmitting ? 'Creating account…' : cooldown > 0 ? `Try again in ${formatRetryCountdown(cooldown)}` : 'Create Employer Account'}</span>
@@ -246,12 +246,12 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-xs text-[#594047]">
+            <p className="text-xs text-[#475569]">
               Already have an account?{' '}
               <button
                 type="button"
                 onClick={onLogin}
-                className="text-[#8e004b] font-bold hover:underline cursor-pointer"
+                className="text-[#4f46e5] font-bold hover:underline cursor-pointer"
               >
                 Log In
               </button>

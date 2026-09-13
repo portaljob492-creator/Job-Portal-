@@ -53,24 +53,24 @@ export const BeautyNews: React.FC = () => {
   }, []);
 
   return (
-    <div className="bg-white p-4 rounded-2xl border border-[#e0bec6]/50 shadow-sm flex flex-col gap-3">
+    <div className="bg-white p-4 rounded-2xl border border-[#cbd5e1]/50 shadow-sm flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-[#8e004b] uppercase tracking-wider flex items-center gap-1.5">
-          <Sparkles className="w-4 h-4 text-[#e2007c]" />
+        <span className="text-xs font-bold text-[#4f46e5] uppercase tracking-wider flex items-center gap-1.5">
+          <Sparkles className="w-4 h-4 text-[#7c3aed]" />
           <span>Latest Beauty Trends</span>
         </span>
-        <button onClick={fetchNews} className="text-[#8c7077] hover:text-[#8e004b] p-1 cursor-pointer" aria-label="Refresh trends">
+        <button onClick={fetchNews} className="text-[#64748b] hover:text-[#4f46e5] p-1 cursor-pointer" aria-label="Refresh trends">
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
       {loading ? (
-        <div className="text-xs text-[#8c7077]">Fetching latest trends...</div>
+        <div className="text-xs text-[#64748b]">Fetching latest trends...</div>
       ) : failed || !news ? (
-        <p className="text-xs text-[#8c7077] leading-relaxed">
+        <p className="text-xs text-[#64748b] leading-relaxed">
           Trends are unavailable right now. Tap refresh to try again.
         </p>
       ) : (
-        <p className="text-xs text-[#1c1b1b] leading-relaxed">{news}</p>
+        <p className="text-xs text-[#0f172a] leading-relaxed">{news}</p>
       )}
     </div>
   );

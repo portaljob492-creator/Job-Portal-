@@ -12,6 +12,7 @@ import { EmployerInterviewsTab } from './EmployerInterviewsTab';
 import { CreateJobOfferScreen } from './CreateJobOfferScreen';
 import { HiringSuccessScreen } from './HiringSuccessScreen';
 import { EmployerProfileTab } from './EmployerProfileTab';
+import { JobsInlineSkeleton } from '../ui/JobsSkeleton';
 import { LogoutConfirmationModal } from './LogoutConfirmationModal';
 import {
   Plus,
@@ -244,18 +245,18 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
 
   const NavItem = ({ icon: Icon, label, tab, filledIcon = false }: { icon: any, label: string, tab: any, filledIcon?: boolean }) => {
     const isActive = activeTab === tab;
-    
+
     return (
-      <button 
+      <button
         onClick={() => {
           if (tab === 'dashboard' || tab === 'jobs' || tab === 'candidates') onPostJobFlowExit?.(tab);
           if (tab === 'candidates') setCandidateJobFilter(null);
           setActiveTab(tab);
         }}
         className={`flex items-center gap-3 p-3 rounded-lg w-full text-left transition-all active:translate-x-1 duration-150 cursor-pointer ${
-          isActive 
-            ? 'bg-[#e2007c] text-white font-bold' 
-            : 'text-[#594047] hover:bg-[#e6e1e1] hover:bg-[#ece7e7]'
+          isActive
+            ? 'bg-[#7c3aed] text-white font-bold'
+            : 'text-[#475569] hover:bg-[#e2e8f0] hover:bg-[#e2e8f0]'
         }`}
       >
         <Icon className="w-5 h-5" style={isActive && filledIcon ? { fill: 'currentColor' } : {}} />
@@ -266,9 +267,9 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
 
   const MobileNavItem = ({ icon: Icon, label, tab, filledIcon = false }: { icon: any, label: string, tab: any, filledIcon?: boolean }) => {
     const isActive = activeTab === tab;
-    
+
     return (
-      <button 
+      <button
         onClick={() => {
           if (tab === 'dashboard' || tab === 'jobs' || tab === 'candidates') onPostJobFlowExit?.(tab);
           if (tab === 'candidates') setCandidateJobFilter(null);
@@ -276,8 +277,8 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
         }}
         className={`flex flex-col items-center justify-center px-2 py-1 active:scale-90 transition-transform cursor-pointer ${
           isActive
-            ? 'bg-[#b90064] text-[#ffcbd9] rounded-full px-4'
-            : 'text-[#594047] hover:text-[#8e004b]'
+            ? 'bg-[#6d28d9] text-[#ddd6fe] rounded-full px-4'
+            : 'text-[#475569] hover:text-[#4f46e5]'
         }`}
       >
         <Icon className="w-6 h-6" style={isActive && filledIcon ? { fill: 'currentColor' } : {}} />
@@ -287,19 +288,19 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   };
 
   return (
-    <div className="bg-[#fdf8f8] text-[#1c1b1b] min-h-screen pb-24 md:pb-0 md:pl-80 flex flex-col md:flex-row select-none">
+    <div className="bg-[#f8fafc] text-[#0f172a] min-h-screen pb-24 md:pb-0 md:pl-80 flex flex-col md:flex-row select-none">
       {/* Navigation Drawer (Desktop) */}
-      <aside className="hidden md:flex flex-col h-full w-80 rounded-r-xl bg-[#fdf8f8] shadow-xl fixed left-0 top-0 z-50 p-4 gap-4 border-r border-[#e0bec6]">
+      <aside className="hidden md:flex flex-col h-full w-80 rounded-r-xl bg-[#f8fafc] shadow-xl fixed left-0 top-0 z-50 p-4 gap-4 border-r border-[#cbd5e1]">
         <div className="flex items-center gap-4 mb-8">
-          <img 
-            alt="Employer Profile" 
-            className="w-12 h-12 rounded-full object-cover border border-[#e0bec6]" 
+          <img
+            alt="Employer Profile"
+            className="w-12 h-12 rounded-full object-cover border border-[#cbd5e1]"
             src={userProfile.avatarUrl || "https://lh3.googleusercontent.com/aida-public/AB6AXuAuZ-FXyC98oUtW9eo9ufnZH826kE3xNJbYn_zhbya-ynLr5gz9yAE4oLfkTzvPglaIhUbZmcidW1zLOMhe_utK4AXXpiCjm4Xy92Kg5LXKckRihIV2NPj2xIjbRgj7u_hcMizHTwSb0J0F0JDpf0zgZSaLkP-MqdVVs5DzNeCjtNPkD0J7XRWhnTDeGQdBPGNs_ChHRa8NGnIPTWZl9G8kHiZLiHravsS1ZhwL62__kMcGhkdwh-gME6JNbvlIYQFalg"}
           />
           <div>
-            <h2 className="text-base font-bold text-[#1c1b1b]">{userProfile.businessName || 'The Glamour Studio'}</h2>
-            <p className="text-[13px] font-medium text-[#594047]">Premium Employer</p>
-            <p className="text-xs font-medium text-[#8e004b] mt-1">Verified Account</p>
+            <h2 className="text-base font-bold text-[#0f172a]">{userProfile.businessName || 'The Glamour Studio'}</h2>
+            <p className="text-[13px] font-medium text-[#475569]">Premium Employer</p>
+            <p className="text-xs font-medium text-[#4f46e5] mt-1">Verified Account</p>
           </div>
         </div>
 
@@ -312,8 +313,8 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           <NavItem icon={BarChart3} label="Analytics" tab="analytics" />
           <NavItem icon={Building2} label="Profile" tab="profile" />
         </nav>
-        
-        <div className="mt-auto border-t border-[#e0bec6] pt-4 flex flex-col gap-2">
+
+        <div className="mt-auto border-t border-[#cbd5e1] pt-4 flex flex-col gap-2">
           <button
             onClick={onLogout}
             className="flex items-center gap-3 p-3 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg transition-all active:translate-x-1 duration-150 cursor-pointer"
@@ -326,179 +327,179 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
 
       <div className="flex-1 flex flex-col min-h-screen max-w-full overflow-hidden">
         {/* TopAppBar */}
-        <header className="flex justify-between items-center px-5 h-16 w-full z-40 bg-[#fdf8f8] shadow-[0_4px_12px_rgba(90,63,71,0.05)] sticky top-0 md:static">
+        <header className="flex justify-between items-center px-5 h-16 w-full z-40 bg-[#f8fafc] shadow-[0_4px_12px_rgba(15,23,42,0.05)] sticky top-0 md:static">
           <div className="flex items-center gap-3">
-            <button className="md:hidden text-[#8e004b] hover:bg-[#e6e1e1] transition-colors active:scale-95 duration-200 p-2 rounded-full cursor-pointer">
+            <button className="md:hidden text-[#4f46e5] hover:bg-[#e2e8f0] transition-colors active:scale-95 duration-200 p-2 rounded-full cursor-pointer">
               <ArrowLeft className="w-6 h-6" />
             </button>
             <div className="flex items-center gap-2">
-              <img 
-                alt="Logo" 
-                className="w-8 h-8 rounded-full border border-[#e0bec6] md:hidden" 
+              <img
+                alt="Logo"
+                className="w-8 h-8 rounded-full border border-[#cbd5e1] md:hidden"
                 src="https://lh3.googleusercontent.com/aida-public/AB6AXuDrWHddqhJawn6_Y6s98bBH8_EeXeZa9k7ArYyiRW_NiTTAb4xFyvOsQFPvapS3_Fb8e_YhQYP_Etu9pLWlyiJ5jI2uX9d_AK2pd4A6hh5ndJR5RIlYOucHbdCjHIO1nFSCxDFyLY09WWI4AqpWv6Ca6eJqKdLG-RhSFTV9jGArY0ISzjUC9-Ae4-ZtC2_gZWj903Tjwje5SWF-D3Ozj4PeLha8Cwp9NlE8cu1jKx92yJSPrlnXcfAHlWHEiXPIS8RIrw"
               />
-              <h1 className="text-2xl font-semibold text-[#8e004b] tracking-tight">Nexora Jobs</h1>
+              <h1 className="text-2xl font-semibold text-[#4f46e5] tracking-tight">Nexora Jobs</h1>
             </div>
           </div>
-          
-          <button className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors active:scale-95 duration-200 p-2 rounded-full relative cursor-pointer">
+
+          <button className="text-[#4f46e5] hover:bg-[#e2e8f0] transition-colors active:scale-95 duration-200 p-2 rounded-full relative cursor-pointer">
             <Bell className="w-6 h-6" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-[#b50062] rounded-full"></span>
+            <span className="absolute top-2 right-2 w-2 h-2 bg-[#6d28d9] rounded-full"></span>
           </button>
         </header>
 
         <main className="flex-1 p-5 md:p-8 max-w-5xl mx-auto w-full flex flex-col gap-8">
-          
+
           {/* TAB: DASHBOARD */}
           {activeTab === 'dashboard' && (
             <>
               {/* Welcome */}
               <section>
-                <h2 className="text-2xl md:text-3xl font-bold text-[#1c1b1b] mb-2 tracking-tight">
+                <h2 className="text-2xl md:text-3xl font-bold text-[#0f172a] mb-2 tracking-tight">
                   Welcome back, {userProfile.businessName || 'The Glamour Studio'}
                 </h2>
-                <p className="text-base text-[#594047]">Here is what's happening with your job listings today.</p>
+                <p className="text-base text-[#475569]">Here is what's happening with your job listings today.</p>
               </section>
 
               {/* Stats Overview Bento Grid */}
               <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div 
+                <div
                   onClick={() => setActiveTab('jobs')}
-                  className="bg-white border border-[#e0bec6] rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#ece7e7] transition-colors cursor-pointer"
+                  className="bg-white border border-[#cbd5e1] rounded-lg p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#e2e8f0] transition-colors cursor-pointer"
                 >
-                  <Briefcase className="text-[#8e004b] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
-                  <span className="text-2xl md:text-3xl font-bold text-[#1c1b1b]">{jobs.length}</span>
-                  <span className="text-[13px] font-medium text-[#594047] mt-1">Posted Jobs</span>
+                  <Briefcase className="text-[#4f46e5] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
+                  <span className="text-2xl md:text-3xl font-bold text-[#0f172a]">{jobs.length}</span>
+                  <span className="text-[13px] font-medium text-[#475569] mt-1">Posted Jobs</span>
                 </div>
-                
-                <div 
+
+                <div
                   onClick={() => setActiveTab('candidates')}
-                  className="bg-white border border-[#e0bec6] rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#ece7e7] transition-colors cursor-pointer"
+                  className="bg-white border border-[#cbd5e1] rounded-lg p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#e2e8f0] transition-colors cursor-pointer"
                 >
-                  <FileText className="text-[#b50062] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
-                  <span className="text-2xl md:text-3xl font-bold text-[#1c1b1b]">{applicants.length}</span>
-                  <span className="text-[13px] font-medium text-[#594047] mt-1">Applications</span>
+                  <FileText className="text-[#6d28d9] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
+                  <span className="text-2xl md:text-3xl font-bold text-[#0f172a]">{applicants.length}</span>
+                  <span className="text-[13px] font-medium text-[#475569] mt-1">Applications</span>
                 </div>
-                
-                <div 
+
+                <div
                   onClick={() => setActiveTab('interviews')}
-                  className="bg-white border border-[#e0bec6] rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#ece7e7] transition-colors cursor-pointer"
+                  className="bg-white border border-[#cbd5e1] rounded-lg p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#e2e8f0] transition-colors cursor-pointer"
                 >
-                  <Calendar className="text-[#51434c] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
-                  <span className="text-2xl md:text-3xl font-bold text-[#1c1b1b]">{applicants.filter(a => a.status === 'Interview Scheduled').length}</span>
-                  <span className="text-[13px] font-medium text-[#594047] mt-1">Interviews</span>
+                  <Calendar className="text-[#4338ca] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
+                  <span className="text-2xl md:text-3xl font-bold text-[#0f172a]">{applicants.filter(a => a.status === 'Interview Scheduled').length}</span>
+                  <span className="text-[13px] font-medium text-[#475569] mt-1">Interviews</span>
                 </div>
-                
-                <div 
+
+                <div
                   onClick={() => setActiveTab('candidates')}
-                  className="bg-white border border-[#e0bec6] rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#ece7e7] transition-colors cursor-pointer"
+                  className="bg-white border border-[#cbd5e1] rounded-lg p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)] flex flex-col items-center justify-center text-center group hover:bg-[#e2e8f0] transition-colors cursor-pointer"
                 >
-                  <UserCheck className="text-[#8e004b] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
-                  <span className="text-2xl md:text-3xl font-bold text-[#1c1b1b]">{applicants.filter(a => a.status === 'Hired').length}</span>
-                  <span className="text-[13px] font-medium text-[#594047] mt-1">Hired</span>
+                  <UserCheck className="text-[#4f46e5] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
+                  <span className="text-2xl md:text-3xl font-bold text-[#0f172a]">{applicants.filter(a => a.status === 'Hired').length}</span>
+                  <span className="text-[13px] font-medium text-[#475569] mt-1">Hired</span>
                 </div>
               </section>
 
               {/* Quick Actions */}
               <section className="flex gap-4 overflow-x-auto pb-4 snap-x hide-scrollbar">
-                <button 
+                <button
                   onClick={() => { setEditingJob(null); setShowPostModal(true); }}
-                  className="snap-start shrink-0 bg-[#8e004b] text-white rounded-full px-6 py-4 text-base font-semibold flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-md cursor-pointer"
+                  className="snap-start shrink-0 bg-[#4f46e5] text-white rounded-full px-6 py-4 text-base font-semibold flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-md cursor-pointer"
                 >
                   <Plus className="w-5 h-5" />
                   Post Job
                 </button>
-                <button 
+                <button
                   onClick={() => setActiveTab('candidates')}
-                  className="snap-start shrink-0 bg-white border border-[#e0bec6] text-[#1c1b1b] rounded-full px-6 py-4 text-base font-medium flex items-center gap-2 hover:bg-[#e6e1e1] active:scale-95 transition-all cursor-pointer"
+                  className="snap-start shrink-0 bg-white border border-[#cbd5e1] text-[#0f172a] rounded-full px-6 py-4 text-base font-medium flex items-center gap-2 hover:bg-[#e2e8f0] active:scale-95 transition-all cursor-pointer"
                 >
-                  <FileText className="text-[#8e004b] w-5 h-5" />
+                  <FileText className="text-[#4f46e5] w-5 h-5" />
                   View Applications
                 </button>
-                <button 
+                <button
                   onClick={() => setActiveTab('messages')}
-                  className="snap-start shrink-0 bg-white border border-[#e0bec6] text-[#1c1b1b] rounded-full px-6 py-4 text-base font-medium flex items-center gap-2 hover:bg-[#e6e1e1] active:scale-95 transition-all cursor-pointer"
+                  className="snap-start shrink-0 bg-white border border-[#cbd5e1] text-[#0f172a] rounded-full px-6 py-4 text-base font-medium flex items-center gap-2 hover:bg-[#e2e8f0] active:scale-95 transition-all cursor-pointer"
                 >
-                  <MessageSquare className="text-[#b50062] w-5 h-5" />
+                  <MessageSquare className="text-[#6d28d9] w-5 h-5" />
                   Messages
                 </button>
-                <button 
+                <button
                   onClick={() => setActiveTab('analytics')}
-                  className="snap-start shrink-0 bg-white border border-[#e0bec6] text-[#1c1b1b] rounded-full px-6 py-4 text-base font-medium flex items-center gap-2 hover:bg-[#e6e1e1] active:scale-95 transition-all cursor-pointer"
+                  className="snap-start shrink-0 bg-white border border-[#cbd5e1] text-[#0f172a] rounded-full px-6 py-4 text-base font-medium flex items-center gap-2 hover:bg-[#e2e8f0] active:scale-95 transition-all cursor-pointer"
                 >
-                  <BarChart3 className="text-[#51434c] w-5 h-5" />
+                  <BarChart3 className="text-[#4338ca] w-5 h-5" />
                   Insights
                 </button>
               </section>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Recent Applications */}
-                <section className="bg-white border border-[#e0bec6] rounded-xl p-6 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+                <section className="bg-white border border-[#cbd5e1] rounded-xl p-6 shadow-[0_4px_12px_rgba(15,23,42,0.05)]">
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold text-[#1c1b1b]">Recent Applications</h3>
-                    <button onClick={() => setActiveTab('candidates')} className="text-[13px] font-medium text-[#8e004b] hover:underline cursor-pointer">
+                    <h3 className="text-xl font-semibold text-[#0f172a]">Recent Applications</h3>
+                    <button onClick={() => setActiveTab('candidates')} className="text-[13px] font-medium text-[#4f46e5] hover:underline cursor-pointer">
                       View All
                     </button>
                   </div>
-                  
+
                   <div className="flex flex-col gap-4">
                     {applicants.slice(0, 3).map(applicant => (
-                      <div 
+                      <div
                         key={applicant.id}
                         onClick={() => {
                           setCandidateFilter('All');
                           setActiveTab('candidates');
                         }}
-                        className="flex items-center gap-4 p-4 border border-[#e0bec6] rounded-lg hover:bg-[#f1edec] transition-colors cursor-pointer"
+                        className="flex items-center gap-4 p-4 border border-[#cbd5e1] rounded-lg hover:bg-[#f1f5f9] transition-colors cursor-pointer"
                       >
-                        <div className="w-12 h-12 bg-[#e6e1e1] rounded-full flex items-center justify-center text-[#594047] font-bold">
+                        <div className="w-12 h-12 bg-[#e2e8f0] rounded-full flex items-center justify-center text-[#475569] font-bold">
                           {applicant.name.charAt(0)}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h4 className="text-base font-semibold text-[#1c1b1b] truncate">{applicant.name}</h4>
-                          <p className="text-[13px] font-medium text-[#594047] truncate">{applicant.appliedJobTitle}</p>
+                          <h4 className="text-base font-semibold text-[#0f172a] truncate">{applicant.name}</h4>
+                          <p className="text-[13px] font-medium text-[#475569] truncate">{applicant.appliedJobTitle}</p>
                         </div>
                         {applicant.status === 'New' && (
-                          <span className="bg-[#ffd9e2] text-[#3e001e] text-xs px-2 py-1 rounded-full font-medium">New</span>
+                          <span className="bg-[#ede9fe] text-[#312e81] text-xs px-2 py-1 rounded-full font-medium">New</span>
                         )}
                       </div>
                     ))}
                     {applicants.length === 0 && (
-                      <p className="text-[#594047] text-[13px] italic">No recent applications.</p>
+                      <p className="text-[#475569] text-[13px] italic">No recent applications.</p>
                     )}
                   </div>
                 </section>
 
                 {/* Active Jobs */}
-                <section className="bg-white border border-[#e0bec6] rounded-xl p-6 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+                <section className="bg-white border border-[#cbd5e1] rounded-xl p-6 shadow-[0_4px_12px_rgba(15,23,42,0.05)]">
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold text-[#1c1b1b]">Active Jobs</h3>
-                    <button onClick={() => setActiveTab('jobs')} className="text-[13px] font-medium text-[#8e004b] hover:underline cursor-pointer">
+                    <h3 className="text-xl font-semibold text-[#0f172a]">Active Jobs</h3>
+                    <button onClick={() => setActiveTab('jobs')} className="text-[13px] font-medium text-[#4f46e5] hover:underline cursor-pointer">
                       View All
                     </button>
                   </div>
-                  
+
                   <div className="flex flex-col gap-4">
                     {jobs.slice(0, 3).map(job => (
-                      <div 
+                      <div
                         key={job.id}
                         onClick={() => setActiveTab('jobs')}
-                        className="p-4 border border-[#e0bec6] rounded-lg hover:bg-[#f1edec] transition-colors cursor-pointer"
+                        className="p-4 border border-[#cbd5e1] rounded-lg hover:bg-[#f1f5f9] transition-colors cursor-pointer"
                       >
                         <div className="flex justify-between items-start mb-2">
-                          <h4 className="text-base font-semibold text-[#1c1b1b] truncate pr-2">{job.title}</h4>
-                          <span className="bg-[#e6e1e1] text-[#594047] text-xs px-2 py-1 rounded-full font-medium shrink-0">
+                          <h4 className="text-base font-semibold text-[#0f172a] truncate pr-2">{job.title}</h4>
+                          <span className="bg-[#e2e8f0] text-[#475569] text-xs px-2 py-1 rounded-full font-medium shrink-0">
                             {applicants.filter(a => a.appliedJobId === job.id).length} Apps
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 text-[#594047] text-[13px] font-medium">
+                        <div className="flex items-center gap-2 text-[#475569] text-[13px] font-medium">
                           <MapPin className="w-4 h-4" />
                           <span className="truncate">{job.location}</span>
                         </div>
                       </div>
                     ))}
                     {jobs.length === 0 && (
-                      <p className="text-[#594047] text-[13px] italic">No active jobs posted.</p>
+                      <p className="text-[#475569] text-[13px] italic">No active jobs posted.</p>
                     )}
                   </div>
                 </section>
@@ -510,32 +511,32 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           {activeTab === 'jobs' && (
             <div className="flex flex-col w-full h-full">
               <div className="flex justify-between items-center mb-8">
-                <div><h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">My Job Posts</h2><p className="text-xs text-[#594047] mt-1">Every job posted by you, with applications and current status.</p></div>
+                <div><h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#4f46e5]">My Job Posts</h2><p className="text-xs text-[#475569] mt-1">Every job posted by you, with applications and current status.</p></div>
                 <button
                   onClick={() => { setEditingJob(null); setShowPostModal(true); }}
-                  className="hidden md:flex bg-[#e2007c] text-white px-4 py-2 rounded-full text-[13px] font-medium items-center gap-1 hover:bg-[#b50062] transition-colors shadow-sm cursor-pointer"
+                  className="hidden md:flex bg-[#7c3aed] text-white px-4 py-2 rounded-full text-[13px] font-medium items-center gap-1 hover:bg-[#6d28d9] transition-colors shadow-sm cursor-pointer"
                 >
                   <Plus className="w-5 h-5" /> Post Job
                 </button>
               </div>
-  
+
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div className="overflow-x-auto hide-scrollbar -mx-5 px-5 md:mx-0 md:px-0">
                   <div className="flex gap-2 min-w-max pb-1">
-                    <span className="bg-[#f2dde9] text-[#8e004b] px-4 py-2 rounded-full text-[13px] font-semibold border border-transparent">All Posted ({jobs.length})</span>
+                    <span className="bg-[#ede9fe] text-[#4f46e5] px-4 py-2 rounded-full text-[13px] font-semibold border border-transparent">All Posted ({jobs.length})</span>
                     <span className="bg-emerald-50 text-emerald-800 px-4 py-2 rounded-full text-[13px] font-medium">Published ({jobs.filter((job) => job.approvalStatus === 'approved').length})</span>
                     <span className="bg-amber-50 text-amber-800 px-4 py-2 rounded-full text-[13px] font-medium">Draft ({jobs.filter((job) => !job.approvalStatus || !['approved', 'closed', 'expired', 'archived'].includes(job.approvalStatus)).length})</span>
-                    <span className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium">Closed ({jobs.filter((job) => ['closed', 'expired', 'archived'].includes(job.approvalStatus || '')).length})</span>
+                    <span className="bg-[#f1f5f9] text-[#475569] px-4 py-2 rounded-full text-[13px] font-medium">Closed ({jobs.filter((job) => ['closed', 'expired', 'archived'].includes(job.approvalStatus || '')).length})</span>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => { setEditingJob(null); setShowPostModal(true); }}
-                  className="md:hidden w-full bg-[#e2007c] text-white py-3 rounded-full text-[13px] font-medium items-center justify-center flex gap-2 hover:bg-[#b50062] transition-colors shadow-sm cursor-pointer"
+                  className="md:hidden w-full bg-[#7c3aed] text-white py-3 rounded-full text-[13px] font-medium items-center justify-center flex gap-2 hover:bg-[#6d28d9] transition-colors shadow-sm cursor-pointer"
                 >
                   <Plus className="w-5 h-5" /> Post a New Job
                 </button>
               </div>
-  
+
               {jobActionError && (
                 <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
                   {jobActionError}
@@ -554,24 +555,24 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                   return (
                     <article
                       key={job.id}
-                      className="rounded-xl border border-[#e8e8e8] bg-white p-4 shadow-[0_4px_12px_rgba(90,63,71,0.03)] transition-shadow hover:shadow-md md:p-6"
+                      className="rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-[0_4px_12px_rgba(15,23,42,0.03)] transition-shadow hover:shadow-md md:p-6"
                     >
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${published ? 'bg-emerald-50 text-emerald-700' : closed ? 'bg-[#f1edec] text-[#594047]' : 'bg-amber-50 text-amber-800'}`}>
-                              <span className={`h-2 w-2 rounded-full ${published ? 'bg-emerald-500' : closed ? 'bg-[#8c7077]' : 'bg-amber-500'}`} />
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${published ? 'bg-emerald-50 text-emerald-700' : closed ? 'bg-[#f1f5f9] text-[#475569]' : 'bg-amber-50 text-amber-800'}`}>
+                              <span className={`h-2 w-2 rounded-full ${published ? 'bg-emerald-500' : closed ? 'bg-[#64748b]' : 'bg-amber-500'}`} />
                               Status: {statusLabel}
                             </span>
                           </div>
-                          <h3 className="mt-3 truncate text-lg font-bold text-[#1c1b1b]">{job.title}</h3>
+                          <h3 className="mt-3 truncate text-lg font-bold text-[#0f172a]">{job.title}</h3>
                         </div>
                         <div className="flex shrink-0 flex-wrap gap-2">
                           <button
                             type="button"
                             disabled={closed}
                             onClick={() => { setEditingJob(job); setShowPostModal(true); }}
-                            className="rounded-full border border-[#e0bec6] bg-white px-4 py-2 text-[13px] font-bold text-[#8e004b] hover:bg-[#f7f2f2] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="rounded-full border border-[#cbd5e1] bg-white px-4 py-2 text-[13px] font-bold text-[#4f46e5] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Edit Job
                           </button>
@@ -596,7 +597,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                         </div>
                       </div>
 
-                      <dl className="mt-5 grid grid-cols-2 gap-4 border-y border-[#f1edec] py-4 md:grid-cols-3">
+                      <dl className="mt-5 grid grid-cols-2 gap-4 border-y border-[#f1f5f9] py-4 md:grid-cols-3">
                         {[
                           ['Location', job.location],
                           ['Salary', job.salary],
@@ -605,8 +606,8 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                           ['New Applications', String(newApplications)],
                         ].map(([label, value]) => (
                           <div key={label} className={label === 'Salary' ? 'col-span-2 md:col-span-1' : ''}>
-                            <dt className="text-xs font-semibold uppercase tracking-wide text-[#8c7077]">{label}</dt>
-                            <dd className="mt-1 truncate text-sm font-bold text-[#1c1b1b]">{value}</dd>
+                            <dt className="text-xs font-semibold uppercase tracking-wide text-[#64748b]">{label}</dt>
+                            <dd className="mt-1 truncate text-sm font-bold text-[#0f172a]">{value}</dd>
                           </div>
                         ))}
                       </dl>
@@ -620,7 +621,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                             setActiveTab('candidates');
                             onPostJobFlowExit?.('candidates', job.id);
                           }}
-                          className="rounded-full bg-[#e2007c] px-5 py-2.5 text-[13px] font-bold text-white shadow-sm hover:bg-[#b50062]"
+                          className="rounded-full bg-[#7c3aed] px-5 py-2.5 text-[13px] font-bold text-white shadow-sm hover:bg-[#6d28d9]"
                         >
                           View Applications
                         </button>
@@ -630,15 +631,15 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                 })}
 
                 {jobs.length === 0 && (
-                  <div className="rounded-2xl border-2 border-dashed border-[#e0bec6] px-5 py-14 text-center">
-                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#ffd9e2] text-[#e2007c]">
+                  <div className="rounded-2xl border-2 border-dashed border-[#cbd5e1] px-5 py-14 text-center">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#ede9fe] text-[#7c3aed]">
                       <Briefcase className="h-7 w-7" />
                     </div>
-                    <p className="mt-4 font-semibold text-[#594047]">You have not posted any job yet.</p>
+                    <p className="mt-4 font-semibold text-[#475569]">You have not posted any job yet.</p>
                     <button
                       type="button"
                       onClick={() => { setEditingJob(null); setShowPostModal(true); }}
-                      className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#e2007c] px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#b50062]"
+                      className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#7c3aed] px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#6d28d9]"
                     >
                       <Plus className="h-5 w-5" /> Post a Job
                     </button>
@@ -653,8 +654,8 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
             <div className="flex h-full w-full flex-col pb-24 md:pb-0">
               <div className="mb-6 flex flex-col gap-3 px-5 md:flex-row md:items-center md:justify-between md:px-0">
                 <div>
-                  <h2 className="text-2xl font-semibold tracking-tight text-[#8e004b] md:text-[24px]">Applications Received</h2>
-                  <p className="mt-1 text-xs font-medium text-[#594047]">
+                  <h2 className="text-2xl font-semibold tracking-tight text-[#4f46e5] md:text-[24px]">Applications Received</h2>
+                  <p className="mt-1 text-xs font-medium text-[#475569]">
                     {filteredJobTitle ? `Candidates who applied for ${filteredJobTitle}` : 'Candidates who applied to your job posts'}
                   </p>
                 </div>
@@ -662,7 +663,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                   <button
                     type="button"
                     onClick={() => { setCandidateJobFilter(null); onPostJobFlowExit?.('candidates'); }}
-                    className="self-start rounded-full border border-[#e0bec6] bg-white px-4 py-2 text-xs font-bold text-[#8e004b] hover:bg-[#f7f2f2]"
+                    className="self-start rounded-full border border-[#cbd5e1] bg-white px-4 py-2 text-xs font-bold text-[#4f46e5] hover:bg-[#f8fafc]"
                   >
                     View All Applications
                   </button>
@@ -689,7 +690,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                       key={value}
                       type="button"
                       onClick={() => setCandidateFilter(value)}
-                      className={`whitespace-nowrap rounded-full border px-4 py-1.5 text-[13px] font-medium shadow-sm transition-all ${candidateFilter === value ? 'border-transparent bg-[#e2007c] text-white' : 'border-[#e0bec6] bg-[#f7f2f2] text-[#594047] hover:bg-[#ece7e7]'}`}
+                      className={`whitespace-nowrap rounded-full border px-4 py-1.5 text-[13px] font-medium shadow-sm transition-all ${candidateFilter === value ? 'border-transparent bg-[#7c3aed] text-white' : 'border-[#cbd5e1] bg-[#f8fafc] text-[#475569] hover:bg-[#e2e8f0]'}`}
                     >
                       {label} ({value === 'All' ? applicationPool.length : applicationPool.filter((applicant) => applicant.status === value).length})
                     </button>
@@ -706,63 +707,63 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                     : applicant.status;
                   const phoneDigits = applicant.phone.replace(/\D/g, '');
                   return (
-                    <article key={applicant.id} className="flex flex-col gap-4 rounded-xl border border-[#e6e1e1] bg-white p-5 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+                    <article key={applicant.id} className="flex flex-col gap-4 rounded-xl border border-[#e2e8f0] bg-white p-5 shadow-[0_4px_12px_rgba(15,23,42,0.05)]">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-3">
                           <span className="sr-only">Profile Image</span>
                           {applicant.avatarUrl ? (
-                            <img className="h-14 w-14 shrink-0 rounded-full border border-[#e0bec6] object-cover" alt={`${applicant.name} profile`} src={applicant.avatarUrl} />
+                            <img className="h-14 w-14 shrink-0 rounded-full border border-[#cbd5e1] object-cover" alt={`${applicant.name} profile`} src={applicant.avatarUrl} />
                           ) : (
-                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#e0bec6] bg-[#e6e1e1] text-lg font-bold text-[#594047]">{applicant.name.charAt(0)}</div>
+                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#cbd5e1] bg-[#e2e8f0] text-lg font-bold text-[#475569]">{applicant.name.charAt(0)}</div>
                           )}
                           <div className="min-w-0">
                             <span className="sr-only">Candidate Name</span>
-                            <h3 className="truncate text-lg font-bold text-[#1c1b1b]">{applicant.name}</h3>
-                            <p className="truncate text-xs font-medium text-[#594047]">{applicant.appliedJobTitle}</p>
+                            <h3 className="truncate text-lg font-bold text-[#0f172a]">{applicant.name}</h3>
+                            <p className="truncate text-xs font-medium text-[#475569]">{applicant.appliedJobTitle}</p>
                           </div>
                         </div>
-                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${statusLabel === 'Hired' ? 'bg-emerald-100 text-emerald-800' : statusLabel === 'Rejected' ? 'bg-rose-50 text-rose-700' : statusLabel === 'Shortlisted' ? 'bg-[#f2dde9] text-[#8e004b]' : 'bg-[#ffd9e2] text-[#3e001e]'}`}>{statusLabel}</span>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${statusLabel === 'Hired' ? 'bg-emerald-100 text-emerald-800' : statusLabel === 'Rejected' ? 'bg-rose-50 text-rose-700' : statusLabel === 'Shortlisted' ? 'bg-[#ede9fe] text-[#4f46e5]' : 'bg-[#ede9fe] text-[#312e81]'}`}>{statusLabel}</span>
                       </div>
 
-                      <dl className="space-y-3 border-y border-[#f1edec] py-4">
+                      <dl className="space-y-3 border-y border-[#f1f5f9] py-4">
                         <div>
-                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Mobile / Email</dt>
-                          <dd className="mt-1 space-y-1 text-sm font-semibold text-[#1c1b1b]">
-                            <a href={`tel:${applicant.phone}`} className="block truncate hover:text-[#8e004b] hover:underline">{applicant.phone || 'Mobile not provided'}</a>
-                            <a href={`mailto:${applicant.email}`} className="block truncate hover:text-[#8e004b] hover:underline">{applicant.email || 'Email not provided'}</a>
+                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">Mobile / Email</dt>
+                          <dd className="mt-1 space-y-1 text-sm font-semibold text-[#0f172a]">
+                            <a href={`tel:${applicant.phone}`} className="block truncate hover:text-[#4f46e5] hover:underline">{applicant.phone || 'Mobile not provided'}</a>
+                            <a href={`mailto:${applicant.email}`} className="block truncate hover:text-[#4f46e5] hover:underline">{applicant.email || 'Email not provided'}</a>
                           </dd>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
-                          <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Experience</dt><dd className="mt-1 text-sm font-bold text-[#1c1b1b]">{applicant.experienceYears} years</dd></div>
-                          <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Applied Date</dt><dd className="mt-1 text-sm font-bold text-[#1c1b1b]">{applicant.appliedDate}</dd></div>
+                          <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">Experience</dt><dd className="mt-1 text-sm font-bold text-[#0f172a]">{applicant.experienceYears} years</dd></div>
+                          <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">Applied Date</dt><dd className="mt-1 text-sm font-bold text-[#0f172a]">{applicant.appliedDate}</dd></div>
                         </div>
-                        <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Preferred Location</dt><dd className="mt-1 text-sm font-bold text-[#1c1b1b]">{applicant.location || 'Not specified'}</dd></div>
+                        <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">Preferred Location</dt><dd className="mt-1 text-sm font-bold text-[#0f172a]">{applicant.location || 'Not specified'}</dd></div>
                         <div>
-                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Skills</dt>
+                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">Skills</dt>
                           <dd className="mt-2 flex flex-wrap gap-1.5">
-                            {(applicant.skills || []).length > 0 ? applicant.skills?.map((skill) => <span key={skill} className="rounded-full bg-[#f2dde9] px-2.5 py-1 text-xs font-semibold text-[#3e001e]">{skill}</span>) : <span className="text-sm text-[#594047]">Not specified</span>}
+                            {(applicant.skills || []).length > 0 ? applicant.skills?.map((skill) => <span key={skill} className="rounded-full bg-[#ede9fe] px-2.5 py-1 text-xs font-semibold text-[#312e81]">{skill}</span>) : <span className="text-sm text-[#475569]">Not specified</span>}
                           </dd>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
-                          <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Application Status</dt><dd className="mt-1 text-sm font-bold text-[#8e004b]">{statusLabel}</dd></div>
+                          <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">Application Status</dt><dd className="mt-1 text-sm font-bold text-[#4f46e5]">{statusLabel}</dd></div>
                           <div>
-                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Resume</dt>
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">Resume</dt>
                             <dd className="mt-1">
                               {applicant.resumeStoragePath ? (
-                                <button type="button" disabled={downloadingResumeId === applicant.id} onClick={() => void handleResumeDownload(applicant)} className="text-sm font-bold text-[#8e004b] hover:underline disabled:opacity-60">{downloadingResumeId === applicant.id ? 'Preparing…' : 'Resume Download'}</button>
-                              ) : <span className="text-sm text-[#594047]">Not uploaded</span>}
+                                <button type="button" disabled={downloadingResumeId === applicant.id} onClick={() => void handleResumeDownload(applicant)} className="text-sm font-bold text-[#4f46e5] hover:underline disabled:opacity-60">{downloadingResumeId === applicant.id ? 'Preparing…' : 'Resume Download'}</button>
+                              ) : <span className="text-sm text-[#475569]">Not uploaded</span>}
                             </dd>
                           </div>
                         </div>
                       </dl>
 
                       <div>
-                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8c7077]">Employer Actions</p>
+                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">Employer Actions</p>
                         <div className="grid grid-cols-2 gap-2">
-                          <button type="button" disabled={busy || applicant.status !== 'New'} onClick={() => void handleApplicationStatus(applicant, 'Viewed')} className="rounded-full border border-[#e0bec6] px-3 py-2 text-xs font-bold text-[#8e004b] hover:bg-[#f7f2f2] disabled:opacity-50">Mark Under Review</button>
-                          <button type="button" disabled={busy || !['New', 'Viewed'].includes(applicant.status)} onClick={() => void handleApplicationStatus(applicant, 'Shortlisted')} className="rounded-full border border-[#e0bec6] px-3 py-2 text-xs font-bold text-[#8e004b] hover:bg-[#f7f2f2] disabled:opacity-50">Shortlist</button>
+                          <button type="button" disabled={busy || applicant.status !== 'New'} onClick={() => void handleApplicationStatus(applicant, 'Viewed')} className="rounded-full border border-[#cbd5e1] px-3 py-2 text-xs font-bold text-[#4f46e5] hover:bg-[#f8fafc] disabled:opacity-50">Mark Under Review</button>
+                          <button type="button" disabled={busy || !['New', 'Viewed'].includes(applicant.status)} onClick={() => void handleApplicationStatus(applicant, 'Shortlisted')} className="rounded-full border border-[#cbd5e1] px-3 py-2 text-xs font-bold text-[#4f46e5] hover:bg-[#f8fafc] disabled:opacity-50">Shortlist</button>
                           <button type="button" disabled={busy || applicant.status === 'Declined' || applicant.status === 'Hired'} onClick={() => void handleApplicationStatus(applicant, 'Declined')} className="rounded-full border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Reject</button>
-                          <button type="button" title={applicant.status === 'Offer Extended' ? 'Mark candidate as hired after offer acceptance' : 'Hiring is available after the candidate accepts an offer'} disabled={busy || applicant.status !== 'Offer Extended'} onClick={() => void handleApplicationStatus(applicant, 'Hired')} className="rounded-full bg-[#e2007c] px-3 py-2 text-xs font-bold text-white hover:bg-[#b50062] disabled:opacity-50">{busy ? 'Updating…' : 'Hire'}</button>
+                          <button type="button" title={applicant.status === 'Offer Extended' ? 'Mark candidate as hired after offer acceptance' : 'Hiring is available after the candidate accepts an offer'} disabled={busy || applicant.status !== 'Offer Extended'} onClick={() => void handleApplicationStatus(applicant, 'Hired')} className="rounded-full bg-[#7c3aed] px-3 py-2 text-xs font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">{busy ? 'Updating…' : 'Hire'}</button>
                         </div>
                         {(applicant.status === 'Shortlisted' || applicant.status === 'Interview Scheduled') && (
                           <button
@@ -776,14 +777,14 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                                 setOfferingApplicant(applicant);
                               }
                             }}
-                            className="mt-2 w-full rounded-full border border-[#8e004b] px-3 py-2 text-xs font-bold text-[#8e004b] hover:bg-[#f2dde9]"
+                            className="mt-2 w-full rounded-full border border-[#4f46e5] px-3 py-2 text-xs font-bold text-[#4f46e5] hover:bg-[#ede9fe]"
                           >
                             {applicant.status === 'Shortlisted' ? 'Schedule Interview' : 'Make Offer'}
                           </button>
                         )}
                         <div className="mt-2 grid grid-cols-2 gap-2">
-                          {phoneDigits ? <a href={`https://wa.me/${phoneDigits}`} target="_blank" rel="noreferrer" className="rounded-full border border-emerald-200 px-3 py-2 text-center text-xs font-bold text-emerald-700 hover:bg-emerald-50">WhatsApp Candidate</a> : <span className="rounded-full border border-[#e0bec6] px-3 py-2 text-center text-xs font-bold text-[#8c7077] opacity-60">WhatsApp Candidate</span>}
-                          {applicant.phone ? <a href={`tel:${applicant.phone}`} className="rounded-full border border-[#e0bec6] px-3 py-2 text-center text-xs font-bold text-[#8e004b] hover:bg-[#f7f2f2]">Call Candidate</a> : <span className="rounded-full border border-[#e0bec6] px-3 py-2 text-center text-xs font-bold text-[#8c7077] opacity-60">Call Candidate</span>}
+                          {phoneDigits ? <a href={`https://wa.me/${phoneDigits}`} target="_blank" rel="noreferrer" className="rounded-full border border-emerald-200 px-3 py-2 text-center text-xs font-bold text-emerald-700 hover:bg-emerald-50">WhatsApp Candidate</a> : <span className="rounded-full border border-[#cbd5e1] px-3 py-2 text-center text-xs font-bold text-[#64748b] opacity-60">WhatsApp Candidate</span>}
+                          {applicant.phone ? <a href={`tel:${applicant.phone}`} className="rounded-full border border-[#cbd5e1] px-3 py-2 text-center text-xs font-bold text-[#4f46e5] hover:bg-[#f8fafc]">Call Candidate</a> : <span className="rounded-full border border-[#cbd5e1] px-3 py-2 text-center text-xs font-bold text-[#64748b] opacity-60">Call Candidate</span>}
                         </div>
                       </div>
                     </article>
@@ -791,8 +792,8 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                 })}
 
                 {filteredApplicants.length === 0 && (
-                  <div className="col-span-full rounded-2xl border-2 border-dashed border-[#e0bec6] py-14 text-center">
-                    <p className="font-semibold text-[#594047]">No applications received for this job yet.</p>
+                  <div className="col-span-full rounded-2xl border-2 border-dashed border-[#cbd5e1] py-14 text-center">
+                    <p className="font-semibold text-[#475569]">No applications received for this job yet.</p>
                   </div>
                 )}
               </div>
@@ -845,7 +846,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       </div>
 
       {/* BottomNavBar (Mobile) */}
-      <nav className="md:hidden fixed bottom-0 w-full z-50 rounded-t-xl border-t border-[#e0bec6] bg-white shadow-[0_-4px_12px_rgba(90,63,71,0.05)] flex justify-around items-center px-2 py-3 pb-safe">
+      <nav className="md:hidden fixed bottom-0 w-full z-50 rounded-t-xl border-t border-[#cbd5e1] bg-white shadow-[0_-4px_12px_rgba(15,23,42,0.05)] flex justify-around items-center px-2 py-3 pb-safe">
         <MobileNavItem icon={LayoutDashboard} label="Dashboard" tab="dashboard" filledIcon />
         <MobileNavItem icon={Briefcase} label="Jobs" tab="jobs" />
         <MobileNavItem icon={FileText} label="Apps" tab="candidates" />
@@ -936,48 +937,52 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
 
       {/* CANDIDATE PORTFOLIO MODAL */}
       {viewingPortfolioApplicant && (
-        <div className="fixed inset-0 z-[60] bg-[#1c1b1b]/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-4xl w-full p-5 md:p-8 border border-[#e0bec6] shadow-2xl space-y-8 my-8 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-4 border-b border-[#e0bec6]/50">
+        <div className="fixed inset-0 z-[60] bg-[#0f172a]/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-4xl w-full p-5 md:p-8 border border-[#cbd5e1] shadow-2xl space-y-8 my-8 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-4 border-b border-[#cbd5e1]/50">
               <div className="flex items-center gap-4">
                 {viewingPortfolioApplicant.avatarUrl ? (
                   <img
                     src={viewingPortfolioApplicant.avatarUrl}
                     alt={viewingPortfolioApplicant.name}
-                    className="w-14 h-14 rounded-full object-cover ring-2 ring-[#ffd9e2]"
+                    className="w-14 h-14 rounded-full object-cover ring-2 ring-[#ede9fe]"
                   />
                 ) : (
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#ffd9e2] font-bold text-[#8e004b] ring-2 ring-[#ffd9e2]">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#ede9fe] font-bold text-[#4f46e5] ring-2 ring-[#ede9fe]">
                     {viewingPortfolioApplicant.name.charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div>
-                  <h3 className="text-xl font-bold text-[#1c1b1b]">
+                  <h3 className="text-xl font-bold text-[#0f172a]">
                     {viewingPortfolioApplicant.name}&apos;s Portfolio
                   </h3>
-                  <p className="text-[13px] text-[#594047]">
-                    Applicant for <span className="font-bold text-[#8e004b]">{viewingPortfolioApplicant.appliedJobTitle}</span>
+                  <p className="text-[13px] text-[#475569]">
+                    Applicant for <span className="font-bold text-[#4f46e5]">{viewingPortfolioApplicant.appliedJobTitle}</span>
                   </p>
                 </div>
               </div>
 
               <button
                 onClick={() => setViewingPortfolioApplicant(null)}
-                className="p-2 text-[#594047] hover:text-[#1c1b1b] rounded-full hover:bg-[#f1edec] transition-colors cursor-pointer"
+                className="p-2 text-[#475569] hover:text-[#0f172a] rounded-full hover:bg-[#f1f5f9] transition-colors cursor-pointer"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
 
             {applicantPortfolioLoading ? (
-              <p className="text-center text-[13px] text-[#594047] py-10">Loading {viewingPortfolioApplicant.name.split(' ')[0]}&apos;s portfolio…</p>
+              <JobsInlineSkeleton
+                rows={2}
+                label={`Loading ${viewingPortfolioApplicant.name.split(' ')[0]}'s portfolio`}
+                className="py-4"
+              />
             ) : applicantPortfolioError ? (
               <div className="py-10 text-center">
                 <p role="alert" className="text-[13px] font-semibold text-rose-700">{applicantPortfolioError}</p>
-                <button type="button" onClick={() => setPortfolioLoadAttempt((value) => value + 1)} className="mt-3 text-xs font-bold text-[#8e004b] hover:underline">Retry</button>
+                <button type="button" onClick={() => setPortfolioLoadAttempt((value) => value + 1)} className="mt-3 text-xs font-bold text-[#4f46e5] hover:underline">Retry</button>
               </div>
             ) : applicantPortfolio.length === 0 ? (
-              <p className="text-center text-[13px] text-[#594047] py-10">
+              <p className="text-center text-[13px] text-[#475569] py-10">
                 {viewingPortfolioApplicant.name.split(' ')[0]} hasn&apos;t added portfolio work yet.
               </p>
             ) : (
@@ -988,10 +993,10 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
               />
             )}
 
-            <div className="flex justify-end pt-4 border-t border-[#e0bec6]/50">
+            <div className="flex justify-end pt-4 border-t border-[#cbd5e1]/50">
               <button
                 onClick={() => setViewingPortfolioApplicant(null)}
-                className="px-8 py-3 bg-[#8e004b] text-white text-[13px] font-bold rounded-full hover:bg-[#b90064] transition-colors cursor-pointer"
+                className="px-8 py-3 bg-[#4f46e5] text-white text-[13px] font-bold rounded-full hover:bg-[#6d28d9] transition-colors cursor-pointer"
               >
                 Close Portfolio
               </button>

@@ -20,27 +20,27 @@ export const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({
   };
 
   return (
-    <div className="bg-[#fdf8f8] text-[#1c1b1b] min-h-screen flex flex-col antialiased">
+    <div className="bg-[#f8fafc] text-[#0f172a] min-h-screen flex flex-col antialiased">
       {/* Top Bar */}
       <header className="flex justify-between items-center px-5 h-16 w-full max-w-lg mx-auto">
         <button
           onClick={onBack}
           aria-label="Go back"
-          className="text-[#8e004b] hover:bg-[#e6e1e1] transition-colors p-2 rounded-full cursor-pointer"
+          className="text-[#4f46e5] hover:bg-[#e2e8f0] transition-colors p-2 rounded-full cursor-pointer"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <span className="font-bold text-lg text-[#8e004b]">Nexora Jobs</span>
+        <span className="font-bold text-lg text-[#4f46e5]">Nexora Jobs</span>
         <div className="w-9" />
       </header>
 
       {/* Main Canvas */}
       <main className="flex-grow flex flex-col px-5 pt-8 pb-32 max-w-lg mx-auto w-full">
         <header className="mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#1c1b1b] mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#0f172a] mb-2">
             Join Nexora Jobs
           </h1>
-          <p className="text-base text-[#594047]">
+          <p className="text-base text-[#475569]">
             Tell us how you would like to use the app.
           </p>
         </header>
@@ -51,21 +51,21 @@ export const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({
           <button
             type="button"
             onClick={() => setSelectedRole('seeker')}
-            className={`w-full text-left bg-white rounded-xl border transition-all duration-200 p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] cursor-pointer ${
+            className={`w-full text-left bg-white rounded-xl border transition-all duration-200 p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)] cursor-pointer ${
               selectedRole === 'seeker'
-                ? 'border-[#8e004b] bg-[#fcf9f8] ring-2 ring-[#8e004b]/20 shadow-md'
-                : 'border-[#e8e8e8] hover:bg-[#f7f2f2]'
+                ? 'border-[#4f46e5] bg-[#eef2ff] ring-2 ring-[#4f46e5]/20 shadow-md'
+                : 'border-[#e2e8f0] hover:bg-[#f8fafc]'
             }`}
           >
             <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 w-12 h-12 bg-[#ffd9e2] rounded-full flex items-center justify-center text-[#8e004b]">
+              <div className="flex-shrink-0 w-12 h-12 bg-[#ede9fe] rounded-full flex items-center justify-center text-[#4f46e5]">
                 <User className="w-6 h-6" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-[#1c1b1b] mb-1">
+                <h2 className="text-lg font-semibold text-[#0f172a] mb-1">
                   I am a Job Seeker
                 </h2>
-                <p className="text-sm text-[#594047]">
+                <p className="text-sm text-[#475569]">
                   Find jobs, track applications, and grow your beauty career.
                 </p>
               </div>
@@ -76,21 +76,21 @@ export const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({
           <button
             type="button"
             onClick={() => setSelectedRole('employer')}
-            className={`w-full text-left bg-white rounded-xl border transition-all duration-200 p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] cursor-pointer ${
+            className={`w-full text-left bg-white rounded-xl border transition-all duration-200 p-4 shadow-[0_4px_12px_rgba(15,23,42,0.05)] cursor-pointer ${
               selectedRole === 'employer'
-                ? 'border-[#8e004b] bg-[#fcf9f8] ring-2 ring-[#8e004b]/20 shadow-md'
-                : 'border-[#e8e8e8] hover:bg-[#f7f2f2]'
+                ? 'border-[#4f46e5] bg-[#eef2ff] ring-2 ring-[#4f46e5]/20 shadow-md'
+                : 'border-[#e2e8f0] hover:bg-[#f8fafc]'
             }`}
           >
             <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 w-12 h-12 bg-[#ffd9e2] rounded-full flex items-center justify-center text-[#8e004b]">
+              <div className="flex-shrink-0 w-12 h-12 bg-[#ede9fe] rounded-full flex items-center justify-center text-[#4f46e5]">
                 <Building2 className="w-6 h-6" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-[#1c1b1b] mb-1">
+                <h2 className="text-lg font-semibold text-[#0f172a] mb-1">
                   I am an Employer
                 </h2>
-                <p className="text-sm text-[#594047]">
+                <p className="text-sm text-[#475569]">
                   Post jobs, find talent, and manage your beauty business.
                 </p>
               </div>
@@ -100,7 +100,7 @@ export const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({
       </main>
 
       {/* Fixed Bottom CTA */}
-      <div className="fixed bottom-0 left-0 w-full p-5 bg-white border-t border-[#e0bec6]/40 shadow-[0_-4px_12px_rgba(90,63,71,0.05)] flex justify-center z-40">
+      <div className="fixed bottom-0 left-0 w-full p-5 bg-white border-t border-[#cbd5e1]/40 shadow-[0_-4px_12px_rgba(15,23,42,0.05)] flex justify-center z-40">
         <div className="w-full max-w-lg">
           <button
             type="button"
@@ -108,8 +108,8 @@ export const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({
             onClick={handleContinue}
             className={`w-full h-12 rounded-full font-semibold text-sm transition-all duration-200 ${
               selectedRole
-                ? 'bg-[#e2007c] text-white hover:bg-[#8e004b] active:scale-95 shadow-md cursor-pointer'
-                : 'bg-[#e6e1e1] text-[#594047] opacity-50 cursor-not-allowed'
+                ? 'bg-[#7c3aed] text-white hover:bg-[#4f46e5] active:scale-95 shadow-md cursor-pointer'
+                : 'bg-[#e2e8f0] text-[#475569] opacity-50 cursor-not-allowed'
             }`}
           >
             Continue

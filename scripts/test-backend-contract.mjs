@@ -395,6 +395,31 @@ check('salary analytics derives from loaded jobs and disclaims market estimates'
   /filteredJobs/.test(read('src/components/employer/RegionalSalaryAnalytics.tsx'))
   && /no estimated market data/i.test(read('src/components/employer/RegionalSalaryAnalytics.tsx')));
 
+// Jobs UI remains a light, mobile-first SaaS surface without changing its
+// information architecture: the contract checks palette, loaders and states.
+const indexCss = read('src/index.css');
+const jobsSkeleton = read('src/components/ui/JobsSkeleton.tsx');
+check('Jobs uses the Nexora blue-purple light palette',
+  indexCss.includes('--color-primary: #4f46e5')
+  && indexCss.includes('--color-secondary-container: #7c3aed')
+  && indexCss.includes('--color-background: #f8fafc')
+  && !/#8e004b|#e2007c|#fdf8f8/i.test(frontendSources));
+check('workspace and inline loaders render accessible white-card skeletons',
+  /JobsWorkspaceSkeleton/.test(appSource)
+  && /role="status"/.test(jobsSkeleton)
+  && /animate-pulse/.test(jobsSkeleton)
+  && /rounded-3xl[\s\S]*border[\s\S]*bg-white/.test(jobsSkeleton)
+  && /JobsInlineSkeleton/.test(read('src/components/seeker/ApplyJobScreen.tsx'))
+  && /JobsInlineSkeleton/.test(employerWorkspace));
+check('existing mobile sticky bottom navigation remains in Jobs flows',
+  /fixed bottom-0[\s\S]*md:hidden/.test(read('src/components/seeker/InterviewInvitationScreen.tsx'))
+  && /md:hidden fixed bottom-0/.test(employerWorkspace));
+check('Jobs exposes confirmation, empty, error and retry states',
+  /Application submitted successfully/.test(seekerWorkspace)
+  && /No applications received for this job yet/.test(employerWorkspace)
+  && /role="alert"/.test(employerWorkspace)
+  && /Retry/.test(employerWorkspace));
+
 // ---------------------------------------------------------------------------
 // 4. Schema integrity guarantees
 // ---------------------------------------------------------------------------

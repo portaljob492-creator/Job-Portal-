@@ -55,7 +55,7 @@ const canNativeShare = () => {
 };
 
 const inputClassName =
-  'w-full bg-white border border-[#e0bec6] rounded-xl px-4 py-3 text-sm font-medium text-[#1c1b1b] placeholder:text-[#8c7077]/70 outline-none focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-all';
+  'w-full bg-white border border-[#cbd5e1] rounded-xl px-4 py-3 text-sm font-medium text-[#0f172a] placeholder:text-[#64748b]/70 outline-none focus:border-[#4f46e5] focus:ring-1 focus:ring-[#4f46e5] transition-all';
 
 export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
   userProfile,
@@ -214,7 +214,7 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
               type="button"
               onClick={() => onUpdateAvatar?.(userProfile.avatarUrl || '')}
               aria-label="Change business logo"
-              className="block w-24 h-24 rounded-full border-4 border-[#fdf8f8] shadow-sm overflow-hidden bg-white cursor-pointer hover:ring-2 hover:ring-[#e2007c]/40 active:scale-95 transition-all"
+              className="block w-24 h-24 rounded-full border-4 border-[#f8fafc] shadow-sm overflow-hidden bg-white cursor-pointer hover:ring-2 hover:ring-[#7c3aed]/40 active:scale-95 transition-all"
             >
               {userProfile.avatarUrl ? (
                 <img
@@ -223,21 +223,21 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
                   className="w-full h-full object-contain p-2"
                 />
               ) : (
-                <span className="flex h-full w-full items-center justify-center text-2xl font-bold text-[#8e004b]">
+                <span className="flex h-full w-full items-center justify-center text-2xl font-bold text-[#4f46e5]">
                   {(userProfile.businessName || userProfile.name || 'E').charAt(0).toUpperCase()}
                 </span>
               )}
             </button>
-            <div className="absolute bottom-0 right-0 bg-[#e2007c] text-white rounded-full p-1 shadow-md border-2 border-[#fdf8f8] pointer-events-none">
+            <div className="absolute bottom-0 right-0 bg-[#7c3aed] text-white rounded-full p-1 shadow-md border-2 border-[#f8fafc] pointer-events-none">
               <CheckCircle2 className="w-4 h-4" fill="currentColor" color="white" />
             </div>
           </div>
 
           <div className="space-y-1">
-            <h2 className="text-[18px] font-semibold text-[#1c1b1b] flex items-center justify-center gap-2">
+            <h2 className="text-[18px] font-semibold text-[#0f172a] flex items-center justify-center gap-2">
               {userProfile.businessName || 'Employer profile'}
             </h2>
-            <p className="text-[16px] text-[#594047] flex items-center justify-center gap-1">
+            <p className="text-[16px] text-[#475569] flex items-center justify-center gap-1">
               <MapPin className="w-[18px] h-[18px]" />
               {userProfile.location || 'Location not added'}
             </p>
@@ -248,7 +248,7 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
               type="button"
               onClick={() => setIsEditOpen(true)}
               aria-label="Edit profile"
-              className="flex-1 bg-white border border-[#e0bec6] text-[#8e004b] text-[13px] font-medium py-2.5 rounded-full hover:bg-[#e6e1e1] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              className="flex-1 bg-white border border-[#cbd5e1] text-[#4f46e5] text-[13px] font-medium py-2.5 rounded-full hover:bg-[#e2e8f0] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <Edit className="w-[18px] h-[18px]" />
               Edit Profile
@@ -258,7 +258,7 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
               onClick={() => void handleShareProfile()}
               aria-label="Share profile"
               disabled={isSharing}
-              className="flex-1 bg-white border border-[#e0bec6] text-[#8e004b] text-[13px] font-medium py-2.5 rounded-full hover:bg-[#e6e1e1] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+              className="flex-1 bg-white border border-[#cbd5e1] text-[#4f46e5] text-[13px] font-medium py-2.5 rounded-full hover:bg-[#e2e8f0] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
             >
               <Share className="w-[18px] h-[18px]" />
               {isSharing ? 'Sharing…' : 'Share Profile'}
@@ -269,99 +269,99 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
         {/* Menu Sections */}
         <section className="space-y-4">
           {/* Business & Settings Group */}
-          <div className="bg-white rounded-xl border border-[#e0bec6] shadow-[0_4px_12px_rgba(90,63,71,0.02)] overflow-hidden">
-            <ul className="divide-y divide-[#e0bec6]/30">
+          <div className="bg-white rounded-xl border border-[#cbd5e1] shadow-[0_4px_12px_rgba(15,23,42,0.02)] overflow-hidden">
+            <ul className="divide-y divide-[#cbd5e1]/30">
               <li>
                 <button
                   type="button"
                   onClick={() => setIsEditOpen(true)}
-                  className="w-full flex items-center p-4 hover:bg-[#f7f2f2] transition-colors active:bg-[#e6e1e1] cursor-pointer"
+                  className="w-full flex items-center p-4 hover:bg-[#f8fafc] transition-colors active:bg-[#e2e8f0] cursor-pointer"
                 >
-                  <div className="w-10 h-10 rounded-full bg-[#8e004b]/10 flex items-center justify-center text-[#8e004b] mr-4 shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-[#4f46e5]/10 flex items-center justify-center text-[#4f46e5] mr-4 shrink-0">
                     <Building2 className="w-5 h-5" fill="currentColor" color="transparent" />
                   </div>
                   <div className="flex-1 text-left">
-                    <h3 className="text-[13px] font-medium text-[#1c1b1b]">Business Information</h3>
-                    <p className="text-xs text-[#594047] mt-0.5">Manage your salon details and brand</p>
+                    <h3 className="text-[13px] font-medium text-[#0f172a]">Business Information</h3>
+                    <p className="text-xs text-[#475569] mt-0.5">Manage your salon details and brand</p>
                   </div>
-                  <ChevronRight className="text-[#594047]/50 w-5 h-5" />
+                  <ChevronRight className="text-[#475569]/50 w-5 h-5" />
                 </button>
               </li>
               <li>
-                <button className="w-full flex items-center p-4 hover:bg-[#f7f2f2] transition-colors active:bg-[#e6e1e1] cursor-pointer">
-                  <div className="w-10 h-10 rounded-full bg-[#8e004b]/10 flex items-center justify-center text-[#8e004b] mr-4 shrink-0">
+                <button className="w-full flex items-center p-4 hover:bg-[#f8fafc] transition-colors active:bg-[#e2e8f0] cursor-pointer">
+                  <div className="w-10 h-10 rounded-full bg-[#4f46e5]/10 flex items-center justify-center text-[#4f46e5] mr-4 shrink-0">
                     <MapPin className="w-5 h-5" fill="currentColor" color="transparent" />
                   </div>
                   <div className="flex-1 text-left">
-                    <h3 className="text-[13px] font-medium text-[#1c1b1b]">Business Locations</h3>
-                    <p className="text-xs text-[#594047] mt-0.5">Manage multiple branches</p>
+                    <h3 className="text-[13px] font-medium text-[#0f172a]">Business Locations</h3>
+                    <p className="text-xs text-[#475569] mt-0.5">Manage multiple branches</p>
                   </div>
-                  <ChevronRight className="text-[#594047]/50 w-5 h-5" />
+                  <ChevronRight className="text-[#475569]/50 w-5 h-5" />
                 </button>
               </li>
               <li>
-                <button className="w-full flex items-center p-4 hover:bg-[#f7f2f2] transition-colors active:bg-[#e6e1e1] cursor-pointer">
-                  <div className="w-10 h-10 rounded-full bg-[#8e004b]/10 flex items-center justify-center text-[#8e004b] mr-4 shrink-0">
+                <button className="w-full flex items-center p-4 hover:bg-[#f8fafc] transition-colors active:bg-[#e2e8f0] cursor-pointer">
+                  <div className="w-10 h-10 rounded-full bg-[#4f46e5]/10 flex items-center justify-center text-[#4f46e5] mr-4 shrink-0">
                     <ShieldCheck className="w-5 h-5" fill="currentColor" color="transparent" />
                   </div>
                   <div className="flex-1 text-left">
-                    <h3 className="text-[13px] font-medium text-[#1c1b1b]">Verification</h3>
-                    <p className="text-xs text-[#594047] mt-0.5">Business documents & status</p>
+                    <h3 className="text-[13px] font-medium text-[#0f172a]">Verification</h3>
+                    <p className="text-xs text-[#475569] mt-0.5">Business documents & status</p>
                   </div>
-                  <ChevronRight className="text-[#594047]/50 w-5 h-5" />
+                  <ChevronRight className="text-[#475569]/50 w-5 h-5" />
                 </button>
               </li>
               <li>
-                <button className="w-full flex items-center p-4 hover:bg-[#f7f2f2] transition-colors active:bg-[#e6e1e1] cursor-pointer">
-                  <div className="w-10 h-10 rounded-full bg-[#8e004b]/10 flex items-center justify-center text-[#8e004b] mr-4 shrink-0">
+                <button className="w-full flex items-center p-4 hover:bg-[#f8fafc] transition-colors active:bg-[#e2e8f0] cursor-pointer">
+                  <div className="w-10 h-10 rounded-full bg-[#4f46e5]/10 flex items-center justify-center text-[#4f46e5] mr-4 shrink-0">
                     <Settings className="w-5 h-5" fill="currentColor" color="transparent" />
                   </div>
                   <div className="flex-1 text-left">
-                    <h3 className="text-[13px] font-medium text-[#1c1b1b]">Hiring Settings</h3>
-                    <p className="text-xs text-[#594047] mt-0.5">Job preferences & notifications</p>
+                    <h3 className="text-[13px] font-medium text-[#0f172a]">Hiring Settings</h3>
+                    <p className="text-xs text-[#475569] mt-0.5">Job preferences & notifications</p>
                   </div>
-                  <ChevronRight className="text-[#594047]/50 w-5 h-5" />
+                  <ChevronRight className="text-[#475569]/50 w-5 h-5" />
                 </button>
               </li>
             </ul>
           </div>
 
           {/* Security Section */}
-          <div className="bg-white rounded-xl border border-[#e0bec6] shadow-[0_4px_12px_rgba(90,63,71,0.02)] overflow-hidden">
-            <ul className="divide-y divide-[#e0bec6]/30">
+          <div className="bg-white rounded-xl border border-[#cbd5e1] shadow-[0_4px_12px_rgba(15,23,42,0.02)] overflow-hidden">
+            <ul className="divide-y divide-[#cbd5e1]/30">
               <li>
-                <button className="w-full flex items-center p-4 hover:bg-[#f7f2f2] transition-colors active:bg-[#e6e1e1] cursor-pointer">
-                  <div className="w-10 h-10 rounded-full bg-[#f7f2f2] flex items-center justify-center text-[#1c1b1b] mr-4 shrink-0">
+                <button className="w-full flex items-center p-4 hover:bg-[#f8fafc] transition-colors active:bg-[#e2e8f0] cursor-pointer">
+                  <div className="w-10 h-10 rounded-full bg-[#f8fafc] flex items-center justify-center text-[#0f172a] mr-4 shrink-0">
                     <ShieldCheck className="w-5 h-5" />
                   </div>
                   <div className="flex-1 text-left">
-                    <h3 className="text-[13px] font-medium text-[#1c1b1b]">Change Password</h3>
+                    <h3 className="text-[13px] font-medium text-[#0f172a]">Change Password</h3>
                   </div>
-                  <ChevronRight className="text-[#594047]/50 w-5 h-5" />
+                  <ChevronRight className="text-[#475569]/50 w-5 h-5" />
                 </button>
               </li>
             </ul>
           </div>
 
           {/* Legal Section */}
-          <div className="bg-white rounded-xl border border-[#e0bec6] shadow-[0_4px_12px_rgba(90,63,71,0.02)] overflow-hidden">
-            <ul className="divide-y divide-[#e0bec6]/30">
+          <div className="bg-white rounded-xl border border-[#cbd5e1] shadow-[0_4px_12px_rgba(15,23,42,0.02)] overflow-hidden">
+            <ul className="divide-y divide-[#cbd5e1]/30">
               <li>
-                <button className="w-full flex items-center p-4 hover:bg-[#f7f2f2] transition-colors active:bg-[#e6e1e1] cursor-pointer">
-                  <div className="w-10 h-10 rounded-full bg-[#f7f2f2] flex items-center justify-center text-[#1c1b1b] mr-4 shrink-0">
+                <button className="w-full flex items-center p-4 hover:bg-[#f8fafc] transition-colors active:bg-[#e2e8f0] cursor-pointer">
+                  <div className="w-10 h-10 rounded-full bg-[#f8fafc] flex items-center justify-center text-[#0f172a] mr-4 shrink-0">
                     <ShieldCheck className="w-5 h-5" />
                   </div>
                   <div className="flex-1 text-left">
-                    <h3 className="text-[13px] font-medium text-[#1c1b1b]">Terms & Privacy Policy</h3>
+                    <h3 className="text-[13px] font-medium text-[#0f172a]">Terms & Privacy Policy</h3>
                   </div>
-                  <ChevronRight className="text-[#594047]/50 w-5 h-5" />
+                  <ChevronRight className="text-[#475569]/50 w-5 h-5" />
                 </button>
               </li>
             </ul>
           </div>
 
           {/* Danger Zone */}
-          <div className="bg-white rounded-xl border border-[#ffdad6] shadow-[0_4px_12px_rgba(90,63,71,0.02)] overflow-hidden mt-6">
+          <div className="bg-white rounded-xl border border-[#ffdad6] shadow-[0_4px_12px_rgba(15,23,42,0.02)] overflow-hidden mt-6">
             <button
               onClick={onLogout}
               className="w-full flex items-center p-4 hover:bg-[#ffdad6]/30 transition-colors active:bg-[#ffdad6]/50 cursor-pointer border-b border-[#ffdad6]/30"
@@ -388,23 +388,23 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
       {/* Edit Profile Modal */}
       {isEditOpen && (
         <div
-          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4 bg-[#1c1b1b]/60 backdrop-blur-sm animate-in fade-in duration-200"
+          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4 bg-[#0f172a]/60 backdrop-blur-sm animate-in fade-in duration-200"
           onClick={() => setIsEditOpen(false)}
           role="dialog"
           aria-modal="true"
           aria-label="Edit business profile"
         >
           <div
-            className="w-full sm:max-w-lg bg-[#fdf8f8] rounded-t-3xl sm:rounded-3xl border border-[#e0bec6] shadow-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200"
+            className="w-full sm:max-w-lg bg-[#f8fafc] rounded-t-3xl sm:rounded-3xl border border-[#cbd5e1] shadow-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#e0bec6]/60 shrink-0">
-              <h2 className="text-lg font-bold text-[#1c1b1b]">Edit Business Profile</h2>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#cbd5e1]/60 shrink-0">
+              <h2 className="text-lg font-bold text-[#0f172a]">Edit Business Profile</h2>
               <button
                 type="button"
                 onClick={() => setIsEditOpen(false)}
                 aria-label="Close edit profile"
-                className="p-2 text-[#594047] hover:text-[#1c1b1b] rounded-full hover:bg-[#f1edec] active:scale-95 transition-all cursor-pointer"
+                className="p-2 text-[#475569] hover:text-[#0f172a] rounded-full hover:bg-[#f1f5f9] active:scale-95 transition-all cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -419,11 +419,11 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
 
               {/* Business */}
               <fieldset className="space-y-4">
-                <legend className="text-xs font-bold text-[#8e004b] uppercase tracking-wide mb-1">
+                <legend className="text-xs font-bold text-[#4f46e5] uppercase tracking-wide mb-1">
                   Business
                 </legend>
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="employer-business-name" className="text-xs font-bold text-[#1c1b1b]">
+                  <label htmlFor="employer-business-name" className="text-xs font-bold text-[#0f172a]">
                     Business Name
                   </label>
                   <input
@@ -437,11 +437,11 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="employer-location" className="text-xs font-bold text-[#1c1b1b]">
+                  <label htmlFor="employer-location" className="text-xs font-bold text-[#0f172a]">
                     Location
                   </label>
                   <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e004b] w-4 h-4 pointer-events-none" />
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4f46e5] w-4 h-4 pointer-events-none" />
                     <input
                       id="employer-location"
                       type="text"
@@ -456,11 +456,11 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
 
               {/* Contact Info */}
               <fieldset className="space-y-4">
-                <legend className="text-xs font-bold text-[#8e004b] uppercase tracking-wide mb-1">
+                <legend className="text-xs font-bold text-[#4f46e5] uppercase tracking-wide mb-1">
                   Contact Info
                 </legend>
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="employer-contact-person" className="text-xs font-bold text-[#1c1b1b]">
+                  <label htmlFor="employer-contact-person" className="text-xs font-bold text-[#0f172a]">
                     Contact Person
                   </label>
                   <input
@@ -473,7 +473,7 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="employer-email" className="text-xs font-bold text-[#1c1b1b]">
+                  <label htmlFor="employer-email" className="text-xs font-bold text-[#0f172a]">
                     Login Email
                   </label>
                   <input
@@ -483,12 +483,12 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
                     readOnly
                     disabled
                     title="Your login email can't be changed here"
-                    className={`${inputClassName} bg-[#f1edec] text-[#594047] cursor-not-allowed`}
+                    className={`${inputClassName} bg-[#f1f5f9] text-[#475569] cursor-not-allowed`}
                   />
-                  <p className="text-[11px] text-[#8c7077]">Your login email can&apos;t be changed here.</p>
+                  <p className="text-[11px] text-[#64748b]">Your login email can&apos;t be changed here.</p>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="employer-phone" className="text-xs font-bold text-[#1c1b1b]">
+                  <label htmlFor="employer-phone" className="text-xs font-bold text-[#0f172a]">
                     Phone
                   </label>
                   <input
@@ -504,15 +504,15 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
 
               {/* Brand Details */}
               <fieldset className="space-y-4">
-                <legend className="text-xs font-bold text-[#8e004b] uppercase tracking-wide mb-1">
+                <legend className="text-xs font-bold text-[#4f46e5] uppercase tracking-wide mb-1">
                   Brand Details
                 </legend>
                 <div className="flex flex-col gap-1.5">
                   <div className="flex justify-between items-center">
-                    <label htmlFor="employer-bio" className="text-xs font-bold text-[#1c1b1b]">
+                    <label htmlFor="employer-bio" className="text-xs font-bold text-[#0f172a]">
                       About the Business
                     </label>
-                    <span className="text-[10px] text-[#594047] font-bold">{bio.length} / 500</span>
+                    <span className="text-[10px] text-[#475569] font-bold">{bio.length} / 500</span>
                   </div>
                   <textarea
                     id="employer-bio"
@@ -525,11 +525,11 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="employer-website" className="text-xs font-bold text-[#1c1b1b]">
+                  <label htmlFor="employer-website" className="text-xs font-bold text-[#0f172a]">
                     Website
                   </label>
                   <div className="relative">
-                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e004b] w-4 h-4 pointer-events-none" />
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4f46e5] w-4 h-4 pointer-events-none" />
                     <input
                       id="employer-website"
                       type="url"
@@ -541,11 +541,11 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
                   </div>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="employer-instagram" className="text-xs font-bold text-[#1c1b1b]">
+                  <label htmlFor="employer-instagram" className="text-xs font-bold text-[#0f172a]">
                     Instagram
                   </label>
                   <div className="relative">
-                    <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e004b] w-4 h-4 pointer-events-none" />
+                    <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4f46e5] w-4 h-4 pointer-events-none" />
                     <input
                       id="employer-instagram"
                       type="text"
@@ -558,18 +558,18 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
                 </div>
               </fieldset>
 
-              <div className="flex gap-3 pt-1 pb-2 sticky bottom-0 bg-[#fdf8f8]/95 backdrop-blur-sm">
+              <div className="flex gap-3 pt-1 pb-2 sticky bottom-0 bg-[#f8fafc]/95 backdrop-blur-sm">
                 <button
                   type="button"
                   onClick={() => setIsEditOpen(false)}
-                  className="flex-1 px-5 py-3 border border-[#8c7077] hover:bg-[#f1edec] rounded-full text-[#594047] text-xs font-bold active:scale-95 transition-all cursor-pointer"
+                  className="flex-1 px-5 py-3 border border-[#64748b] hover:bg-[#f1f5f9] rounded-full text-[#475569] text-xs font-bold active:scale-95 transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingProfile}
-                  className="flex-1 px-5 py-3 bg-[#8e004b] hover:bg-[#b90064] text-white rounded-full text-xs font-bold active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex-1 px-5 py-3 bg-[#4f46e5] hover:bg-[#6d28d9] text-white rounded-full text-xs font-bold active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Check className="w-4 h-4" />
                   <span>{isSavingProfile ? 'Saving…' : 'Save Changes'}</span>
@@ -584,7 +584,7 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
       {toastMessage && (
         <div
           role="status"
-          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[80] bg-[#1c1b1b] text-white px-4 py-3 rounded-2xl shadow-xl border border-white/20 flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-bottom-2 duration-200 max-w-[92vw]"
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[80] bg-[#0f172a] text-white px-4 py-3 rounded-2xl shadow-xl border border-white/20 flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-bottom-2 duration-200 max-w-[92vw]"
         >
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span className="truncate">{toastMessage}</span>
