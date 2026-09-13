@@ -69,7 +69,9 @@ export function isSessionInvalidError(error: unknown): boolean {
 
 /** Human-readable portal name used in mismatch messages and switch buttons. */
 export function portalRoleLabel(role: UserRole): string {
-  return role === 'employer' ? 'Employer' : 'Job Seeker';
+  if (role === 'employer') return 'Employer';
+  if (role === 'admin') return 'Admin';
+  return 'Job Seeker';
 }
 
 /**
@@ -78,8 +80,8 @@ export function portalRoleLabel(role: UserRole): string {
  */
 export function roleMismatchMessage(existingRole: UserRole): string {
   const label = portalRoleLabel(existingRole);
-  const article = existingRole === 'employer' ? 'an' : 'a';
-  return `You are registered as ${article} ${label}. Please switch to the correct tab.`;
+  const article = existingRole === 'seeker' ? 'a' : 'an';
+  return `This email is already registered as ${article} ${label}. Please sign in through the ${label} portal.`;
 }
 
 export interface PortalRoleMismatchDetails {
@@ -158,14 +160,16 @@ export function isPasswordSignInBlockedError(error: unknown): error is PasswordS
 
 /**
  * Errors the auth screens render as an actionable card (portal switch, password
- * recovery, confirmation re-send) instead of the generic banner. The app-level
- * handlers must let these through: swallowing them leaves the user on a sentence
- * with no way forward, because the card that offers the next step never renders.
+ * recovery, confirmation re-send, throttling countdown) instead of the generic
+ * banner. The app-level handlers must let these through: swallowing them leaves
+ * the user on a sentence with no way forward, because the card that offers the
+ * next step never renders.
  */
 export function isActionableAuthScreenError(error: unknown): boolean {
   return isPortalRoleMismatchError(error)
     || isPasswordSignInBlockedError(error)
-    || isUnassignedPortalRoleError(error);
+    || isUnassignedPortalRoleError(error)
+    || isAuthRateLimitError(error);
 }
 
 /** Extracts a searchable text fingerprint from any error shape. */
@@ -173,7 +177,7 @@ export function errorSignalText(error: unknown): string {
   return collectSignals(error).text;
 }
 
-const PORTAL_ROLE_MISMATCH_PATTERN = /PORTAL_ROLE_MISMATCH:(job_seeker|employer)/i;
+const PORTAL_ROLE_MISMATCH_PATTERN = /PORTAL_ROLE_MISMATCH:([a-z_]+)/i;
 
 /**
  * Parses a backend role-rejection signal (`PORTAL_ROLE_MISMATCH:<role>` raised
@@ -187,11 +191,14 @@ export function parsePortalRoleMismatch(
 ): PortalRoleMismatchError | null {
   const match = errorSignalText(error).match(PORTAL_ROLE_MISMATCH_PATTERN);
   if (!match) return null;
-  return new PortalRoleMismatchError({
-    email,
-    requestedRole,
-    existingRole: match[1] === 'employer' ? 'employer' : 'seeker',
-  });
+  // Admin accounts hit this path when they try the seeker/employer login: the
+  // backend reports PORTAL_ROLE_MISMATCH:admin. Unknown suffixes stay
+  // unparsed so callers keep their generic handling instead of misrouting.
+  const suffix = match[1].toLowerCase();
+  const existingRole: UserRole | null =
+    suffix === 'employer' ? 'employer' : suffix === 'admin' ? 'admin' : suffix === 'job_seeker' ? 'seeker' : null;
+  if (!existingRole) return null;
+  return new PortalRoleMismatchError({ email, requestedRole, existingRole });
 }
 
 const UNASSIGNED_PORTAL_ROLE_PATTERN = /no jobs portal role is assigned/i;

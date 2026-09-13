@@ -4,12 +4,13 @@ import {registerSW} from 'virtual:pwa-register';
 import './pwa/installPrompt';
 import App from './App.tsx';
 import { AuthSessionProvider } from './providers/AuthSessionProvider';
+import { logger } from './lib/logger';
 import './index.css';
 
 registerSW({
   immediate: true,
   onRegisterError(error) {
-    console.error('PWA service worker registration failed:', error);
+    logger('pwa').error('service worker registration failed', error);
   },
 });
 

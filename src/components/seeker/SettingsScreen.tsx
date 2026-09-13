@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../../types';
 import { ProfileEditor } from '../profile/ProfileEditor';
+import { changePassword, mapBackendError, requestAccountDeletion } from '../../services/backend';
 import {
   ArrowLeft,
   User,
@@ -78,6 +79,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [showCurrentPass, setShowCurrentPass] = useState(false);
   const [showNewPass, setShowNewPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Blocked employers list
   const [blockedEmployers, setBlockedEmployers] = useState<BlockedEmployer[]>([
@@ -148,25 +153,32 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     setActiveSection(null);
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (passwordBusy) return;
     if (!currentPassword) {
-      triggerToast('⚠️ Please enter your current password.');
-      return;
-    }
-    if (newPassword.length < 8) {
-      triggerToast('⚠️ New password must be at least 8 characters.');
+      setPasswordError('Please enter your current password.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      triggerToast('⚠️ New passwords do not match.');
+      setPasswordError('New passwords do not match.');
       return;
     }
-    triggerToast('🔑 Password changed successfully.');
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setActiveSection(null);
+    setPasswordBusy(true);
+    setPasswordError(null);
+    try {
+      // Verifies the current password by re-authenticating, then updates it.
+      await changePassword(currentPassword, newPassword);
+      triggerToast('🔑 Password changed successfully.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setActiveSection(null);
+    } catch (error) {
+      setPasswordError(mapBackendError(error, 'Unable to change your password.'));
+    } finally {
+      setPasswordBusy(false);
+    }
   };
 
   const handleUnblockEmployer = (employer: BlockedEmployer) => {
@@ -175,16 +187,28 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     triggerToast(`🔓 Unblocked ${employer.name}.`);
   };
 
-  const handleDeleteAccount = () => {
+  const handleDeleteAccount = async () => {
+    if (deleteBusy) return;
     if (deleteConfirmationText !== 'DELETE') {
-      triggerToast('⚠️ Verification mismatch. Please type DELETE.');
+      setDeleteError('Verification mismatch. Please type DELETE.');
       return;
     }
-    triggerToast('🛑 Account scheduled for deletion.');
-    setShowDeleteModal(false);
-    setTimeout(() => {
-      onLogout();
-    }, 1500);
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      // Records a real deletion request (profile hidden immediately, purge
+      // queued) and then signs out — nothing here only pretends.
+      await requestAccountDeletion();
+      triggerToast('🛑 Deletion requested. Your profile is now hidden.');
+      setShowDeleteModal(false);
+      setTimeout(() => {
+        onLogout();
+      }, 1500);
+    } catch (error) {
+      setDeleteError(mapBackendError(error, 'Unable to record your deletion request.'));
+    } finally {
+      setDeleteBusy(false);
+    }
   };
 
   const getLanguageName = (code: string) => {
@@ -609,6 +633,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </div>
 
             <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
+              {passwordError && (
+                <p role="alert" className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                  {passwordError}
+                </p>
+              )}
+              <p className="text-[11px] text-[#594047] font-medium">
+                Use at least 8 characters with an uppercase letter, a lowercase letter and a number — and nothing you have used here before.
+              </p>
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-[#1c1b1b]">Current Password</label>
                 <div className="relative">
@@ -682,9 +714,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-[#b90064] text-white font-bold text-xs rounded-full hover:bg-[#8e004b] transition-all cursor-pointer text-center shadow-md"
+                  disabled={passwordBusy}
+                  className="flex-1 py-3 bg-[#b90064] text-white font-bold text-xs rounded-full hover:bg-[#8e004b] transition-all cursor-pointer text-center shadow-md disabled:opacity-60"
                 >
-                  Update Password
+                  {passwordBusy ? 'Updating…' : 'Update Password'}
                 </button>
               </div>
             </form>
@@ -1074,19 +1107,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <div className="mx-auto md:mx-0 w-16 h-16 bg-[#ffdad6] text-[#ba1a1a] rounded-full flex items-center justify-center mb-2">
                   <span className="material-symbols-outlined text-[32px]">delete_forever</span>
                 </div>
-                <h2 className="text-lg font-bold text-[#ba1a1a]">Permanently Delete Account?</h2>
+                <h2 className="text-lg font-bold text-[#ba1a1a]">Request Account Deletion?</h2>
                 <p className="text-sm text-[#594047] font-medium leading-relaxed">
-                  This action is <strong className="text-[#ba1a1a]">irreversible</strong>. By completing this, you will permanently purge your beauty resume, portfolio galleries, chat logs, and active application pipelines from Nexora databases.
+                  This records a <strong className="text-[#ba1a1a]">deletion request</strong> for your account. Your profile is hidden from salons immediately, and our team then permanently removes your resume, portfolio and personal data. You will be signed out now.
                 </p>
               </div>
 
               <div className="bg-[#ffdad6]/40 border border-[#ffdad6] p-4 rounded-xl text-xs text-[#93000a] space-y-1 text-left">
                 <span className="font-bold">Warning Highlights:</span>
                 <ul className="list-disc list-inside space-y-0.5">
-                  <li>All active conversations with hiring salons will be permanently lost.</li>
-                  <li>Your cosmetology verified credentials cannot be recovered.</li>
-                  <li>Hiring salons will see you as a 'Deactivated Stylist'.</li>
+                  <li>Your profile, resume and portfolio become invisible to salons right away.</li>
+                  <li>Support is notified to complete the permanent removal of your data.</li>
+                  <li>Once processed, this cannot be undone — you would need a new account.</li>
                 </ul>
+              {deleteError && (
+                <p role="alert" className="mt-3 text-xs font-semibold text-rose-700 bg-white/60 border border-rose-200 rounded-xl px-3 py-2">
+                  {deleteError}
+                </p>
+              )}
               </div>
 
               <div className="space-y-2 text-left">
@@ -1102,12 +1140,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
               {/* Actions */}
               <div className="flex flex-col gap-2 mt-4">
-                <button 
+                <button
                   onClick={handleDeleteAccount}
-                  disabled={deleteConfirmationText !== 'DELETE'}
+                  disabled={deleteConfirmationText !== 'DELETE' || deleteBusy}
                   className="w-full h-12 bg-[#ba1a1a] hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-full transition-colors active:scale-[0.98] cursor-pointer"
                 >
-                  Delete Permanently
+                  {deleteBusy ? 'Requesting…' : 'Request Deletion'}
                 </button>
                 <button 
                   onClick={() => {

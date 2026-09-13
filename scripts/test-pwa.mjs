@@ -41,7 +41,7 @@ assertCheck('safe public jobs runtime cache', serviceWorker.includes('public_job
 assertCheck('no private workflow runtime cache', !serviceWorker.includes('job_applications') && !serviceWorker.includes('job_offers'));
 
 const vercel = JSON.parse(read('vercel.json'));
-const serviceWorkerHeaders = vercel.headers?.find((entry) => entry.source === '/sw.js');
+const serviceWorkerHeaders = vercel.headers?.find((entry) => entry.source === '/service-worker.js');
 assertCheck('service worker no-cache header', serviceWorkerHeaders?.headers?.some((header) => header.key === 'Cache-Control' && header.value.includes('must-revalidate')));
 assertCheck('service worker root scope header', serviceWorkerHeaders?.headers?.some((header) => header.key === 'Service-Worker-Allowed' && header.value === '/'));
 

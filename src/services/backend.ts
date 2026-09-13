@@ -4,22 +4,39 @@ import type {
   Application,
   ChatMessage,
   Conversation,
+  EmployerInterview,
   JobAlertNotification,
   JobPosting,
   PortfolioItem,
+  ResumeFile,
   SavedFilter,
   UserProfile,
   UserRole,
 } from '../types';
 import { requireSupabase } from '../lib/supabase';
+import { toSafeMessage } from '../lib/logger';
+import type { InterviewSchedulePayload } from '../lib/interviewSchedule';
+import {
+  MEDIA_BUCKETS,
+  deleteMediaObject,
+  isDataUrl,
+  dataUrlToBlob,
+  pickDisplayUrl,
+  resolveStorageUrls,
+  uploadAvatar,
+  uploadPortfolioImage,
+  uploadResumeObject,
+} from '../lib/storageMedia';
 import { clearSessionBeforeSignUp, markUserInitiatedSignOut } from '../lib/authSession';
 import { normalizeEmail } from '../lib/email';
+import { isEmailNotConfirmedError } from '../lib/signUpOutcome';
 import { validateNewPassword } from '../lib/passwordPolicy';
 import type { RecoveryTokenInput } from '../lib/recoveryLink';
 import {
   AuthRateLimitError,
   formatRetryCountdown,
   isRecoveryLinkRejectedError,
+  isSessionInvalidError,
   parsePortalRoleMismatch,
   parseRateLimitError,
   PasswordSignInBlockedError,
@@ -44,6 +61,12 @@ const one = <T>(value: T | T[] | null | undefined): T | null =>
 
 const appBaseUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin).toString();
 const appCallbackUrl = (query = '') => `${appBaseUrl()}${query}`;
+/**
+ * The sign-up confirmation link returns to this app with `?confirmed=1`, which
+ * is what tells the bootstrap to finish the sign-in (PKCE exchanges the code in
+ * the link automatically) instead of treating the visitor as a new arrival.
+ */
+const confirmationRedirectUrl = () => appCallbackUrl('?confirmed=1');
 const backendRole = (role: UserRole) => role === 'seeker' ? 'job_seeker' : role;
 const frontendRole = (role?: string | null): UserRole => role === 'admin' ? 'admin' : role === 'employer' ? 'employer' : 'seeker';
 const portalLabel = (role: UserRole) => role === 'seeker' ? 'Job Seeker' : role === 'admin' ? 'Admin' : 'Employer';
@@ -247,6 +270,19 @@ function mapApplication(row: any, salonLookup?: Map<string, any>): Application {
   const interviews = arrays<any>(row.interviews).sort(
     (a, b) => new Date(b.scheduled_start).getTime() - new Date(a.scheduled_start).getTime(),
   );
+  // The workflow RPCs are keyed by interview/offer id, so the newest row of each
+  // kind travels with the application (newest first, completed/closed excluded
+  // where the action would no longer be valid).
+  const openInterview = interviews.find((item) =>
+    ['requested', 'confirmed', 'reschedule_requested', 'rescheduled'].includes(String(item.status)),
+  );
+  const offers = arrays<any>(row.offers).sort(
+    (a, b) => new Date(b.sent_at || 0).getTime() - new Date(a.sent_at || 0).getTime(),
+  );
+  const activeOffer = offers.find((item) => ['sent', 'accepted'].includes(String(item.status)));
+  // Prefer an interview that is still actionable; otherwise expose the newest
+  // one so the candidate screens can still show it.
+  const workflowInterview = openInterview ?? interviews[0];
   return {
     id: row.id,
     jobId: row.job_id,
@@ -262,11 +298,31 @@ function mapApplication(row: any, salonLookup?: Map<string, any>): Application {
       : undefined,
     expectedSalary: row.expected_salary == null ? undefined : `₹${Number(row.expected_salary).toLocaleString('en-IN')}`,
     availability: row.available_from || undefined,
+    interviewId: workflowInterview?.id || undefined,
+    offerId: activeOffer?.id || undefined,
+  };
+}
+
+function mapEmployerInterview(row: any): EmployerInterview {
+  return {
+    id: row.id,
+    applicationId: row.application_id,
+    interviewType: row.interview_type,
+    scheduledStart: row.scheduled_start,
+    durationMinutes: Number(row.duration_minutes || 30),
+    locationText: row.location_text || undefined,
+    meetingUrl: row.meeting_url || undefined,
+    employerMessage: row.employer_message || undefined,
+    candidateMessage: row.candidate_message || undefined,
+    status: row.status,
   };
 }
 
 function mapApplicant(row: any, card?: any): Applicant {
   const jobRow = one<any>(row.job);
+  const interviews = arrays<any>(row.interviews)
+    .sort((a, b) => new Date(b.scheduled_start).getTime() - new Date(a.scheduled_start).getTime())
+    .map(mapEmployerInterview);
   return {
     id: row.id,
     name: card?.full_name || 'Applicant',
@@ -284,6 +340,8 @@ function mapApplicant(row: any, card?: any): Applicant {
     avatarUrl: card?.avatar_path || undefined,
     location: [card?.city, card?.state].filter(Boolean).join(', ') || undefined,
     skills: arrays<string>(card?.skills),
+    candidateProfileId: row.candidate_profile_id || undefined,
+    interviews,
   };
 }
 
@@ -393,6 +451,11 @@ export const authBackend = {
       email,
       password: input.password,
       options: {
+        // Where the confirmation link lands. Without this the link follows the
+        // project's dashboard Site URL, which is usually not this deployment —
+        // and because the client uses PKCE the code in the link can only be
+        // exchanged by a page that actually runs this app.
+        emailRedirectTo: confirmationRedirectUrl(),
         data: {
           app_context: 'jobs',
           job_role: requestedBackendRole,
@@ -429,6 +492,12 @@ export const authBackend = {
     const normalizedEmail = normalizeEmail(email);
     const requestedBackendRole = backendRole(requestedRole);
 
+    // Sign-in is an account-switch boundary just like sign-up: drop a stale
+    // cached session first so a JWT for a deleted user cannot poison the
+    // portal-role pre-check below ("User from sub claim in JWT does not
+    // exist"). The password grant then starts from a clean anonymous state.
+    await clearSessionBeforeSignUp(client);
+
     // Fail fast when the email is already permanently assigned to the other
     // portal: no session is created at all, so no tokens need clearing and the
     // user gets the structured mismatch error directly. Fails open on lookup
@@ -446,6 +515,16 @@ export const authBackend = {
 
     const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
     if (error) {
+      if (isEmailNotConfirmedError(error)) {
+        // The credentials were right; the address simply was never confirmed.
+        // Surface it as a structured error so the login screen can offer a
+        // re-send instead of a sentence with no action behind it.
+        throw new PasswordSignInBlockedError({
+          email: normalizedEmail,
+          role: requestedRole,
+          reason: 'unconfirmed',
+        });
+      }
       if (isInvalidLoginCredentialsError(error)) {
         // The account exists, so the failure is the credential itself: a typo, a
         // forgotten password, or an account created through Google/Apple that has
@@ -513,6 +592,22 @@ export const authBackend = {
     });
     if (error) throw mapAuthError(error);
     return data;
+  },
+
+  /**
+   * Re-sends the sign-up confirmation email for an account that was created but
+   * never confirmed. Uses the same redirect as sign-up so the link still lands
+   * on this app.
+   */
+  async resendConfirmationEmail(email: string) {
+    const normalized = normalizeEmail(email);
+    const { error } = await requireSupabase().auth.resend({
+      type: 'signup',
+      email: normalized,
+      options: { emailRedirectTo: confirmationRedirectUrl() },
+    });
+    if (error) throw mapAuthError(error);
+    return { email: normalized };
   },
 
   async sendPasswordReset(email: string) {
@@ -660,10 +755,14 @@ export interface WorkspaceData {
 
 export async function loadWorkspace(user: User, role: UserRole): Promise<WorkspaceData> {
   const client = requireSupabase();
-  const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*)`;
+  const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
 
   const [profileResult, candidateResult, membershipResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
-    client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).single(),
+    // maybeSingle: a missing profiles row (marketplace trigger lag, legacy user)
+    // must degrade to defaults, never fail the whole workspace load. The Jobs
+    // signup trigger best-effort ensures the row; see migration
+    // 20260913000600_jobs_profile_sync.sql.
+    client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).maybeSingle(),
     client.from('job_seeker_profiles').select('*').eq('user_id', user.id).maybeSingle(),
     client.from('job_salon_members').select('salon_id,member_role').eq('user_id', user.id).eq('status', 'active').limit(1).maybeSingle(),
     role === 'seeker'
@@ -698,7 +797,44 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   if (skillsResult.error) throw skillsResult.error;
   if (portfolioResult.error) throw portfolioResult.error;
 
-  const profileRow: any = profileResult.data;
+  const profileRow: any = profileResult.data ?? {};
+  // --- Sprint 1 media: legacy base64 -> Storage, then path -> signed URL. --
+  // The caller's own data-URL avatar/portfolio images move into the
+  // profile-media bucket (rows updated in place); every other media path
+  // resolves to a signed display URL in one batched request. All best-effort:
+  // failures keep the previous value so the workspace still loads.
+  const migratedAvatar = await migrateAvatarToStorageIfNeeded(
+    user.id,
+    profileRow.full_name || '',
+    profileRow.phone || null,
+    profileRow.avatar_path || null,
+  );
+  if (migratedAvatar) profileRow.avatar_path = migratedAvatar;
+  if (candidate) {
+    await migratePortfolioToStorageIfNeeded(user.id, candidate.id, arrays<any>(portfolioResult.data));
+  }
+  // Own portfolio rows intentionally stay as raw storage paths: the gallery
+  // resolves them for display and persists the same value back on edit, so a
+  // signed URL can never leak into a save.
+  const mediaResolved = await resolveWorkspaceMedia({
+    avatarPaths: [
+      profileRow.avatar_path,
+      ...arrays<any>(applicantCardsResult.data).map((card) => card?.avatar_path),
+      ...arrays<any>(conversationsResult.data).flatMap((row) => [row?.candidate_avatar_path, row?.employer_avatar_path]),
+    ],
+    portfolioPaths: [],
+  });
+  const resolveRowMedia = (row: any, key: string) => {
+    if (!row || typeof row !== 'object') return;
+    const display = pickDisplayUrl(row[key], mediaResolved);
+    if (display) row[key] = display;
+  };
+  resolveRowMedia(profileRow, 'avatar_path');
+  for (const row of arrays<any>(applicantCardsResult.data)) resolveRowMedia(row, 'avatar_path');
+  for (const row of arrays<any>(conversationsResult.data)) {
+    resolveRowMedia(row, 'candidate_avatar_path');
+    resolveRowMedia(row, 'employer_avatar_path');
+  }
   const membership: any = membershipResult.data;
   const salon = membership?.salon_id ? salonMap.get(membership.salon_id) : null;
   const savedFilters = arrays<any>(filtersResult.data).map(mapSavedFilter);
@@ -767,27 +903,18 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   };
 }
 
-export async function saveProfile(userId: string, profile: UserProfile) {
-  const client = requireSupabase();
-  const { error } = await client.from('profiles').update({
-    full_name: profile.name,
-    phone: profile.phone || null,
-    avatar_path: profile.avatarUrl || null,
-  }).eq('id', userId);
+export async function saveProfile(_userId: string, profile: UserProfile) {
+  // One transaction for `profiles` and the role-specific row, so a failure can
+  // never leave the account half-updated.
+  const { error } = await requireSupabase().rpc('job_save_profile', {
+    p_full_name: profile.name,
+    p_phone: profile.phone || null,
+    p_avatar_path: profile.avatarUrl || null,
+    p_headline: profile.role === 'seeker' ? profile.primaryRole || null : null,
+    p_bio: profile.role === 'seeker' ? profile.bio || null : null,
+    p_display_name: profile.role === 'employer' ? profile.contactPerson || profile.name : null,
+  });
   if (error) throw error;
-
-  if (profile.role === 'seeker') {
-    const { error: candidateError } = await client.from('job_seeker_profiles').update({
-      headline: profile.primaryRole || null,
-      bio: profile.bio || null,
-    }).eq('user_id', userId);
-    if (candidateError) throw candidateError;
-  } else {
-    const { error: employerError } = await client.from('job_employer_profiles').update({
-      display_name: profile.contactPerson || profile.name,
-    }).eq('user_id', userId);
-    if (employerError) throw employerError;
-  }
 }
 
 export async function setBookmark(userId: string, jobId: string, bookmarked: boolean) {
@@ -897,16 +1024,71 @@ export async function createApplication(
   expectedSalary?: string,
   availability?: string,
   _requestedId?: string,
+  resumeId?: string | null,
 ) {
   const { data, error } = await requireSupabase().rpc('submit_job_application', {
     target_job_id: job.id,
-    p_resume_id: null,
+    p_resume_id: resumeId || null,
     p_cover_note: coverNote || null,
     p_expected_salary: numericValue(expectedSalary),
     p_available_from: dateValue(availability),
   });
   if (error) throw error;
   return (data as any).id as string;
+}
+
+/** Walks an application to `shortlisted` (via viewed) so an interview can be requested. */
+async function ensureShortlisted(applicationId: string): Promise<void> {
+  const client = requireSupabase();
+  const { data: current, error: readError } = await client
+    .from('job_applications').select('status').eq('id', applicationId).single();
+  if (readError) throw readError;
+  let status = current.status as string;
+  if (status === 'submitted') {
+    const { error } = await client.rpc('mark_application_viewed', { target_application_id: applicationId });
+    if (error) throw error;
+    status = 'viewed';
+  }
+  if (status === 'viewed') {
+    const { error } = await client.rpc('shortlist_application', { target_application_id: applicationId });
+    if (error) throw error;
+    status = 'shortlisted';
+  }
+  if (status !== 'shortlisted') {
+    throw new Error('INVALID_APPLICATION_TRANSITION');
+  }
+}
+
+/**
+ * Employer schedules an interview from the request form. The payload carries
+ * the real date/time/duration/location the employer picked — never defaults.
+ */
+export async function scheduleInterview(
+  applicationId: string,
+  schedule: InterviewSchedulePayload,
+): Promise<EmployerInterview> {
+  await ensureShortlisted(applicationId);
+  const { data, error } = await requireSupabase().rpc('create_interview_request', {
+    target_application_id: applicationId,
+    ...schedule,
+  });
+  if (error) throw error;
+  return mapEmployerInterview(data);
+}
+
+/** Employer moves an interview to a new start time (candidate is notified by the RPC). */
+export async function rescheduleEmployerInterview(
+  interviewId: string,
+  newStartIso: string,
+  reason?: string,
+): Promise<EmployerInterview> {
+  const { data, error } = await requireSupabase().rpc('reschedule_interview', {
+    target_interview_id: interviewId,
+    p_new_start: newStartIso,
+    p_reason: reason || null,
+  });
+  if (error) throw error;
+  return mapEmployerInterview(data);
 }
 
 export async function updateApplicationStatus(applicationId: string, status: Applicant['status']) {
@@ -921,7 +1103,7 @@ export async function updateApplicationStatus(applicationId: string, status: App
     if (error) throw error;
     return;
   }
-  if (status === 'Shortlisted' || status === 'Interview Scheduled') {
+  if (status === 'Shortlisted') {
     if (currentStatus === 'submitted') {
       const { error } = await client.rpc('mark_application_viewed', { target_application_id: applicationId });
       if (error) throw error;
@@ -930,21 +1112,14 @@ export async function updateApplicationStatus(applicationId: string, status: App
     if (currentStatus === 'viewed') {
       const { error } = await client.rpc('shortlist_application', { target_application_id: applicationId });
       if (error) throw error;
-      currentStatus = 'shortlisted';
-    }
-    if (status === 'Interview Scheduled' && currentStatus === 'shortlisted') {
-      const { error } = await client.rpc('create_interview_request', {
-        target_application_id: applicationId,
-        p_interview_type: 'in_person',
-        p_scheduled_start: new Date(Date.now() + 3 * 86_400_000).toISOString(),
-        p_duration_minutes: 30,
-        p_location_text: 'Salon location',
-        p_meeting_url: null,
-        p_employer_message: 'We would like to invite you for an interview.',
-      });
-      if (error) throw error;
     }
     return;
+  }
+  if (status === 'Interview Scheduled') {
+    // Interviews are only ever created from the scheduling form (real date,
+    // time and location via scheduleInterview). A status flip alone cannot
+    // invent them — the old hardcoded payload is gone on purpose.
+    throw new Error('Use the interview form to schedule a date, time and location.');
   }
   if (status === 'Declined') {
     const { error } = await client.rpc('reject_application', { target_application_id: applicationId, p_reason: null });
@@ -961,6 +1136,243 @@ export async function updateApplicationStatus(applicationId: string, status: App
   }
 }
 
+/**
+ * Turns a backend error into something a user can act on. Backend functions
+ * raise stable codes (never stack traces or constraint names); anything that
+ * still looks like raw SQL is replaced with the caller's fallback so internal
+ * details can never reach the screen.
+ */
+const backendErrorMessages: Record<string, string> = {
+  OFFER_ALREADY_ACTIVE: 'There is already an active offer for this candidate. Withdraw it before sending a new one.',
+  OFFER_PENDING: 'The candidate has an open offer. Withdraw the offer before changing the application.',
+  INVALID_APPLICATION_TRANSITION: 'That action is not available at this stage of the application.',
+  INVALID_EMPLOYMENT_TYPE: 'Choose one of the supported employment types and try again.',
+  JOB_HAS_APPLICATIONS: 'This job has applications, so it cannot be deleted. Close the posting instead.',
+  JOB_NOT_PUBLISHED: 'This job is not open for applications yet.',
+  JOB_NOT_FOUND: 'That job is no longer available.',
+  APPLICATION_ALREADY_EXISTS: 'You have already applied to this job.',
+  SALON_ACCESS_DENIED: 'You do not have access to this employer workspace.',
+  PORTAL_ROLE_MISMATCH: 'This account is registered with a different portal role.',
+  ROLE_NOT_ALLOWED: 'This account is not allowed to perform that action.',
+  VALIDATION_ERROR: 'Please check the details you entered and try again.',
+  ACCOUNT_NOT_ACTIVE: 'This account is not active. Contact support if this is unexpected.',
+  CONVERSATION_ACCESS_DENIED: 'You do not have access to this conversation.',
+  CONVERSATION_NOT_FOUND: 'That conversation is no longer available.',
+  CANDIDATE_NOT_FOUND: 'That candidate has not applied to this job.',
+  PROFILE_NOT_FOUND: 'Your profile could not be found. Please sign in again.',
+  JOB_EXPIRED: 'This posting has expired and is no longer accepting applications.',
+  FOREIGN_RESUME: 'Choose a resume that belongs to your profile.',
+  PROFILE_INCOMPLETE: 'Complete your profile (at least 50%) before applying to jobs.',
+  INVALID_INTERVIEW_TRANSITION: 'That interview can no longer be changed at this stage.',
+  SALON_NOT_FOUND: 'That salon could not be found. Pick it from the search results.',
+};
+
+const looksLikeRawSql = /violates|constraint|relation "|column "|pg_|sqlstate|permission denied for|syntax error/i;
+
+export function mapBackendError(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  // A dead session must read as a session problem, never as a generic failure:
+  // without this, a mid-use session death (deleted user, revoked tokens) shows
+  // the call-site fallback while the user sits on a broken workspace. Recovery
+  // itself stays on the auth-event path (failed refresh -> SIGNED_OUT ->
+  // invalidated); this only fixes the copy on the toast the user sees first.
+  // Keep this copy identical to the forced-logout message in App/authSession.
+  if (isSessionInvalidError(error)) return 'Your session expired. Please sign in again.';
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const token = raw.toUpperCase();
+  for (const [code, message] of Object.entries(backendErrorMessages)) {
+    if (token.includes(code)) return message;
+  }
+  // Standard-error information hiding: unknown text passes through only when
+  // it is short, sanitized (no secrets/JWTs/PII) and free of technical
+  // internals — otherwise the action-oriented fallback wins.
+  if (!raw.trim() || looksLikeRawSql.test(raw)) return fallback;
+  return toSafeMessage(raw, fallback);
+}
+
+/**
+ * Employer sends an offer. The backend moves the application to `offer_sent`,
+ * which is what the candidate's offer screen reacts to.
+ */
+export interface JobOfferInput {
+  jobRole: string;
+  salary?: string | number | null;
+  employmentType?: string | null;
+  joiningDate?: string | null;
+  offerNotes?: string | null;
+  expiresAt?: string | null;
+}
+
+const numericOrNull = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(String(value).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+/**
+ * The offer form speaks display labels ('full-time', 'Chair Rental'), while the
+ * database enforces the same vocabulary as job posts ('full_time'). Unknown
+ * values are passed through so the backend can refuse them with a stable error
+ * instead of the UI silently storing a second spelling.
+ */
+const offerEmploymentTypes: Record<string, string> = {
+  'full-time': 'full_time',
+  'full time': 'full_time',
+  fulltime: 'full_time',
+  full_time: 'full_time',
+  'part-time': 'part_time',
+  'part time': 'part_time',
+  parttime: 'part_time',
+  part_time: 'part_time',
+  internship: 'internship',
+  intern: 'internship',
+  contract: 'contract',
+  contractual: 'contract',
+  freelance: 'freelance',
+  commission: 'freelance',
+  'chair rental': 'freelance',
+};
+
+const normalizeOfferEmploymentType = (value?: string | null) => {
+  if (!value) return null;
+  return offerEmploymentTypes[value.trim().toLowerCase()] ?? value.trim();
+};
+
+export async function sendJobOffer(applicationId: string, input: JobOfferInput) {
+  const { data, error } = await requireSupabase().rpc('send_job_offer', {
+    target_application_id: applicationId,
+    p_job_role: input.jobRole,
+    p_salary: numericOrNull(input.salary),
+    p_employment_type: normalizeOfferEmploymentType(input.employmentType),
+    p_joining_date: input.joiningDate || null,
+    p_offer_notes: input.offerNotes || null,
+    p_expires_at: input.expiresAt || null,
+  });
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Sending an offer is only allowed once the interview stage is finished. When
+ * the employer has already run a confirmed interview, this closes it out so the
+ * offer step is reachable without the candidate having to press anything else.
+ */
+export async function completeInterviewStage(applicationId: string, interviewId?: string) {
+  const client = requireSupabase();
+  const targetId =
+    interviewId ||
+    (await client
+      .from('job_interview_requests')
+      .select('id,status')
+      .eq('application_id', applicationId)
+      .eq('status', 'confirmed')
+      .order('scheduled_start', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    ).data?.id;
+  if (!targetId) return false;
+  const { error } = await client.rpc('complete_interview', { target_interview_id: targetId });
+  if (error) throw error;
+  return true;
+}
+
+export type InterviewResponse = 'accept' | 'decline' | 'reschedule';
+
+/** Candidate responds to an interview invitation. */
+export async function respondToInterview(
+  interviewId: string,
+  response: InterviewResponse,
+  reason?: string,
+) {
+  const client = requireSupabase();
+  if (response === 'accept') {
+    const { error } = await client.rpc('accept_interview', { target_interview_id: interviewId });
+    if (error) throw error;
+    return;
+  }
+  if (response === 'decline') {
+    const { error } = await client.rpc('decline_interview', {
+      target_interview_id: interviewId,
+      p_reason: reason || null,
+    });
+    if (error) throw error;
+    return;
+  }
+  const { error } = await client.rpc('request_interview_reschedule', {
+    target_interview_id: interviewId,
+    p_reason: reason || 'Candidate requested a new time.',
+  });
+  if (error) throw error;
+}
+
+/** Candidate accepts or declines a job offer. */
+export async function respondToJobOffer(offerId: string, response: 'accept' | 'decline') {
+  const rpcName = response === 'accept' ? 'accept_job_offer' : 'decline_job_offer';
+  const { error } = await requireSupabase().rpc(rpcName, { target_offer_id: offerId });
+  if (error) throw error;
+}
+
+/** Candidate withdraws an application. A pending offer must be declined first. */
+export async function withdrawApplication(applicationId: string, reason?: string) {
+  const { error } = await requireSupabase().rpc('withdraw_application', {
+    target_application_id: applicationId,
+    p_reason: reason || null,
+  });
+  if (error) throw error;
+}
+
+/** Employer submits salon verification documents for admin review. */
+export async function submitEmployerVerification(input: {
+  salonId: string;
+  businessProofPath: string;
+  identityProofPath: string;
+  salonProofPath?: string | null;
+}) {
+  const { data, error } = await requireSupabase().rpc('submit_employer_verification', {
+    target_salon_id: input.salonId,
+    p_business_proof_path: input.businessProofPath,
+    p_identity_proof_path: input.identityProofPath,
+    p_salon_proof_path: input.salonProofPath || null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Opens a support ticket for the signed-in user. */
+export async function createSupportTicket(input: {
+  issueType: string;
+  subject: string;
+  description: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+}) {
+  const { data, error } = await requireSupabase().rpc('create_job_support_ticket', {
+    p_issue_type: input.issueType,
+    p_subject: input.subject,
+    p_description: input.description,
+    p_priority: input.priority || 'normal',
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Employer job-lifecycle actions (approved <-> paused, or closed for good). */
+export async function setJobLifecycleState(jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') {
+  const rpcName = action === 'submit' ? 'submit_job_for_approval'
+    : action === 'pause' ? 'pause_job'
+    : action === 'resume' ? 'resume_job'
+    : 'close_job';
+  const { error } = await requireSupabase().rpc(rpcName, { target_job_id: jobId });
+  if (error) throw error;
+}
+
+/**
+ * Employer sends a draft (or a rejected posting) to the admin queue. Without
+ * this call a new posting stays a draft forever and never reaches moderation,
+ * because `create_job_post` inserts drafts by design.
+ */
+export async function submitJobForApproval(jobId: string) {
+  await setJobLifecycleState(jobId, 'submit');
+}
+
 export async function createConversationRecord(input: {
   id: string;
   userId: string;
@@ -968,42 +1380,25 @@ export async function createConversationRecord(input: {
   jobId: string;
   targetSeekerEmail?: string;
 }) {
-  const client = requireSupabase();
-  const { data: job, error: jobError } = await client.from('job_posts').select('salon_id').eq('id', input.jobId).single();
-  if (jobError) throw jobError;
-
-  let candidateUserId = input.role === 'seeker' ? input.userId : '';
-  let employerUserId = input.role === 'employer' ? input.userId : '';
-  if (!employerUserId) {
-    const { data: member, error } = await client.from('job_salon_members').select('user_id').eq('salon_id', job.salon_id).eq('status', 'active').order('created_at').limit(1).single();
-    if (error) throw error;
-    employerUserId = member.user_id;
-  }
-  if (!candidateUserId && input.targetSeekerEmail) {
-    const { data: cards, error } = await client.rpc('get_job_applicant_cards');
-    if (error) throw error;
-    candidateUserId = arrays<any>(cards).find((card) => card.email === input.targetSeekerEmail)?.candidate_user_id || '';
-  }
-  if (!candidateUserId || !employerUserId) throw new Error('Unable to identify conversation participants.');
-
-  const { error } = await client.from('job_conversations').upsert({
-    id: input.id,
-    job_id: input.jobId,
-    candidate_user_id: candidateUserId,
-    employer_user_id: employerUserId,
-    status: 'inquiry',
-    last_message: 'Conversation started',
-  }, { onConflict: 'job_id,candidate_user_id,employer_user_id' });
+  // Participants are resolved on the server: one call instead of a job lookup,
+  // a membership lookup and a full applicant-card scan, and the row can only
+  // name participants the caller is actually allowed to talk to.
+  const { error } = await requireSupabase().rpc('job_open_conversation', {
+    p_job_id: input.jobId,
+    p_conversation_id: input.id,
+    p_candidate_email: input.targetSeekerEmail || null,
+  });
   if (error) throw error;
 }
 
-export async function sendMessageRecord(userId: string, message: ChatMessage) {
-  const { error } = await requireSupabase().from('job_messages').insert({
-    id: message.id,
-    conversation_id: message.conversationId,
-    sender_user_id: userId,
-    body: message.text,
-    attachment: message.attachment || null,
+export async function sendMessageRecord(_userId: string, message: ChatMessage) {
+  // The sender is taken from the session inside the RPC, so a forged user id in
+  // the payload cannot post as somebody else.
+  const { error } = await requireSupabase().rpc('job_send_message', {
+    p_conversation_id: message.conversationId,
+    p_body: message.text,
+    p_attachment: message.attachment || null,
+    p_message_id: message.id,
   });
   if (error) throw error;
 }
@@ -1027,4 +1422,366 @@ export async function markAllAlertsRead(userId: string) {
 export async function deleteAlert(alertId: string) {
   const { error } = await requireSupabase().from('job_notifications').delete().eq('id', alertId);
   if (error) throw error;
+}
+
+/* ------------------------------------------------------------------ */
+/* Resumes: Storage objects + job_candidate_resumes rows.               */
+/* ------------------------------------------------------------------ */
+
+function mapResume(row: any): ResumeFile {
+  return {
+    id: row.id,
+    fileName: row.original_filename,
+    mimeType: row.mime_type,
+    fileSize: Number(row.file_size || 0),
+    storagePath: row.storage_path,
+    isPrimary: Boolean(row.is_primary),
+    uploadedAt: row.uploaded_at,
+  };
+}
+
+async function ownCandidateId(): Promise<string> {
+  const { data: userData, error: userError } = await requireSupabase().auth.getUser();
+  if (userError) throw userError;
+  const userId = userData.user?.id;
+  if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+  const { data, error } = await requireSupabase()
+    .from('job_seeker_profiles').select('id').eq('user_id', userId).single();
+  if (error) throw error;
+  return (data as { id: string }).id;
+}
+
+/** Uploads a resume file to Storage and records it as the primary resume. */
+export async function uploadResume(file: File): Promise<ResumeFile> {
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  const userId = userData.user?.id;
+  if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+  const candidateId = await ownCandidateId();
+  const storagePath = await uploadResumeObject(userId, file);
+  try {
+    await client.from('job_candidate_resumes').update({ is_primary: false }).eq('candidate_id', candidateId);
+    const { data, error } = await client.from('job_candidate_resumes').insert({
+      candidate_id: candidateId,
+      storage_path: storagePath,
+      original_filename: file.name,
+      mime_type: file.type,
+      file_size: file.size,
+      is_primary: true,
+    }).select('*').single();
+    if (error) throw error;
+    return mapResume(data);
+  } catch (error) {
+    // The row write failed after the object landed: remove the orphan.
+    await deleteMediaObject(MEDIA_BUCKETS.resumes, storagePath);
+    throw error;
+  }
+}
+
+/** Newest-first resumes owned by the signed-in seeker. */
+export async function listResumes(): Promise<ResumeFile[]> {
+  const candidateId = await ownCandidateId();
+  const { data, error } = await requireSupabase()
+    .from('job_candidate_resumes').select('*').eq('candidate_id', candidateId)
+    .order('is_primary', { ascending: false }).order('uploaded_at', { ascending: false });
+  if (error) throw error;
+  return arrays<any>(data).map(mapResume);
+}
+
+export async function setPrimaryResume(resumeId: string): Promise<void> {
+  const client = requireSupabase();
+  const candidateId = await ownCandidateId();
+  const { error: clearError } = await client
+    .from('job_candidate_resumes').update({ is_primary: false }).eq('candidate_id', candidateId);
+  if (clearError) throw clearError;
+  const { error } = await client
+    .from('job_candidate_resumes').update({ is_primary: true }).eq('id', resumeId).eq('candidate_id', candidateId);
+  if (error) throw error;
+}
+
+export async function deleteResume(resumeId: string): Promise<void> {
+  const client = requireSupabase();
+  const candidateId = await ownCandidateId();
+  const { data, error: readError } = await client
+    .from('job_candidate_resumes').select('storage_path').eq('id', resumeId).eq('candidate_id', candidateId).single();
+  if (readError) throw readError;
+  const { error } = await client
+    .from('job_candidate_resumes').delete().eq('id', resumeId).eq('candidate_id', candidateId);
+  if (error) throw error;
+  await deleteMediaObject(MEDIA_BUCKETS.resumes, (data as { storage_path: string }).storage_path);
+}
+
+/** Short-lived download link for the seeker's own resume. */
+export async function getResumeDownloadUrl(storagePath: string): Promise<string> {
+  const { data, error } = await requireSupabase().storage.from(MEDIA_BUCKETS.resumes).createSignedUrl(storagePath, 3600);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+/* ------------------------------------------------------------------ */
+/* Trust & Safety: reports against real jobs and salons.                */
+/* ------------------------------------------------------------------ */
+
+export interface PublicJobHit {
+  id: string;
+  title: string;
+  salonId: string;
+  salonName: string;
+  city: string;
+  state: string;
+}
+
+export async function searchPublicJobs(query: string): Promise<PublicJobHit[]> {
+  const needle = query.trim();
+  if (needle.length < 2) return [];
+  const { data, error } = await requireSupabase()
+    .from('public_job_listings')
+    .select('id,title,salon_id,salon_name,city,state')
+    .or(`title.ilike.%${needle}%,salon_name.ilike.%${needle}%`)
+    .order('published_at', { ascending: false })
+    .limit(8);
+  if (error) throw error;
+  return arrays<any>(data).map((row) => ({
+    id: row.id,
+    title: row.title,
+    salonId: row.salon_id,
+    salonName: row.salon_name,
+    city: row.city || '',
+    state: row.state || '',
+  }));
+}
+
+export interface PublicSalonHit {
+  salonId: string;
+  salonName: string;
+  city: string;
+  state: string;
+}
+
+export async function searchPublicSalons(query: string): Promise<PublicSalonHit[]> {
+  const needle = query.trim();
+  if (needle.length < 2) return [];
+  const { data, error } = await requireSupabase()
+    .from('public_job_listings')
+    .select('salon_id,salon_name,city,state')
+    .ilike('salon_name', `%${needle}%`)
+    .limit(20);
+  if (error) throw error;
+  const seen = new Set<string>();
+  const hits: PublicSalonHit[] = [];
+  for (const row of arrays<any>(data)) {
+    if (seen.has(row.salon_id)) continue;
+    seen.add(row.salon_id);
+    hits.push({ salonId: row.salon_id, salonName: row.salon_name, city: row.city || '', state: row.state || '' });
+    if (hits.length >= 8) break;
+  }
+  return hits;
+}
+
+/** Files a persisted Trust & Safety report against a job posting. Returns the report id. */
+export async function reportJobPosting(jobId: string, reason: string, details?: string): Promise<string> {
+  const { data, error } = await requireSupabase().rpc('report_job', {
+    target_job_id: jobId,
+    p_reason: reason,
+    p_details: details?.trim() || null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Files a persisted Trust & Safety report against a salon. Returns the report id. */
+export async function reportSalon(salonId: string, reason: string, details?: string): Promise<string> {
+  const { data, error } = await requireSupabase().rpc('report_employer', {
+    target_salon_id: salonId,
+    p_reason: reason,
+    p_details: details?.trim() || null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Appends a follow-up message (optionally with an attachment path) to the caller's own ticket. */
+export async function addTicketMessage(ticketId: string, message: string, attachmentPath?: string): Promise<void> {
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  const userId = userData.user?.id;
+  if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+  const { error } = await client.from('job_support_messages').insert({
+    ticket_id: ticketId,
+    sender_user_id: userId,
+    message,
+    attachment_path: attachmentPath || null,
+  });
+  if (error) throw error;
+}
+
+/* ------------------------------------------------------------------ */
+/* Account: genuine password change + deletion request.                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Changes the signed-in user's password. The current password is verified by
+ * re-authenticating (a wrong one fails here, before anything is changed) and
+ * the new one is validated against the shared policy first.
+ */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const policyError = validateNewPassword(newPassword);
+  if (policyError) throw new Error(policyError);
+  if (currentPassword === newPassword) {
+    throw new Error('Choose a password you have not used on this account before.');
+  }
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  const email = userData.user?.email;
+  if (!email) throw new Error('Your session is no longer valid. Please sign in again.');
+  const { error: verifyError } = await client.auth.signInWithPassword({ email, password: currentPassword });
+  if (verifyError) {
+    throw new Error('Your current password is incorrect. Check it and try again.');
+  }
+  const { error: updateError } = await client.auth.updateUser({ password: newPassword });
+  if (updateError) throw mapAuthError(updateError);
+}
+
+/**
+ * Records an account-deletion request. The RPC hides the profile immediately
+ * and queues the purge; the client signs out afterwards with honest copy.
+ * Returns the request id.
+ */
+export async function requestAccountDeletion(reason?: string): Promise<string> {
+  const { data, error } = await requireSupabase().rpc('request_job_account_deletion', {
+    p_reason: reason?.trim() || null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Portfolio: CRUD against job_portfolio_items (owner-only by RLS).     */
+/* ------------------------------------------------------------------ */
+
+export async function savePortfolioItem(item: PortfolioItem): Promise<void> {
+  const candidateId = await ownCandidateId();
+  const row = {
+    id: item.id,
+    candidate_id: candidateId,
+    title: item.title,
+    category: item.category,
+    image_path: item.imageUrl,
+    description: item.description || null,
+    technique: item.technique || null,
+    item_date: /^\d{4}-\d{2}-\d{2}$/.test(item.date || '') ? item.date : null,
+  };
+  const { error } = await requireSupabase().from('job_portfolio_items').upsert(row, { onConflict: 'id' });
+  if (error) throw error;
+}
+
+export async function deletePortfolioItem(itemId: string): Promise<void> {
+  const candidateId = await ownCandidateId();
+  const { error } = await requireSupabase()
+    .from('job_portfolio_items').delete().eq('id', itemId).eq('candidate_id', candidateId);
+  if (error) throw error;
+}
+
+/** An employer's read-only view of an applicant's portfolio (RLS: applied candidates only). */
+export async function getApplicantPortfolio(candidateProfileId: string): Promise<PortfolioItem[]> {
+  const { data, error } = await requireSupabase()
+    .from('job_portfolio_items').select('*').eq('candidate_id', candidateProfileId).order('sort_order');
+  if (error) throw error;
+  const rows = arrays<any>(data);
+  const resolved = await resolveStorageUrls(MEDIA_BUCKETS.profileMedia, rows.map((row) => row.image_path));
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    category: row.category,
+    imageUrl: pickDisplayUrl(row.image_path, resolved) || row.image_path,
+    description: row.description || undefined,
+    technique: row.technique || undefined,
+    date: row.item_date || undefined,
+  }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Media resolution + legacy base64 migration for the workspace load.   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Moves a legacy data-URL avatar into Storage and returns the new path.
+ * Returns the input unchanged when it is already a path/URL or when the
+ * migration fails (the UI keeps working on the legacy value).
+ */
+export async function migrateAvatarToStorageIfNeeded(
+  userId: string,
+  fullName: string,
+  phone: string | null,
+  avatar: string | null | undefined,
+): Promise<string | null> {
+  if (!isDataUrl(avatar)) return avatar ?? null;
+  try {
+    const client = requireSupabase();
+    const blob = dataUrlToBlob(avatar);
+    const path = await uploadAvatar(userId, blob);
+    // job_save_profile overwrites the role-specific columns it is given, so
+    // the current values are passed straight back through: the migration must
+    // change the avatar and nothing else.
+    let headline: string | null = null;
+    let bio: string | null = null;
+    let displayName: string | null = null;
+    const { data: roleRow } = await client.from('job_user_roles').select('role').eq('user_id', userId).single();
+    if (roleRow?.role === 'job_seeker') {
+      const { data } = await client.from('job_seeker_profiles').select('headline,bio').eq('user_id', userId).single();
+      headline = data?.headline ?? null;
+      bio = data?.bio ?? null;
+    } else if (roleRow?.role === 'employer' || roleRow?.role === 'admin') {
+      const { data } = await client.from('job_employer_profiles').select('display_name').eq('user_id', userId).single();
+      displayName = data?.display_name ?? null;
+    }
+    const { error } = await client.rpc('job_save_profile', {
+      p_full_name: fullName && fullName.trim().length >= 2 ? fullName : 'User',
+      p_phone: phone || null,
+      p_avatar_path: path,
+      p_headline: headline,
+      p_bio: bio,
+      p_display_name: displayName,
+    });
+    if (error) throw error;
+    return path;
+  } catch {
+    return avatar;
+  }
+}
+
+/**
+ * Moves legacy data-URL portfolio images into Storage, updating each row in
+ * place. Best-effort per item: failures keep the legacy value.
+ */
+export async function migratePortfolioToStorageIfNeeded(
+  userId: string,
+  candidateId: string,
+  rows: any[],
+): Promise<void> {
+  const legacy = rows.filter((row) => isDataUrl(row.image_path));
+  if (legacy.length === 0) return;
+  const client = requireSupabase();
+  await Promise.all(legacy.map(async (row) => {
+    try {
+      const path = await uploadPortfolioImage(userId, dataUrlToBlob(row.image_path));
+      const { error } = await client
+        .from('job_portfolio_items').update({ image_path: path }).eq('id', row.id).eq('candidate_id', candidateId);
+      if (error) throw error;
+      row.image_path = path;
+    } catch {
+      // Keep the legacy data URL; the item still renders.
+    }
+  }));
+}
+
+/** Resolves every profile-media path in a workspace to signed display URLs. */
+export async function resolveWorkspaceMedia(input: {
+  avatarPaths: Array<string | null | undefined>;
+  portfolioPaths: Array<string | null | undefined>;
+}): Promise<Map<string, string>> {
+  return resolveStorageUrls(MEDIA_BUCKETS.profileMedia, [...input.avatarPaths, ...input.portfolioPaths]);
 }

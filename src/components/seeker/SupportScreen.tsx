@@ -26,6 +26,19 @@ import {
   Headphones,
   Check
 } from 'lucide-react';
+import { requireSupabase } from '../../lib/supabase';
+import {
+  addTicketMessage,
+  createSupportTicket,
+  mapBackendError,
+  reportJobPosting,
+  reportSalon,
+  searchPublicJobs,
+  searchPublicSalons,
+  type PublicJobHit,
+  type PublicSalonHit,
+} from '../../services/backend';
+import { uploadSupportAttachment } from '../../lib/storageMedia';
 
 interface SupportScreenProps {
   onBack: () => void;
@@ -52,22 +65,33 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
   const [issueType, setIssueType] = useState<string>('login');
   const [subject, setSubject] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; size: string; progress: number }[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; size: string; progress: number; file: File }[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [submittedTicketId, setSubmittedTicketId] = useState<string>('#1025');
+  const [submittedTicketId, setSubmittedTicketId] = useState<string>('');
+  const [ticketBusy, setTicketBusy] = useState(false);
+  const [ticketError, setTicketError] = useState<string | null>(null);
+  const [contactBusy, setContactBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [contactSubject, setContactSubject] = useState('');
   const [contactMessage, setContactMessage] = useState('');
   const [contactEmail, setContactEmail] = useState('jane.doe@example.com');
   
-  const [reportJobId, setReportJobId] = useState('');
+  const [reportJobQuery, setReportJobQuery] = useState('');
+  const [reportJobHits, setReportJobHits] = useState<PublicJobHit[]>([]);
+  const [reportJobSelected, setReportJobSelected] = useState<PublicJobHit | null>(null);
   const [reportJobReason, setReportJobReason] = useState('');
   const [reportJobNotes, setReportJobNotes] = useState('');
+  const [reportJobBusy, setReportJobBusy] = useState(false);
+  const [reportJobError, setReportJobError] = useState<string | null>(null);
 
-  const [reportEmployerName, setReportEmployerName] = useState('');
+  const [reportSalonQuery, setReportSalonQuery] = useState('');
+  const [reportSalonHits, setReportSalonHits] = useState<PublicSalonHit[]>([]);
+  const [reportSalonSelected, setReportSalonSelected] = useState<PublicSalonHit | null>(null);
   const [reportEmployerReason, setReportEmployerReason] = useState('');
   const [reportEmployerNotes, setReportEmployerNotes] = useState('');
+  const [reportEmployerBusy, setReportEmployerBusy] = useState(false);
+  const [reportEmployerError, setReportEmployerError] = useState<string | null>(null);
 
   // Toast / Status state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -138,7 +162,8 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
       return {
         name: file.name,
         size: sizeStr,
-        progress: 100
+        progress: 100,
+        file
       };
     });
     setUploadedFiles(prev => [...prev, ...newFiles]);
@@ -150,16 +175,40 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
     triggerToast("🗑️ Attachment removed.");
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!subject.trim() || !description.trim()) {
-      triggerToast('⚠️ Please fill out all required fields.');
+    if (ticketBusy) return;
+    if (subject.trim().length < 3 || description.trim().length < 10) {
+      setTicketError('Give a subject (3+ characters) and a description (10+ characters).');
       return;
     }
-    const randomTicketId = `#${Math.floor(1020 + Math.random() * 8000)}`;
-    setSubmittedTicketId(randomTicketId);
-    setSubView('contact_success');
-    triggerToast(`🎉 Support ticket ${randomTicketId} submitted successfully!`);
+    setTicketBusy(true);
+    setTicketError(null);
+    try {
+      const ticketId = await createSupportTicket({
+        issueType,
+        subject: subject.trim(),
+        description: description.trim(),
+      });
+      // Attachments upload to Storage; each is recorded as a ticket message
+      // so support sees them attached to the case.
+      if (uploadedFiles.length > 0) {
+        const { data: userData } = await requireSupabase().auth.getUser();
+        const userId = userData.user?.id;
+        if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+        for (const staged of uploadedFiles) {
+          const path = await uploadSupportAttachment(userId, staged.file);
+          await addTicketMessage(ticketId, `Attachment: ${staged.name}`, path);
+        }
+      }
+      setSubmittedTicketId(`#${ticketId.slice(0, 8)}`);
+      setSubView('contact_success');
+      triggerToast('🎉 Support ticket submitted successfully!');
+    } catch (error) {
+      setTicketError(mapBackendError(error, 'Unable to submit your ticket.'));
+    } finally {
+      setTicketBusy(false);
+    }
   };
 
   const handleBackToSupport = () => {
@@ -169,42 +218,125 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
     setSubView('home');
   };
 
-  const handleContactSubmit = (e: React.FormEvent) => {
+  const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!contactSubject.trim() || !contactMessage.trim()) {
-      triggerToast('⚠️ Please fill out all required fields.');
+    if (contactBusy) return;
+    if (contactSubject.trim().length < 3 || contactMessage.trim().length < 10) {
+      triggerToast('⚠️ Give a subject (3+ characters) and details (10+ characters).');
       return;
     }
-    triggerToast('🎉 Support ticket created successfully! We will reply at ' + contactEmail + ' within 2 hours.');
-    setActiveModal(null);
-    setContactSubject('');
-    setContactMessage('');
+    setContactBusy(true);
+    try {
+      await createSupportTicket({
+        issueType: 'contact',
+        subject: contactSubject.trim(),
+        description: `Reply to: ${contactEmail.trim()}\n\n${contactMessage.trim()}`,
+      });
+      triggerToast('🎉 Support ticket created! We will reply at ' + contactEmail);
+      setActiveModal(null);
+      setContactSubject('');
+      setContactMessage('');
+    } catch (error) {
+      triggerToast(mapBackendError(error, 'Unable to create your ticket.'));
+    } finally {
+      setContactBusy(false);
+    }
   };
 
-  const handleReportJobSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reportJobReason) {
-      triggerToast('⚠️ Please select a reason for reporting.');
+  const handleReportJobQuery = async (query: string) => {
+    setReportJobQuery(query);
+    setReportJobSelected(null);
+    if (query.trim().length < 2) {
+      setReportJobHits([]);
       return;
     }
-    triggerToast('✅ Report successfully submitted. Our Trust and Safety coordinators will investigate this job post immediately.');
-    setActiveModal(null);
-    setReportJobId('');
+    try {
+      setReportJobHits(await searchPublicJobs(query));
+    } catch {
+      setReportJobHits([]);
+    }
+  };
+
+  const handleReportSalonQuery = async (query: string) => {
+    setReportSalonQuery(query);
+    setReportSalonSelected(null);
+    if (query.trim().length < 2) {
+      setReportSalonHits([]);
+      return;
+    }
+    try {
+      setReportSalonHits(await searchPublicSalons(query));
+    } catch {
+      setReportSalonHits([]);
+    }
+  };
+
+  const resetReportJob = () => {
+    setReportJobQuery('');
+    setReportJobHits([]);
+    setReportJobSelected(null);
     setReportJobReason('');
     setReportJobNotes('');
+    setReportJobError(null);
   };
 
-  const handleReportEmployerSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reportEmployerName.trim() || !reportEmployerReason) {
-      triggerToast('⚠️ Please provide the salon name and violation reason.');
-      return;
-    }
-    triggerToast('✅ Thank you. Report received for ' + reportEmployerName + '. We maintain a zero-tolerance policy for unprofessional salon conduct.');
-    setActiveModal(null);
-    setReportEmployerName('');
+  const resetReportEmployer = () => {
+    setReportSalonQuery('');
+    setReportSalonHits([]);
+    setReportSalonSelected(null);
     setReportEmployerReason('');
     setReportEmployerNotes('');
+    setReportEmployerError(null);
+  };
+
+  const handleReportJobSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (reportJobBusy) return;
+    if (!reportJobSelected) {
+      setReportJobError('Search for the job and pick it from the results so we investigate the right post.');
+      return;
+    }
+    if (!reportJobReason) {
+      setReportJobError('Please select a reason for reporting.');
+      return;
+    }
+    setReportJobBusy(true);
+    setReportJobError(null);
+    try {
+      const reportId = await reportJobPosting(reportJobSelected.id, reportJobReason, reportJobNotes);
+      triggerToast(`✅ Report ${reportId.slice(0, 8)} received. Our Trust and Safety team will investigate this job post.`);
+      setActiveModal(null);
+      resetReportJob();
+    } catch (error) {
+      setReportJobError(mapBackendError(error, 'Unable to submit your report.'));
+    } finally {
+      setReportJobBusy(false);
+    }
+  };
+
+  const handleReportEmployerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (reportEmployerBusy) return;
+    if (!reportSalonSelected) {
+      setReportEmployerError('Search for the salon and pick it from the results so we investigate the right employer.');
+      return;
+    }
+    if (!reportEmployerReason) {
+      setReportEmployerError('Please select a violation reason.');
+      return;
+    }
+    setReportEmployerBusy(true);
+    setReportEmployerError(null);
+    try {
+      const reportId = await reportSalon(reportSalonSelected.salonId, reportEmployerReason, reportEmployerNotes);
+      triggerToast(`✅ Report ${reportId.slice(0, 8)} received for ${reportSalonSelected.salonName}. Our Trust and Safety team will investigate.`);
+      setActiveModal(null);
+      resetReportEmployer();
+    } catch (error) {
+      setReportEmployerError(mapBackendError(error, 'Unable to submit your report.'));
+    } finally {
+      setReportEmployerBusy(false);
+    }
   };
 
   // Static FAQ database
@@ -500,12 +632,18 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
             </div>
 
             {/* Submit Button */}
-            <div className="pt-2">
+            <div className="pt-2 space-y-2">
+              {ticketError && (
+                <p role="alert" className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                  {ticketError}
+                </p>
+              )}
               <button
                 type="submit"
-                className="w-full bg-[#b90064] text-white font-bold text-xs rounded-full py-4 px-6 hover:bg-[#8e004b] transition-all active:scale-95 shadow-[0_4px_12px_rgba(185,0,100,0.2)] flex justify-center items-center gap-2 cursor-pointer"
+                disabled={ticketBusy}
+                className="w-full bg-[#b90064] text-white font-bold text-xs rounded-full py-4 px-6 hover:bg-[#8e004b] disabled:opacity-60 transition-all active:scale-95 shadow-[0_4px_12px_rgba(185,0,100,0.2)] flex justify-center items-center gap-2 cursor-pointer"
               >
-                <span>Submit Ticket</span>
+                <span>{ticketBusy ? 'Submitting…' : 'Submit Ticket'}</span>
                 <Send className="w-4 h-4" />
               </button>
             </div>
@@ -955,10 +1093,11 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-[#8e004b] hover:bg-[#b90064] text-white font-bold text-xs rounded-full shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  disabled={contactBusy}
+                  className="flex-1 py-3 bg-[#8e004b] hover:bg-[#b90064] disabled:opacity-60 text-white font-bold text-xs rounded-full shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Submit Ticket</span>
+                  <span>{contactBusy ? 'Submitting…' : 'Submit Ticket'}</span>
                 </button>
               </div>
             </form>
@@ -985,15 +1124,40 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
 
             <form onSubmit={handleReportJobSubmit} className="space-y-3.5">
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-[#594047] uppercase tracking-wider">Job Listing Title or ID</label>
-                <input
-                  type="text"
-                  value={reportJobId}
-                  onChange={(e) => setReportJobId(e.target.value)}
-                  className="w-full p-3 rounded-xl border border-[#e0bec6]/60 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-amber-600 focus:border-amber-600"
-                  placeholder="e.g., #job-101 or Balayage Hair Stylist"
-                  required
-                />
+                <label className="text-[10px] font-bold text-[#594047] uppercase tracking-wider">Find the job listing</label>
+                {reportJobSelected ? (
+                  <div className="flex items-center justify-between gap-2 w-full p-3 rounded-xl border border-amber-600/60 bg-amber-50 text-xs font-semibold">
+                    <span className="truncate">{reportJobSelected.title} • {reportJobSelected.salonName}</span>
+                    <button type="button" onClick={() => { setReportJobSelected(null); setReportJobQuery(''); setReportJobHits([]); }} className="text-amber-700 hover:underline shrink-0 cursor-pointer">
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={reportJobQuery}
+                      onChange={(e) => void handleReportJobQuery(e.target.value)}
+                      className="w-full p-3 rounded-xl border border-[#e0bec6]/60 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-amber-600 focus:border-amber-600"
+                      placeholder="e.g., Balayage Hair Stylist or salon name"
+                    />
+                    {reportJobHits.length > 0 && (
+                      <div className="max-h-36 overflow-y-auto rounded-xl border border-[#e0bec6]/60 divide-y divide-[#e0bec6]/30">
+                        {reportJobHits.map((hit) => (
+                          <button
+                            key={hit.id}
+                            type="button"
+                            onClick={() => { setReportJobSelected(hit); setReportJobHits([]); }}
+                            className="w-full text-left p-2.5 hover:bg-amber-50 text-xs cursor-pointer"
+                          >
+                            <span className="block font-bold text-[#1c1b1b]">{hit.title}</span>
+                            <span className="block text-[10px] text-[#594047]">{hit.salonName}{hit.city ? ` • ${hit.city}` : ''}{hit.state ? `, ${hit.state}` : ''}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
 
               <div className="flex flex-col gap-1">
@@ -1024,6 +1188,11 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
                 />
               </div>
 
+              {reportJobError && (
+                <p role="alert" className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                  {reportJobError}
+                </p>
+              )}
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
@@ -1034,10 +1203,11 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-full shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  disabled={reportJobBusy}
+                  className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white font-bold text-xs rounded-full shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                 >
                   <Flag className="w-3.5 h-3.5" />
-                  <span>Submit Report</span>
+                  <span>{reportJobBusy ? 'Submitting…' : 'Submit Report'}</span>
                 </button>
               </div>
             </form>
@@ -1064,15 +1234,42 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
 
             <form onSubmit={handleReportEmployerSubmit} className="space-y-3.5">
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-[#594047] uppercase tracking-wider">Salon / Corporate Employer Name</label>
-                <input
-                  type="text"
-                  value={reportEmployerName}
-                  onChange={(e) => setReportEmployerName(e.target.value)}
-                  className="w-full p-3 rounded-xl border border-[#e0bec6]/60 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-rose-600 focus:border-rose-600"
-                  placeholder="e.g. Lumière Salon and Spa"
-                  required
-                />
+                <label className="text-[10px] font-bold text-[#594047] uppercase tracking-wider">Find the salon / employer</label>
+                {reportSalonSelected ? (
+                  <div className="flex items-center justify-between gap-2 w-full p-3 rounded-xl border border-rose-600/60 bg-rose-50 text-xs font-semibold">
+                    <span className="truncate">{reportSalonSelected.salonName}</span>
+                    <button type="button" onClick={() => { setReportSalonSelected(null); setReportSalonQuery(''); setReportSalonHits([]); }} className="text-rose-700 hover:underline shrink-0 cursor-pointer">
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={reportSalonQuery}
+                      onChange={(e) => void handleReportSalonQuery(e.target.value)}
+                      className="w-full p-3 rounded-xl border border-[#e0bec6]/60 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-rose-600 focus:border-rose-600"
+                      placeholder="e.g. Lumière Salon and Spa"
+                    />
+                    {reportSalonHits.length > 0 && (
+                      <div className="max-h-36 overflow-y-auto rounded-xl border border-[#e0bec6]/60 divide-y divide-[#e0bec6]/30">
+                        {reportSalonHits.map((hit) => (
+                          <button
+                            key={hit.salonId}
+                            type="button"
+                            onClick={() => { setReportSalonSelected(hit); setReportSalonHits([]); }}
+                            className="w-full text-left p-2.5 hover:bg-rose-50 text-xs cursor-pointer"
+                          >
+                            <span className="block font-bold text-[#1c1b1b]">{hit.salonName}</span>
+                            {(hit.city || hit.state) && (
+                              <span className="block text-[10px] text-[#594047]">{[hit.city, hit.state].filter(Boolean).join(', ')}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
 
               <div className="flex flex-col gap-1">
@@ -1104,6 +1301,11 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
                 />
               </div>
 
+              {reportEmployerError && (
+                <p role="alert" className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                  {reportEmployerError}
+                </p>
+              )}
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
@@ -1114,10 +1316,11 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack, onNavigate
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-full shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  disabled={reportEmployerBusy}
+                  className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-bold text-xs rounded-full shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                 >
                   <AlertOctagon className="w-3.5 h-3.5" />
-                  <span>Submit Safety Case</span>
+                  <span>{reportEmployerBusy ? 'Submitting…' : 'Submit Safety Case'}</span>
                 </button>
               </div>
             </form>

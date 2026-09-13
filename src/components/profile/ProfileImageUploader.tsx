@@ -1,4 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { logger } from '../../lib/logger';
+import { requireSupabase } from '../../lib/supabase';
+import {
+  MEDIA_BUCKETS,
+  deleteMediaObject,
+  isRemoteUrl,
+  isStoragePath,
+  uploadAvatar,
+} from '../../lib/storageMedia';
+import { mapBackendError } from '../../services/backend';
 import {
   Camera,
   Upload,
@@ -63,6 +73,11 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'presets'>('camera');
   const [selectedImage, setSelectedImage] = useState<string | null>(currentAvatar || null);
+  // The raw bytes behind a fresh capture/upload. Presets and the unchanged
+  // current avatar have no bytes here and pass through untouched.
+  const [selectedFile, setSelectedFile] = useState<Blob | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   
   // Camera States
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -124,7 +139,7 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
         setCameraError('Camera access is not supported on your browser or device.');
       }
     } catch (err: any) {
-      console.warn('Camera could not be started:', err);
+      logger('media').warn('camera could not be started', { name: err?.name, message: err?.message });
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         setCameraError('Camera permission was denied. Please allow camera permissions in your browser settings.');
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError' || err.message?.includes('device not found')) {
@@ -197,6 +212,9 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
       setCapturedPhoto(dataUrl);
       setSelectedImage(dataUrl);
+      canvas.toBlob((blob) => {
+        if (blob) setSelectedFile(blob);
+      }, 'image/jpeg', 0.92);
       stopCameraStream();
     }
   };
@@ -209,6 +227,7 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
         alert('Please select a valid image file.');
         return;
       }
+      setSelectedFile(file);
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
@@ -219,14 +238,44 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
     }
   };
 
-  const handleSave = () => {
-    onSaveAvatar(selectedImage || undefined);
-    onClose();
+  const removeOldStorageAvatar = (next: string | null) => {
+    // Best-effort cleanup of the replaced object; the DB update already won.
+    if (currentAvatar && isStoragePath(currentAvatar) && currentAvatar !== next) {
+      void deleteMediaObject(MEDIA_BUCKETS.profileMedia, currentAvatar);
+    }
+  };
+
+  const handleSave = async () => {
+    if (isSaving) return;
+    // Unchanged avatar or a remote preset URL: nothing to upload.
+    if (!selectedFile || !selectedImage || isRemoteUrl(selectedImage)) {
+      onSaveAvatar(selectedImage || undefined);
+      onClose();
+      return;
+    }
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const { data: userData, error: userError } = await requireSupabase().auth.getUser();
+      if (userError) throw userError;
+      const userId = userData.user?.id;
+      if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+      const storagePath = await uploadAvatar(userId, selectedFile);
+      removeOldStorageAvatar(storagePath);
+      onSaveAvatar(storagePath);
+      onClose();
+    } catch (error) {
+      setSaveError(mapBackendError(error, 'Unable to save your photo.'));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleRemovePhoto = () => {
     setSelectedImage(null);
     setCapturedPhoto(null);
+    setSelectedFile(null);
+    removeOldStorageAvatar(null);
     onSaveAvatar(undefined);
     onClose();
   };
@@ -458,7 +507,7 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
                 {PRESET_HEADSHOTS.map((preset) => (
                   <button
                     key={preset.id}
-                    onClick={() => setSelectedImage(preset.url)}
+                    onClick={() => { setSelectedImage(preset.url); setSelectedFile(null); }}
                     className={`relative rounded-2xl overflow-hidden border-2 transition-all cursor-pointer group aspect-square ${
                       selectedImage === preset.url
                         ? 'border-[#e2007c] ring-2 ring-[#e2007c]/40 shadow-md scale-102'
@@ -500,21 +549,28 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
             <div />
           )}
 
-          <div className="flex gap-2.5">
-            <button
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-full border border-[#e0bec6] bg-white text-[#594047] hover:bg-gray-50 text-xs font-bold transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={!selectedImage}
-              className="px-6 py-2.5 rounded-full bg-[#e2007c] hover:bg-[#b90064] disabled:opacity-50 text-white text-xs font-extrabold shadow-md transition-all cursor-pointer flex items-center gap-1.5"
-            >
-              <Check className="w-4 h-4" />
-              <span>Save Profile Photo</span>
-            </button>
+          <div className="flex flex-col items-end gap-2">
+            {saveError && (
+              <p role="alert" className="text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-1.5">
+                {saveError}
+              </p>
+            )}
+            <div className="flex gap-2.5">
+              <button
+                onClick={onClose}
+                className="px-5 py-2.5 rounded-full border border-[#e0bec6] bg-white text-[#594047] hover:bg-gray-50 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!selectedImage || isSaving}
+                className="px-6 py-2.5 rounded-full bg-[#e2007c] hover:bg-[#b90064] disabled:opacity-50 text-white text-xs font-extrabold shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                <span>{isSaving ? 'Saving…' : 'Save Profile Photo'}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

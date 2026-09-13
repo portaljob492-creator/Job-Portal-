@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { JobPosting, Application, UserProfile } from '../../types';
+import React, { useEffect, useState } from 'react';
+import { JobPosting, Application, ResumeFile, UserProfile } from '../../types';
+import { listResumes } from '../../services/backend';
 import { motion, AnimatePresence } from 'motion/react';
 import { Check, Send, ArrowLeft, Info, FileText, Briefcase, Sparkles, User, AlertTriangle } from 'lucide-react';
 
@@ -8,7 +9,7 @@ interface ApplyJobScreenProps {
   selectedJob: JobPosting | null;
   applications: Application[];
   userProfile: UserProfile;
-  onApplyJob: (job: JobPosting, coverNote: string, expectedSalary: string, availability: string) => void;
+  onApplyJob: (job: JobPosting, coverNote: string, expectedSalary: string, availability: string, resumeId?: string) => void;
   onBack: () => void;
   onNavigateToApplications?: () => void;
 }
@@ -36,6 +37,22 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [errorToast, setErrorToast] = useState<string | null>(null);
 
+  // The primary resume attaches to the application (optional but recommended).
+  const [resumes, setResumes] = useState<ResumeFile[]>([]);
+  const [selectedResumeId, setSelectedResumeId] = useState<string>('');
+  useEffect(() => {
+    let cancelled = false;
+    listResumes()
+      .then((files) => {
+        if (cancelled) return;
+        setResumes(files);
+        const primary = files.find((file) => file.isPrimary) ?? files[0];
+        if (primary) setSelectedResumeId(primary.id);
+      })
+      .catch(() => { if (!cancelled) setResumes([]); });
+    return () => { cancelled = true; };
+  }, []);
+
   if (!selectedJob) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center p-8 text-center bg-background">
@@ -61,7 +78,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
     }
     
     // Call the parent state handler to persist the application
-    onApplyJob(selectedJob, coverNote, expectedSalary, availability);
+    onApplyJob(selectedJob, coverNote, expectedSalary, availability, selectedResumeId || undefined);
     
     // Trigger successful animation transition state
     setIsSubmitted(true);
@@ -182,18 +199,48 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
             {/* Resume Section */}
             <section className="mb-6">
               <h2 className="font-section-title text-section-title text-on-surface mb-3">Resume Attachment</h2>
-              <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="bg-error-container/20 text-error p-2 rounded-lg">
-                    <FileText className="w-6 h-6 text-error" />
-                  </div>
-                  <div>
-                    <p className="font-body-md text-sm font-medium text-on-surface">Anjali_Resume_2024.pdf</p>
-                    <p className="font-label-sm text-xs text-on-surface-variant">2.4 MB • Uploaded Today</p>
-                  </div>
+              {resumes.length === 0 ? (
+                <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)]">
+                  <p className="font-body-md text-sm text-on-surface-variant">
+                    No resume on your profile yet. Upload one under Profile → Resume to attach it automatically — you can still apply without it.
+                  </p>
                 </div>
-                <span className="text-primary font-label-sm text-xs font-semibold cursor-pointer hover:underline">View</span>
-              </div>
+              ) : (
+                <div className="bg-surface-container-lowest border border-surface-variant rounded-lg p-4 shadow-[0_4px_12px_rgba(90,63,71,0.05)] space-y-3">
+                  {resumes.map((resume) => (
+                    <label key={resume.id} className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="apply-resume"
+                        checked={selectedResumeId === resume.id}
+                        onChange={() => setSelectedResumeId(resume.id)}
+                        disabled={hasAlreadyApplied}
+                        className="accent-[#b90064] w-4 h-4"
+                      />
+                      <div className="bg-error-container/20 text-error p-2 rounded-lg">
+                        <FileText className="w-6 h-6 text-error" />
+                      </div>
+                      <div>
+                        <p className="font-body-md text-sm font-medium text-on-surface">
+                          {resume.fileName}
+                          {resume.isPrimary && <span className="ml-2 text-[10px] font-bold uppercase text-primary">Primary</span>}
+                        </p>
+                        <p className="font-label-sm text-xs text-on-surface-variant">
+                          {(resume.fileSize / 1024 / 1024).toFixed(1)} MB • Uploaded {new Date(resume.uploadedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedResumeId('')}
+                    disabled={hasAlreadyApplied || !selectedResumeId}
+                    className="text-primary font-label-sm text-xs font-semibold hover:underline disabled:opacity-40 cursor-pointer"
+                  >
+                    Apply without a resume
+                  </button>
+                </div>
+              )}
             </section>
 
             {/* Duplicate Application Warning banner */}

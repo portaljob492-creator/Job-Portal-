@@ -1,5 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { logger } from '../../lib/logger';
+import { requireSupabase } from '../../lib/supabase';
 import { PortfolioItem } from '../../types';
+import {
+  MEDIA_BUCKETS,
+  isStoragePath,
+  pickDisplayUrl,
+  resolveStorageUrls,
+  uploadPortfolioImage,
+} from '../../lib/storageMedia';
+import { deletePortfolioItem, mapBackendError, savePortfolioItem } from '../../services/backend';
 import {
   Camera,
   Upload,
@@ -84,6 +94,31 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
   const [techniqueInput, setTechniqueInput] = useState('');
   const [descriptionInput, setDescriptionInput] = useState('');
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  // Bytes staged by a fresh capture/upload. Presets and unchanged edits have
+  // no bytes here, so saving them never re-uploads or rewrites the value.
+  const [stagedFile, setStagedFile] = useState<Blob | null>(null);
+  const [imageChanged, setImageChanged] = useState(false);
+  const [isSavingItem, setIsSavingItem] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Storage paths resolve to signed display URLs; remote URLs pass through.
+  const resolvedUrlsRef = useRef<Map<string, string>>(new Map());
+  const [, forceDisplayTick] = useState(0);
+  useEffect(() => {
+    const missing = items
+      .map((item) => item.imageUrl)
+      .filter((value) => isStoragePath(value) && !resolvedUrlsRef.current.has(value));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    resolveStorageUrls(MEDIA_BUCKETS.profileMedia, missing).then((resolved) => {
+      if (cancelled || resolved.size === 0) return;
+      resolved.forEach((url, path) => resolvedUrlsRef.current.set(path, url));
+      forceDisplayTick((tick) => tick + 1);
+    });
+    return () => { cancelled = true; };
+  }, [items]);
+  const displayImageUrl = (imageUrl: string): string =>
+    pickDisplayUrl(imageUrl, resolvedUrlsRef.current) || imageUrl;
 
   // Camera stream controls
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -148,7 +183,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
         setCameraError('Camera access is not supported by your browser.');
       }
     } catch (err: any) {
-      console.warn('Camera could not be started in portfolio gallery:', err);
+      logger('media').warn('camera could not be started in portfolio gallery', { name: err?.name, message: err?.message });
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         setCameraError('Camera permission was denied. Please allow camera permissions in your browser settings.');
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError' || err.message?.includes('device not found')) {
@@ -184,8 +219,11 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
       setCategoryInput(item.category);
       setTechniqueInput(item.technique || '');
       setDescriptionInput(item.description || '');
-      setPreviewImageUrl(item.imageUrl);
+      setPreviewImageUrl(displayImageUrl(item.imageUrl));
     }
+    setStagedFile(null);
+    setImageChanged(false);
+    setSaveError(null);
     setModalTab('camera');
   };
 
@@ -208,6 +246,10 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
       setPreviewImageUrl(dataUrl);
+      setImageChanged(true);
+      canvas.toBlob((blob) => {
+        if (blob) setStagedFile(blob);
+      }, 'image/jpeg', 0.9);
       stopCameraStream();
     }
   };
@@ -215,6 +257,8 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setStagedFile(file);
+      setImageChanged(true);
       const reader = new FileReader();
       reader.onload = () => {
         setPreviewImageUrl(reader.result as string);
@@ -223,37 +267,76 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
     }
   };
 
-  const handleSavePortfolioItem = () => {
+  const handleSavePortfolioItem = async () => {
     if (!previewImageUrl) {
-      alert('Please snap a photo or choose an image for your work sample.');
+      setSaveError('Snap a photo or choose an image for your work sample.');
       return;
     }
+    if (isSavingItem) return;
+    const editing = activeItemModal && activeItemModal !== 'new' ? activeItemModal : null;
+    setIsSavingItem(true);
+    setSaveError(null);
+    try {
+      // Fresh bytes upload to Storage; presets persist as remote URLs; an
+      // unchanged edit keeps the stored value (never a signed display URL).
+      let imageValue = previewImageUrl;
+      if (stagedFile) {
+        const { data: userData, error: userError } = await requireSupabase().auth.getUser();
+        if (userError) throw userError;
+        const userId = userData.user?.id;
+        if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+        imageValue = await uploadPortfolioImage(userId, stagedFile);
+      } else if (editing && !imageChanged) {
+        imageValue = editing.imageUrl;
+      }
 
-    const newItem: PortfolioItem = {
-      id: activeItemModal && activeItemModal !== 'new' ? activeItemModal.id : `port-${Date.now()}`,
-      title: titleInput.trim() || 'Work Transformation Sample',
-      category: categoryInput,
-      imageUrl: previewImageUrl,
-      technique: techniqueInput.trim() || 'Custom Technique',
-      description: descriptionInput.trim() || 'Captured with camera',
-      date: 'Just Now',
-      isPlaceholder: false
-    };
+      const newItem: PortfolioItem = {
+        id: editing ? editing.id : crypto.randomUUID(),
+        title: titleInput.trim() || 'Work Transformation Sample',
+        category: categoryInput,
+        imageUrl: imageValue,
+        technique: techniqueInput.trim() || 'Custom Technique',
+        description: descriptionInput.trim() || 'Captured with camera',
+        date: editing?.date || new Date().toISOString().slice(0, 10),
+        isPlaceholder: false
+      };
 
-    if (activeItemModal === 'new') {
-      onUpdateItems([newItem, ...items]);
-    } else if (activeItemModal) {
-      onUpdateItems(items.map((it) => (it.id === activeItemModal.id ? newItem : it)));
+      const previousItems = items;
+      if (activeItemModal === 'new') {
+        onUpdateItems([newItem, ...items]);
+      } else if (editing) {
+        onUpdateItems(items.map((it) => (it.id === editing.id ? newItem : it)));
+      }
+      try {
+        await savePortfolioItem(newItem);
+      } catch (persistError) {
+        onUpdateItems(previousItems);
+        throw persistError;
+      }
+      handleCloseModal();
+    } catch (error) {
+      setSaveError(mapBackendError(error, 'Unable to save your work sample.'));
+    } finally {
+      setIsSavingItem(false);
     }
-
-    handleCloseModal();
   };
 
-  const handleDeleteItem = (id: string, e: React.MouseEvent) => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  const handleDeleteItem = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Are you sure you want to remove this work sample from your portfolio?')) {
+      const previousItems = items;
       onUpdateItems(items.filter((it) => it.id !== id));
       if (lightboxItem?.id === id) setLightboxItem(null);
+      // Local-only legacy ids were never persisted; nothing to delete remotely.
+      if (!UUID_RE.test(id)) return;
+      try {
+        await deletePortfolioItem(id);
+      } catch (error) {
+        onUpdateItems(previousItems);
+        alert(mapBackendError(error, 'Unable to remove your work sample.'));
+      }
     }
   };
 
@@ -331,7 +414,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
               {/* Photo Thumbnail Container */}
               <div className="relative aspect-4/3 w-full bg-[#f1edec] overflow-hidden">
                 <img
-                  src={item.imageUrl}
+                  src={displayImageUrl(item.imageUrl)}
                   alt={item.title}
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -602,7 +685,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
                   <button
                     key={idx}
                     onClick={() => {
-                      setPreviewImageUrl(preset.url);
+                      { setPreviewImageUrl(preset.url); setStagedFile(null); setImageChanged(true); }
                       setTitleInput(preset.title);
                       setCategoryInput(preset.category);
                       setTechniqueInput(preset.technique);
@@ -684,6 +767,11 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
             </div>
 
             {/* Modal Actions */}
+            {saveError && (
+              <p role="alert" className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                {saveError}
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-2 border-t border-[#e0bec6]/30">
               <button
                 onClick={handleCloseModal}
@@ -693,9 +781,10 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
               </button>
               <button
                 onClick={handleSavePortfolioItem}
-                className="px-6 py-2 rounded-full bg-[#8e004b] text-white text-xs font-bold hover:bg-[#b90064] shadow-md flex items-center gap-1.5"
+                disabled={isSavingItem}
+                className="px-6 py-2 rounded-full bg-[#8e004b] text-white text-xs font-bold hover:bg-[#b90064] shadow-md flex items-center gap-1.5 disabled:opacity-60"
               >
-                <Check className="w-4 h-4" /> Save to Portfolio
+                <Check className="w-4 h-4" /> {isSavingItem ? 'Saving…' : 'Save to Portfolio'}
               </button>
             </div>
           </div>
@@ -715,7 +804,7 @@ export const PortfolioGallery: React.FC<PortfolioGalleryProps> = ({
 
             <div className="md:w-1/2 bg-black aspect-square md:aspect-auto flex items-center justify-center">
               <img
-                src={lightboxItem.imageUrl}
+                src={displayImageUrl(lightboxItem.imageUrl)}
                 alt={lightboxItem.title}
                 className="w-full h-full object-cover"
               />

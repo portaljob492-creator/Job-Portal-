@@ -14,7 +14,11 @@
     "test:location": "tsx scripts/test-location-sync.mjs",
     "test:recovery": "node scripts/test-password-recovery.mjs",
     "test:pwa": "npm run build && node scripts/test-pwa.mjs",
+    "test:sprint1": "tsx scripts/test-sprint1.mjs",
+    "test:auth": "tsx scripts/test-auth-hardening.mjs",
     "test:reset": "tsx scripts/test-password-reset.mjs",
+    "test:db": "node scripts/test-backend-db.mjs",
+    "test:contract": "node scripts/test-backend-contract.mjs",
     "check:supabase": "node scripts/verify-supabase-config.mjs",
     "admin:reset-password": "tsx scripts/reset-user-password.mjs"
   },
@@ -34,6 +38,7 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/ws": "^8.18.1",

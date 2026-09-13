@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { JobPosting, Applicant, UserProfile, Conversation, ChatMessage } from '../../types';
+import React, { useEffect, useState } from 'react';
+import { JobPosting, Applicant, UserProfile, Conversation, ChatMessage, PortfolioItem } from '../../types';
+import { getApplicantPortfolio } from '../../services/backend';
+import type { InterviewSchedulePayload } from '../../lib/interviewSchedule';
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
 import { MessagingCenter } from '../messaging/MessagingCenter';
 import { PortfolioGallery } from '../profile/PortfolioGallery';
 import { RegionalSalaryAnalytics } from './RegionalSalaryAnalytics';
-import { INITIAL_PORTFOLIO_ITEMS } from '../../data/mockData';
 import { PostJobWizard } from './PostJobWizard';
 import { RequestInterviewScreen } from './RequestInterviewScreen';
 import { EmployerInterviewsTab } from './EmployerInterviewsTab';
@@ -50,6 +51,12 @@ interface EmployerWorkspaceProps {
   userProfile: UserProfile;
   onAddJob: (newJob: JobPosting) => Promise<void> | void;
   onUpdateApplicantStatus: (applicantId: string, status: Applicant['status']) => void;
+  /** Persists a real interview row from the scheduling form payload. */
+  onScheduleInterview: (applicantId: string, payload: InterviewSchedulePayload) => Promise<void>;
+  /** Moves an interview to a new start time. */
+  onRescheduleInterview?: (interviewId: string, newStartIso: string) => Promise<void>;
+  /** Marks a confirmed interview complete. */
+  onCompleteInterview?: (interviewId: string) => Promise<void>;
   /** Sends the offer through the backend (`send_job_offer`) for this applicant. */
   onSendOffer?: (
     applicantId: string,
@@ -71,6 +78,9 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   userProfile,
   onAddJob,
   onUpdateApplicantStatus,
+  onScheduleInterview,
+  onRescheduleInterview,
+  onCompleteInterview,
   onSendOffer,
   onSendMessage,
   onStartConversation,
@@ -104,7 +114,25 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   const [candidateFilter, setCandidateFilter] = useState<string>('All');
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [showScheduleModal, setShowScheduleModal] = useState<boolean>(false);
-  const [interviewTime, setInterviewTime] = useState<string>('Tuesday, Aug 12 at 2:00 PM');
+  const [isScheduling, setIsScheduling] = useState<boolean>(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [applicantPortfolio, setApplicantPortfolio] = useState<PortfolioItem[]>([]);
+  const [applicantPortfolioLoading, setApplicantPortfolioLoading] = useState<boolean>(false);
+
+  // The employer's read-only view of the applicant's real portfolio items.
+  useEffect(() => {
+    if (!viewingPortfolioApplicant?.candidateProfileId) {
+      setApplicantPortfolio([]);
+      return;
+    }
+    let cancelled = false;
+    setApplicantPortfolioLoading(true);
+    getApplicantPortfolio(viewingPortfolioApplicant.candidateProfileId)
+      .then((items) => { if (!cancelled) setApplicantPortfolio(items); })
+      .catch(() => { if (!cancelled) setApplicantPortfolio([]); })
+      .finally(() => { if (!cancelled) setApplicantPortfolioLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewingPortfolioApplicant]);
 
   const filteredApplicants = applicants.filter((a) => {
     if (candidateFilter === 'All') return true;
@@ -143,12 +171,24 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     setTitle('');
   };
 
-  const handleScheduleConfirm = () => {
-    if (selectedApplicant) {
-      onUpdateApplicantStatus(selectedApplicant.id, 'Interview Scheduled');
+  const handleScheduleConfirm = async (payload: InterviewSchedulePayload) => {
+    if (!selectedApplicant || isScheduling) return;
+    setIsScheduling(true);
+    setScheduleError(null);
+    try {
+      await onScheduleInterview(selectedApplicant.id, payload);
       setShowScheduleModal(false);
       setSelectedApplicant(null);
+    } catch (error) {
+      setScheduleError(error instanceof Error ? error.message : 'Unable to schedule the interview.');
+    } finally {
+      setIsScheduling(false);
     }
+  };
+
+  const closeScheduleModal = () => {
+    setShowScheduleModal(false);
+    setScheduleError(null);
   };
 
   const NavItem = ({ icon: Icon, label, tab, filledIcon = false }: { icon: any, label: string, tab: any, filledIcon?: boolean }) => {
@@ -648,9 +688,18 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                     <div className="mt-auto flex flex-col gap-2">
                       <select
                         value={applicant.status}
-                        onChange={(e) =>
-                          onUpdateApplicantStatus(applicant.id, e.target.value as Applicant['status'])
-                        }
+                        onChange={(e) => {
+                          const next = e.target.value as Applicant['status'];
+                          if (next === 'Interview Scheduled') {
+                            // Interviews need a real date/time/location: open
+                            // the scheduling form instead of flipping status.
+                            setSelectedApplicant(applicant);
+                            setScheduleError(null);
+                            setShowScheduleModal(true);
+                            return;
+                          }
+                          onUpdateApplicantStatus(applicant.id, next);
+                        }}
                         className="w-full text-[13px] font-semibold bg-[#f7f2f2] text-[#8e004b] rounded-full px-4 py-2 border border-[#e0bec6] outline-none cursor-pointer text-center appearance-none"
                       >
                         <option value="New">Status: New</option>
@@ -697,7 +746,11 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
 
           {/* TAB: INTERVIEWS */}
           {activeTab === 'interviews' && (
-            <EmployerInterviewsTab applicants={applicants} />
+            <EmployerInterviewsTab
+              applicants={applicants}
+              onRescheduleInterview={onRescheduleInterview}
+              onCompleteInterview={onCompleteInterview}
+            />
           )}
 
           {/* TAB: MESSAGES */}
@@ -796,8 +849,10 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           applicantJobTitle={selectedApplicant.appliedJobTitle}
           applicantExp={selectedApplicant.experienceYears}
           applicantAvatar={selectedApplicant.avatarUrl}
-          onClose={() => setShowScheduleModal(false)}
+          onClose={closeScheduleModal}
           onConfirm={handleScheduleConfirm}
+          isSubmitting={isScheduling}
+          serverError={scheduleError}
         />
       )}
 
@@ -840,11 +895,19 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
               </button>
             </div>
 
-            <PortfolioGallery
-              items={INITIAL_PORTFOLIO_ITEMS}
-              onUpdateItems={() => {}}
-              isEditable={false}
-            />
+            {applicantPortfolioLoading ? (
+              <p className="text-center text-[13px] text-[#594047] py-10">Loading {viewingPortfolioApplicant.name.split(' ')[0]}&apos;s portfolio…</p>
+            ) : applicantPortfolio.length === 0 ? (
+              <p className="text-center text-[13px] text-[#594047] py-10">
+                {viewingPortfolioApplicant.name.split(' ')[0]} hasn&apos;t added portfolio work yet.
+              </p>
+            ) : (
+              <PortfolioGallery
+                items={applicantPortfolio}
+                onUpdateItems={() => {}}
+                isEditable={false}
+              />
+            )}
 
             <div className="flex justify-end pt-4 border-t border-[#e0bec6]/50">
               <button

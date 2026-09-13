@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   ArrowLeft, 
   Camera, 
@@ -25,7 +25,15 @@ import {
   X,
   HelpCircle
 } from 'lucide-react';
-import { UserProfile, PortfolioItem, SavedFilter } from '../../types';
+import { UserProfile, PortfolioItem, ResumeFile, SavedFilter } from '../../types';
+import {
+  deleteResume,
+  getResumeDownloadUrl,
+  listResumes,
+  mapBackendError,
+  setPrimaryResume,
+  uploadResume,
+} from '../../services/backend';
 
 interface SeekerProfileTabProps {
   userProfile: UserProfile;
@@ -139,9 +147,78 @@ export const SeekerProfileTab: React.FC<SeekerProfileTabProps> = ({
   ]);
   const [newCert, setNewCert] = useState<Partial<CertificationRecord>>({});
 
-  // Resume state
-  const [resumeName, setResumeName] = useState('Sarah_Jenkins_CV_2026.pdf');
+  // Resume state (real Storage-backed files, newest first)
+  const [resumes, setResumes] = useState<ResumeFile[]>([]);
+  const [resumesLoading, setResumesLoading] = useState(false);
+  const [resumeUploading, setResumeUploading] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setResumesLoading(true);
+    listResumes()
+      .then((files) => { if (!cancelled) setResumes(files); })
+      .catch(() => { if (!cancelled) setResumes([]); })
+      .finally(() => { if (!cancelled) setResumesLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const primaryResume = resumes.find((resume) => resume.isPrimary) ?? resumes[0];
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  };
+
+  const handleResumeFile = async (file: File | undefined) => {
+    if (!file || resumeUploading) return;
+    setResumeUploading(true);
+    setResumeError(null);
+    try {
+      const saved = await uploadResume(file);
+      setResumes((prev) => [saved, ...prev.map((item) => ({ ...item, isPrimary: false }))]);
+      triggerToast(`Uploaded & attached: ${saved.fileName}`);
+    } catch (error) {
+      setResumeError(mapBackendError(error, 'Unable to upload your resume.'));
+    } finally {
+      setResumeUploading(false);
+    }
+  };
+
+  const handleResumeDownload = async (resume: ResumeFile) => {
+    setResumeError(null);
+    try {
+      const url = await getResumeDownloadUrl(resume.storagePath);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setResumeError(mapBackendError(error, 'Unable to open your resume.'));
+    }
+  };
+
+  const handleResumeDelete = async (resume: ResumeFile) => {
+    if (!window.confirm(`Remove ${resume.fileName} from your profile?`)) return;
+    setResumeError(null);
+    try {
+      await deleteResume(resume.id);
+      setResumes((prev) => prev.filter((item) => item.id !== resume.id));
+      triggerToast('Resume removed');
+    } catch (error) {
+      setResumeError(mapBackendError(error, 'Unable to remove your resume.'));
+    }
+  };
+
+  const handleResumeMakePrimary = async (resume: ResumeFile) => {
+    if (resume.isPrimary) return;
+    setResumeError(null);
+    try {
+      await setPrimaryResume(resume.id);
+      setResumes((prev) => prev.map((item) => ({ ...item, isPrimary: item.id === resume.id })));
+      triggerToast('Primary resume updated');
+    } catch (error) {
+      setResumeError(mapBackendError(error, 'Unable to update your resume.'));
+    }
+  };
 
   // Preferences states
   const [expectedSalary, setExpectedSalary] = useState('₹6,00,000 - ₹8,00,000 / year');
@@ -431,7 +508,9 @@ export const SeekerProfileTab: React.FC<SeekerProfileTabProps> = ({
                 </div>
                 <div className="text-left">
                   <span className="block text-sm font-bold text-[#1c1b1b]">Professional Resume & CV</span>
-                  <span className="block text-xs text-[#594047] font-medium mt-0.5">Current: {resumeName}</span>
+                  <span className="block text-xs text-[#594047] font-medium mt-0.5">
+                    Current: {resumesLoading ? 'Loading…' : primaryResume ? primaryResume.fileName : 'No resume uploaded yet'}
+                  </span>
                 </div>
               </div>
               <ChevronRight className="w-4 h-4 text-[#8c7077]" />
@@ -919,10 +998,7 @@ export const SeekerProfileTab: React.FC<SeekerProfileTabProps> = ({
                     e.preventDefault();
                     setIsDraggingOver(false);
                     const file = e.dataTransfer.files?.[0];
-                    if (file) {
-                      setResumeName(file.name);
-                      triggerToast(`Dropped & updated: ${file.name}`);
-                    }
+                    if (file) void handleResumeFile(file);
                   }}
                   className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
                     isDraggingOver 
@@ -943,35 +1019,77 @@ export const SeekerProfileTab: React.FC<SeekerProfileTabProps> = ({
                       accept=".pdf,.doc,.docx" 
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) {
-                          setResumeName(file.name);
-                          triggerToast(`Selected: ${file.name}`);
-                        }
+                        if (file) void handleResumeFile(file);
+                        e.target.value = '';
                       }}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
                     />
                   </div>
                 </div>
 
-                <div className="bg-[#fdf8f8] border border-[#e0bec6]/60 p-4 rounded-xl flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center shrink-0">
-                      <FileText className="w-5.5 h-5.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-[#1c1b1b] truncate">{resumeName}</p>
-                      <p className="text-[10px] text-[#8c7077]">Ready and attached automatically to new applications</p>
-                    </div>
+                {resumeUploading && (
+                  <p className="text-xs font-semibold text-[#8e004b]">Uploading your resume…</p>
+                )}
+                {resumeError && (
+                  <p role="alert" className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                    {resumeError}
+                  </p>
+                )}
+                {resumesLoading ? (
+                  <p className="text-xs text-[#594047]">Loading your resumes…</p>
+                ) : resumes.length === 0 ? (
+                  <p className="text-xs text-[#594047] bg-[#fdf8f8] border border-dashed border-[#e0bec6] rounded-xl p-4 text-center">
+                    No resume yet. Upload a PDF, DOC or DOCX (max 5MB) — your primary resume attaches automatically to new applications.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {resumes.map((resume) => (
+                      <div key={resume.id} className="bg-[#fdf8f8] border border-[#e0bec6]/60 p-4 rounded-xl flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-[#ffd9e2] text-[#8e004b] flex items-center justify-center shrink-0">
+                            <FileText className="w-5.5 h-5.5" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-[#1c1b1b] truncate">
+                              {resume.fileName}
+                              {resume.isPrimary && (
+                                <span className="ml-2 text-[10px] font-extrabold uppercase tracking-wide text-[#8e004b] bg-[#ffd9e2] px-2 py-0.5 rounded-full">Primary</span>
+                              )}
+                            </p>
+                            <p className="text-[10px] text-[#8c7077]">
+                              {formatFileSize(resume.fileSize)} • Uploaded {new Date(resume.uploadedAt).toLocaleDateString()}
+                            </p>
+                            {!resume.isPrimary && (
+                              <button
+                                onClick={() => void handleResumeMakePrimary(resume)}
+                                className="text-[10px] font-bold text-[#b90064] hover:underline cursor-pointer mt-0.5"
+                              >
+                                Make primary
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => void handleResumeDownload(resume)}
+                            className="w-8 h-8 rounded-full bg-white border border-[#e0bec6]/60 flex items-center justify-center text-[#8e004b] hover:bg-[#ffd9e2]/30 cursor-pointer"
+                            title="Open current file"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => void handleResumeDelete(resume)}
+                            className="w-8 h-8 rounded-full bg-white border border-[#e0bec6]/60 flex items-center justify-center text-rose-600 hover:bg-rose-50 cursor-pointer"
+                            title="Remove file"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  
-                  <button 
-                    onClick={() => alert('Downloaded sample resume PDF')}
-                    className="w-8 h-8 rounded-full bg-white border border-[#e0bec6]/60 flex items-center justify-center text-[#8e004b] hover:bg-[#ffd9e2]/30 cursor-pointer"
-                    title="Download current file"
-                  >
-                    <Download className="w-4 h-4" />
-                  </button>
-                </div>
+                )}
               </div>
             )}
 

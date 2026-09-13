@@ -84,6 +84,35 @@ export interface Applicant {
   avatarUrl?: string;
   location?: string;
   skills?: string[];
+  /** Seeker-profile id behind this application (portfolio/resume reads). */
+  candidateProfileId?: string;
+  /** Interview rows for this application, newest first. */
+  interviews?: EmployerInterview[];
+}
+
+/** One interview row as the employer workspace consumes it. */
+export interface EmployerInterview {
+  id: string;
+  applicationId: string;
+  interviewType: 'in_person' | 'video' | 'phone';
+  scheduledStart: string;
+  durationMinutes: number;
+  locationText?: string;
+  meetingUrl?: string;
+  employerMessage?: string;
+  candidateMessage?: string;
+  status: 'requested' | 'confirmed' | 'reschedule_requested' | 'rescheduled' | 'declined' | 'cancelled' | 'completed';
+}
+
+/** One resume row owned by the signed-in seeker. */
+export interface ResumeFile {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  storagePath: string;
+  isPrimary: boolean;
+  uploadedAt: string;
 }
 
 export interface ChatMessage {
