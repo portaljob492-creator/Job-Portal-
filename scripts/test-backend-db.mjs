@@ -625,6 +625,27 @@ check('deleting an application cascades to interviews, offers and history',
   applicationOrphans.rows[0].history === 0,
   JSON.stringify(applicationOrphans.rows[0]));
 
+// User references: records owned by the user follow them when the account row
+// goes away, while hiring records are held back by RESTRICT (asserted above by
+// the JOB_HAS_APPLICATIONS guard for jobs, and by the FK catalog for the rest).
+const retired = uid(9);
+await db.exec(`
+  insert into auth.users(id,email) values ('${retired}','retired@example.com');
+  insert into public.profiles(id,full_name) values ('${retired}','Retired');
+  insert into public.job_account_deletion_requests(user_id,reason) values ('${retired}','probe');
+  insert into public.job_user_locations(user_id,latitude,longitude) values ('${retired}',26.9,75.8);
+  insert into public.job_saved_jobs(user_id,job_id) values ('${retired}','${job}');
+  delete from auth.users where id='${retired}';
+`);
+const retiredRows = await db.query(`
+  select
+    (select count(*)::int from public.profiles where id='${retired}')                        as profile,
+    (select count(*)::int from public.job_user_locations where user_id='${retired}')         as locations,
+    (select count(*)::int from public.job_saved_jobs where user_id='${retired}')             as bookmarks,
+    (select count(*)::int from public.job_account_deletion_requests where user_id='${retired}') as requests`);
+check('deleting an account removes the rows it owns',
+  Object.values(retiredRows.rows[0]).every((n) => n === 0), JSON.stringify(retiredRows.rows[0]));
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------

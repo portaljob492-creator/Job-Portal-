@@ -233,7 +233,39 @@ create index if not exists job_support_tickets_assigned_idx           on public.
 create index if not exists job_support_messages_sender_idx            on public.job_support_messages(sender_user_id);
 
 -- ---------------------------------------------------------------------------
--- 6. Documented state machine and cascade policy
+-- 6. User references: one row per user must follow the user; hiring records
+--    must not.
+--
+--    Every job table points at public.profiles (which itself cascades from
+--    auth.users). References to a user's own data cascade or null out. The
+--    hiring record - applications, interviews, offers, the job an employer
+--    published - deliberately uses RESTRICT: deleting an account must not
+--    silently erase the other side's history, so it goes through the
+--    account-deletion request flow instead. The one exception was the request
+--    row itself, which should disappear with the user.
+-- ---------------------------------------------------------------------------
+
+alter table public.job_account_deletion_requests
+  drop constraint if exists job_account_deletion_requests_user_id_fkey;
+alter table public.job_account_deletion_requests
+  add constraint job_account_deletion_requests_user_id_fkey
+  foreign key (user_id) references public.profiles(id) on delete cascade;
+
+comment on constraint job_applications_candidate_user_id_fkey on public.job_applications is
+  'RESTRICT by design: an application must keep its candidate and the employer''s hiring history. Erasure runs through job_account_deletion_requests.';
+comment on constraint job_interview_requests_candidate_user_id_fkey on public.job_interview_requests is
+  'RESTRICT by design: interview records survive account changes.';
+comment on constraint job_offers_candidate_user_id_fkey on public.job_offers is
+  'RESTRICT by design: offers are part of the hiring record.';
+comment on constraint job_posts_created_by_fkey on public.job_posts is
+  'RESTRICT by design: a published job must keep its author.';
+comment on constraint job_salon_profiles_owner_user_id_fkey on public.job_salon_profiles is
+  'RESTRICT by design: a salon always has an accountable owner.';
+comment on constraint job_support_tickets_user_id_fkey on public.job_support_tickets is
+  'RESTRICT by design: support history is retained.';
+
+-- ---------------------------------------------------------------------------
+-- 7. Documented state machine and cascade policy
 -- ---------------------------------------------------------------------------
 
 comment on function public.job_validate_application_transition() is
