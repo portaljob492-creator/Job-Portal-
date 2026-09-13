@@ -1,10 +1,13 @@
 import type { ScreenState, UserRole } from './types';
 
 export type SeekerTab = 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
+export type EmployerTab = 'dashboard' | 'jobs' | 'candidates';
 export interface JobPortalRoute {
   screen: ScreenState;
   protected: boolean;
   seekerTab?: SeekerTab;
+  employerTab?: EmployerTab;
+  openPostJob?: boolean;
   requiredRole?: UserRole;
 }
 
@@ -65,6 +68,14 @@ export function resolveJobPortalRoute(pathname = window.location.pathname): JobP
   if (relative.startsWith('/offers')) return { screen: 'job_offer', protected: true };
   if (relative.startsWith('/support')) return { screen: 'support', protected: true };
   if (relative.startsWith('/settings')) return { screen: 'settings', protected: true };
+  // Canonical Jobs-module routes. Keep these before the generic /jobs catch-all
+  // so /jobs/post-a-job never gets incorrectly forced into the seeker portal.
+  if (relative.startsWith('/jobs/profile')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'profile' };
+  if (relative.startsWith('/jobs/search')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
+  if (relative.startsWith('/jobs/applications')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'applications' };
+  if (relative.startsWith('/jobs/post-a-job')) return { screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'jobs', openPostJob: true };
+  if (relative.startsWith('/jobs/posted-jobs')) return { screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'jobs' };
+  if (relative.startsWith('/jobs/employer-applications')) return { screen: 'main_app', protected: true, requiredRole: 'employer', employerTab: 'candidates' };
   if (relative.startsWith('/jobs/apply')) return { screen: 'apply_job', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
   if (relative.startsWith('/jobs')) return { screen: 'main_app', protected: true, requiredRole: 'seeker', seekerTab: 'feed' };
   if (relative.startsWith('/admin/jobs')) return { screen: 'admin_jobs', protected: true, requiredRole: 'admin' };
@@ -72,7 +83,7 @@ export function resolveJobPortalRoute(pathname = window.location.pathname): JobP
   return { screen: 'welcome', protected: false };
 }
 
-export function pathForScreen(screen: ScreenState, role: UserRole, seekerTab?: SeekerTab) {
+export function pathForScreen(screen: ScreenState, role: UserRole, seekerTab?: SeekerTab, employerTab?: EmployerTab, openPostJob = false) {
   if (screen === 'welcome') return jobPortalPath();
   if (screen === 'role_select') return jobPortalPath('signup');
   if (screen === 'seeker_signup') return jobPortalPath('signup/seeker');
@@ -89,9 +100,14 @@ export function pathForScreen(screen: ScreenState, role: UserRole, seekerTab?: S
   if (screen === 'admin_login') return jobPortalPath('admin');
   if (screen === 'admin_jobs') return jobPortalPath('admin/jobs');
   if (screen === 'main_app') {
-    if (role === 'employer') return jobPortalPath('dashboard/employer');
+    if (role === 'employer') {
+      if (openPostJob) return jobPortalPath('jobs/post-a-job');
+      if (employerTab === 'jobs') return jobPortalPath('jobs/posted-jobs');
+      if (employerTab === 'candidates') return jobPortalPath('jobs/employer-applications');
+      return jobPortalPath('dashboard/employer');
+    }
     const tabPaths: Record<SeekerTab, string> = {
-      feed: 'dashboard/seeker', applications: 'applications', saved: 'saved', messages: 'messages', portfolio: 'portfolio', profile: 'profile',
+      feed: 'jobs/search', applications: 'jobs/applications', saved: 'saved', messages: 'messages', portfolio: 'portfolio', profile: 'jobs/profile',
     };
     return jobPortalPath(tabPaths[seekerTab || 'feed']);
   }

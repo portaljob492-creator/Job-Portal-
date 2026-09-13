@@ -105,6 +105,12 @@ assertCheck('login route resolves', resolveJobPortalRoute(loginPath()).screen ==
 assertCheck('universal /auth/login alias resolves to login', resolveJobPortalRoute('/auth/login').screen === 'login');
 assertCheck('/auth/login is not a protected route', resolveJobPortalRoute('/auth/login').protected === false);
 assertCheck('protected route still protected', resolveJobPortalRoute('/dashboard/seeker').protected === true);
+assertCheck('/jobs/profile opens the candidate profile', resolveJobPortalRoute('/jobs/profile').seekerTab === 'profile');
+assertCheck('/jobs/search opens job search', resolveJobPortalRoute('/jobs/search').seekerTab === 'feed');
+assertCheck('/jobs/applications opens submitted applications', resolveJobPortalRoute('/jobs/applications').seekerTab === 'applications');
+assertCheck('/jobs/post-a-job opens the employer wizard', resolveJobPortalRoute('/jobs/post-a-job').requiredRole === 'employer' && resolveJobPortalRoute('/jobs/post-a-job').openPostJob === true);
+assertCheck('/jobs/posted-jobs opens employer jobs', resolveJobPortalRoute('/jobs/posted-jobs').employerTab === 'jobs');
+assertCheck('/jobs/employer-applications opens employer candidates', resolveJobPortalRoute('/jobs/employer-applications').requiredRole === 'employer' && resolveJobPortalRoute('/jobs/employer-applications').employerTab === 'candidates');
 
 // ---------------------------------------------------------------------------
 // 3. Session validity classification

@@ -2,6 +2,8 @@ import type { Provider, User } from '@supabase/supabase-js';
 import type {
   Applicant,
   Application,
+  CandidateProfileInput,
+  CandidateProfileSubmission,
   ChatMessage,
   Conversation,
   EmployerInterview,
@@ -243,11 +245,11 @@ const applicationStatuses: Record<string, Application['status']> = {
   interview_confirmed: 'Interview Scheduled',
   interview_completed: 'Interview Scheduled',
   offer_sent: 'Offer Extended',
-  offer_accepted: 'Offer Extended',
-  hired: 'Offer Extended',
-  rejected: 'Under Review',
-  withdrawn: 'Under Review',
-  position_closed: 'Under Review',
+  offer_accepted: 'Accepted',
+  hired: 'Accepted',
+  rejected: 'Declined',
+  withdrawn: 'Declined',
+  position_closed: 'Declined',
 };
 const applicantStatuses: Record<string, Applicant['status']> = {
   submitted: 'New',
@@ -405,28 +407,13 @@ function mapSavedFilter(row: any): SavedFilter {
 }
 
 /**
- * Best-effort check for whether an account was created exclusively through an
- * OAuth provider (Google / Apple) and therefore has no local password set.
- *
- * Supabase returns the same "Invalid login credentials" error for both
- * "wrong password" and "no password at all", so the only reliable way to
- * distinguish them is to inspect the user's auth identities.  The
- * `job_account_has_password` RPC (a SECURITY DEFINER function that reads
- * `auth.identities`) returns a boolean. If the RPC has not been deployed the
- * check silently returns `false` so the login screen still works — it just
- * falls back to the generic "wrong password" card instead of the dedicated
- * OAuth-only card.
+ * Supabase deliberately returns the same error for a wrong password and an
+ * OAuth-only account. Do not add an anonymous email-enumeration RPC just to
+ * distinguish those cases; the recovery card already offers both password
+ * reset and social sign-in actions safely.
  */
-async function checkOAuthOnlyAccount(email: string): Promise<boolean> {
-  try {
-    const { data, error } = await requireSupabase().rpc('job_account_has_password', { p_email: email });
-    if (error) return false;
-    // The RPC returns `true` when a password identity exists, `false` when the
-    // account is OAuth-only.
-    return data === false;
-  } catch {
-    return false;
-  }
+async function checkOAuthOnlyAccount(_email: string): Promise<boolean> {
+  return false;
 }
 
 export interface SignUpInput {
@@ -788,17 +775,37 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const client = requireSupabase();
   const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
 
-  const [profileResult, candidateResult, membershipResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
+  // Resolve the employer's salon before reading posts. `job_posts` RLS also
+  // exposes approved public listings, so an unfiltered employer query mixed
+  // other salons into "My Jobs". The explicit salon predicate keeps this list
+  // scoped to the shop/workspace the signed-in member actually manages.
+  const membershipResult = await client
+    .from('job_salon_members')
+    .select('salon_id,member_role')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle();
+  if (membershipResult.error) throw membershipResult.error;
+  const membership: any = membershipResult.data;
+
+  const employerJobsQuery = client
+    .from('job_posts')
+    .select('*, location:job_salon_locations!job_posts_location_id_fkey(*)')
+    .order('created_at', { ascending: false });
+  if (membership?.salon_id) employerJobsQuery.eq('salon_id', membership.salon_id);
+  else employerJobsQuery.eq('created_by', user.id);
+
+  const [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
     // maybeSingle: a missing profiles row (marketplace trigger lag, legacy user)
     // must degrade to defaults, never fail the whole workspace load. The Jobs
     // signup trigger best-effort ensures the row; see migration
     // 20260913000600_jobs_profile_sync.sql.
     client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).maybeSingle(),
     client.from('job_seeker_profiles').select('*').eq('user_id', user.id).maybeSingle(),
-    client.from('job_salon_members').select('salon_id,member_role').eq('user_id', user.id).eq('status', 'active').limit(1).maybeSingle(),
     role === 'seeker'
       ? client.from('public_job_listings').select('*').order('published_at', { ascending: false })
-      : client.from('job_posts').select('*, location:job_salon_locations!job_posts_location_id_fkey(*)').order('created_at', { ascending: false }),
+      : employerJobsQuery,
     client.from('job_saved_jobs').select('job_id').eq('user_id', user.id),
     client.rpc('get_job_conversation_summaries'),
     client.from('job_messages').select('*').order('created_at', { ascending: true }),
@@ -811,7 +818,7 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     client.from('public_job_salon_profiles').select('*'),
   ]);
 
-  const error = [profileResult, candidateResult, membershipResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult]
+  const error = [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult]
     .map((result: any) => result.error)
     .find(Boolean);
   if (error) throw error;
@@ -819,14 +826,22 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const salonMap = new Map<string, any>((salonProfilesResult.data || []).map((s: any) => [s.id, s]));
 
   const candidate: any = candidateResult.data;
-  const [skillsResult, portfolioResult] = candidate
+  const [skillsResult, portfolioResult, experienceResult, educationResult, certificationsResult, preferencesResult, preferredRolesResult, employmentTypesResult] = candidate
     ? await Promise.all([
         client.from('job_candidate_skills').select('skill:job_skills(name)').eq('candidate_id', candidate.id),
         client.from('job_portfolio_items').select('*').eq('candidate_id', candidate.id).order('sort_order'),
+        client.from('job_candidate_experience').select('*').eq('candidate_id', candidate.id).order('sort_order'),
+        client.from('job_candidate_education').select('*').eq('candidate_id', candidate.id).order('completion_year', { ascending: false }),
+        client.from('job_candidate_certifications').select('*').eq('candidate_id', candidate.id).order('completion_year', { ascending: false }),
+        client.from('job_candidate_preferences').select('*').eq('candidate_id', candidate.id).maybeSingle(),
+        client.from('job_candidate_preferred_roles').select('role_name').eq('candidate_id', candidate.id),
+        client.from('job_candidate_employment_types').select('employment_type').eq('candidate_id', candidate.id),
       ])
-    : [{ data: [], error: null }, { data: [], error: null }];
-  if (skillsResult.error) throw skillsResult.error;
-  if (portfolioResult.error) throw portfolioResult.error;
+    : Array.from({ length: 8 }, () => ({ data: [], error: null })) as any;
+  const candidateDetailError = [skillsResult, portfolioResult, experienceResult, educationResult, certificationsResult, preferencesResult, preferredRolesResult, employmentTypesResult]
+    .map((result: any) => result.error)
+    .find(Boolean);
+  if (candidateDetailError) throw candidateDetailError;
 
   const profileRow: any = profileResult.data ?? {};
   // --- Sprint 1 media: legacy base64 -> Storage, then path -> signed URL. --
@@ -841,6 +856,9 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     profileRow.avatar_path || null,
   );
   if (migratedAvatar) profileRow.avatar_path = migratedAvatar;
+  // Keep the stable value before render-only signed URL resolution. Profile
+  // submissions persist this path, never an expiring signed URL.
+  const avatarStorageValue = profileRow.avatar_path || undefined;
   if (candidate) {
     await migratePortfolioToStorageIfNeeded(user.id, candidate.id, arrays<any>(portfolioResult.data));
   }
@@ -866,7 +884,6 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     resolveRowMedia(row, 'candidate_avatar_path');
     resolveRowMedia(row, 'employer_avatar_path');
   }
-  const membership: any = membershipResult.data;
   const salon = membership?.salon_id ? salonMap.get(membership.salon_id) : null;
   const savedFilters = arrays<any>(filtersResult.data).map(mapSavedFilter);
   const specialties = arrays<any>(skillsResult.data).map((row) => one<any>(row.skill)?.name).filter(Boolean) as string[];
@@ -879,6 +896,36 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     technique: row.technique || undefined,
     date: row.item_date || undefined,
   }));
+  const preference: any = Array.isArray(preferencesResult.data)
+    ? preferencesResult.data[0]
+    : preferencesResult.data;
+  const experience = arrays<any>(experienceResult.data).map((row) => ({
+    id: row.id,
+    salonName: row.salon_name,
+    roleTitle: row.role_title,
+    city: row.city || undefined,
+    state: row.state || undefined,
+    startDate: row.start_date,
+    endDate: row.end_date || undefined,
+    currentlyWorking: Boolean(row.currently_working),
+    description: row.description || undefined,
+  }));
+  const education = arrays<any>(educationResult.data).map((row) => ({
+    id: row.id,
+    courseName: row.course_name,
+    institutionName: row.institution_name || undefined,
+    completionYear: row.completion_year == null ? undefined : Number(row.completion_year),
+    description: row.description || undefined,
+  }));
+  const certifications = arrays<any>(certificationsResult.data).map((row) => ({
+    id: row.id,
+    certificateName: row.certificate_name,
+    institutionName: row.institution_name || undefined,
+    completionYear: row.completion_year == null ? undefined : Number(row.completion_year),
+    certificatePath: row.certificate_path || undefined,
+  }));
+  const preferredRoles = arrays<any>(preferredRolesResult.data).map((row) => row.role_name).filter(Boolean);
+  const employmentTypes = arrays<any>(employmentTypesResult.data).map((row) => row.employment_type).filter(Boolean);
 
   const bookmarkedIds = new Set(arrays<any>(bookmarksResult.data).map((row) => row.job_id));
   const jobRows = arrays<any>(jobsResult.data);
@@ -915,14 +962,35 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
       phone: profileRow.phone || '',
       role,
       avatarUrl: profileRow.avatar_path || undefined,
+      avatarPath: avatarStorageValue,
       businessName: salon?.name || undefined,
       contactPerson: profileRow.full_name || undefined,
-      location: salon && (salon.city || salon.state)
-        ? [salon.city, salon.state].filter(Boolean).join(', ')
-        : undefined,
+      location: role === 'seeker'
+        ? [candidate?.city, candidate?.state].filter(Boolean).join(', ') || undefined
+        : salon && (salon.city || salon.state)
+          ? [salon.city, salon.state].filter(Boolean).join(', ')
+          : undefined,
+      city: candidate?.city || undefined,
+      state: candidate?.state || undefined,
       specialties,
+      skills: specialties,
       primaryRole: candidate?.headline || specialties[0] || undefined,
       bio: candidate?.bio || salon?.description || undefined,
+      candidateId: candidate?.id || undefined,
+      profileCompletion: candidate == null ? 0 : Number(candidate.profile_completion || 0),
+      profileSubmittedAt: candidate?.submitted_at || undefined,
+      applicationReady: candidate != null && Number(candidate.profile_completion || 0) >= 50,
+      experienceLevel: candidate?.experience_level || undefined,
+      totalExperienceMonths: candidate == null ? 0 : Number(candidate.total_experience_months || 0),
+      expectedSalaryMin: candidate?.expected_salary_min == null ? preference?.salary_min == null ? undefined : Number(preference.salary_min) : Number(candidate.expected_salary_min),
+      expectedSalaryMax: candidate?.expected_salary_max == null ? preference?.salary_max == null ? undefined : Number(preference.salary_max) : Number(candidate.expected_salary_max),
+      availableFrom: candidate?.available_from || preference?.available_from || undefined,
+      openToRelocation: Boolean(candidate?.open_to_relocation ?? preference?.open_to_relocation),
+      preferredRoles,
+      employmentTypes,
+      experience,
+      education,
+      certifications,
       website: salon?.website_url || undefined,
       instagram: salon?.instagram_url || undefined,
       portfolioItems,
@@ -945,12 +1013,80 @@ export async function saveProfile(_userId: string, profile: UserProfile) {
   const { error } = await requireSupabase().rpc('job_save_profile', {
     p_full_name: profile.name,
     p_phone: profile.phone || null,
-    p_avatar_path: profile.avatarUrl || null,
+    p_avatar_path: profile.avatarPath || profile.avatarUrl || null,
     p_headline: profile.role === 'seeker' ? profile.primaryRole || null : null,
     p_bio: profile.role === 'seeker' ? profile.bio || null : null,
     p_display_name: profile.role === 'employer' ? profile.contactPerson || profile.name : null,
   });
   if (error) throw error;
+}
+
+/** Uploads a candidate headshot and returns its stable private Storage path. */
+export async function uploadCandidateAvatar(file: File): Promise<string> {
+  const client = requireSupabase();
+  const { data, error } = await client.auth.getUser();
+  if (error) throw error;
+  const userId = data.user?.id;
+  if (!userId) throw new Error('Your session is no longer valid. Please sign in again.');
+  return uploadAvatar(userId, file);
+}
+
+/**
+ * Atomic final action for the eight-step candidate profile. Every nested list
+ * is replaced inside the same database transaction and the server returns the
+ * authoritative id/completion/readiness shown on the confirmation screen.
+ */
+export async function submitCandidateProfile(input: CandidateProfileInput): Promise<CandidateProfileSubmission> {
+  const { data, error } = await requireSupabase().rpc('job_submit_candidate_profile', {
+    p_full_name: input.fullName,
+    p_phone: input.phone,
+    p_avatar_path: input.avatarPath || null,
+    p_headline: input.headline,
+    p_bio: input.bio || null,
+    p_city: input.city,
+    p_state: input.state,
+    p_experience_level: input.experienceLevel,
+    p_total_experience_months: input.totalExperienceMonths,
+    p_expected_salary_min: input.expectedSalaryMin ?? null,
+    p_expected_salary_max: input.expectedSalaryMax ?? null,
+    p_available_from: input.availableFrom || null,
+    p_open_to_relocation: input.openToRelocation,
+    p_skills: input.skills,
+    p_preferred_roles: input.preferredRoles,
+    p_employment_types: input.employmentTypes,
+    p_experience: input.experience.map((item, index) => ({
+      salon_name: item.salonName,
+      role_title: item.roleTitle,
+      city: item.city || null,
+      state: item.state || null,
+      start_date: item.startDate,
+      end_date: item.currentlyWorking ? null : item.endDate || null,
+      currently_working: item.currentlyWorking,
+      description: item.description || null,
+      sort_order: index,
+    })),
+    p_education: input.education.map((item) => ({
+      course_name: item.courseName,
+      institution_name: item.institutionName || null,
+      completion_year: item.completionYear ?? null,
+      description: item.description || null,
+    })),
+    p_certifications: input.certifications.map((item) => ({
+      certificate_name: item.certificateName,
+      institution_name: item.institutionName || null,
+      completion_year: item.completionYear ?? null,
+      certificate_path: item.certificatePath || null,
+    })),
+  });
+  if (error) throw error;
+  const row: any = Array.isArray(data) ? data[0] : data;
+  if (!row?.candidate_id) throw new Error('Profile saved, but its confirmation could not be loaded. Please retry.');
+  return {
+    candidateId: row.candidate_id,
+    profileCompletion: Number(row.profile_completion || 0),
+    applicationReady: Boolean(row.application_ready),
+    submittedAt: row.submitted_at,
+  };
 }
 
 /**
@@ -1061,17 +1197,17 @@ export async function createJob(_userId: string, job: JobPosting): Promise<JobPo
     p_category: job.category,
     p_description: job.description,
     p_employment_type: employmentToDb[job.jobType],
-    p_workplace_type: 'on_site',
-    p_experience_min_months: 0,
-    p_experience_max_months: null,
-    p_freshers_allowed: true,
-    p_salary_min: salary.minimum,
-    p_salary_max: salary.maximum,
-    p_pay_type: salary.payType,
+    p_workplace_type: job.workplaceType || 'on_site',
+    p_experience_min_months: job.experienceMinMonths ?? 0,
+    p_experience_max_months: job.experienceMaxMonths ?? null,
+    p_freshers_allowed: job.freshersAllowed ?? true,
+    p_salary_min: job.salaryMin ?? salary.minimum,
+    p_salary_max: job.salaryMax ?? salary.maximum,
+    p_pay_type: job.payType || salary.payType,
     p_benefits: job.benefits.join('\n'),
-    p_working_days: null,
-    p_working_hours: null,
-    p_openings: 1,
+    p_working_days: job.workingDays || null,
+    p_working_hours: job.workingHours || null,
+    p_openings: job.openings ?? 1,
     p_tags: job.tags,
     p_image_path: job.image || null,
   });

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile, Conversation, ChatMessage, JobAlertNotification } from './types';
+import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile, Conversation, ChatMessage, JobAlertNotification, CandidateProfileInput, CandidateProfileSubmission } from './types';
 import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERSATIONS, INITIAL_MESSAGES, INITIAL_PORTFOLIO_ITEMS, INITIAL_SAVED_FILTERS, INITIAL_JOB_ALERTS } from './data/mockData';
 import { processNewJobForAlerts } from './utils/jobAlertMatcher';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
@@ -17,6 +17,7 @@ import {
   pathForScreen,
   resolveJobPortalRoute,
   stripLoginPrefill,
+  type EmployerTab,
   type JobPortalRoute,
 } from './routing';
 import {
@@ -39,6 +40,7 @@ import {
   respondToInterview,
   respondToJobOffer,
   saveProfile,
+  submitCandidateProfile,
   scheduleInterview,
   sendJobOffer,
   sendMessageRecord,
@@ -93,6 +95,8 @@ export default function App() {
   const [selectedApplicationForInvitation, setSelectedApplicationForInvitation] = useState<Application | null>(null);
   const [selectedApplicationForOffer, setSelectedApplicationForOffer] = useState<Application | null>(null);
   const [seekerInitialTab, setSeekerInitialTab] = useState<'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile' | undefined>(initialRoute.seekerTab);
+  const [employerInitialTab, setEmployerInitialTab] = useState<EmployerTab | undefined>(initialRoute.employerTab);
+  const [openEmployerPostJob, setOpenEmployerPostJob] = useState(Boolean(initialRoute.openPostJob));
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isBackendLoading, setIsBackendLoading] = useState(isSupabaseConfigured);
   const [backendError, setBackendError] = useState<string | null>(null);
@@ -166,6 +170,8 @@ export default function App() {
       pendingProtectedRoute.current = null;
       if (requested && (!requested.requiredRole || requested.requiredRole === role)) {
         if (requested.seekerTab && role === 'seeker') setSeekerInitialTab(requested.seekerTab);
+        if (requested.employerTab && role === 'employer') setEmployerInitialTab(requested.employerTab);
+        if (role === 'employer') setOpenEmployerPostJob(Boolean(requested.openPostJob));
         setScreen(requested.screen === 'login' ? 'main_app' : requested.screen);
       } else {
         setScreen('main_app');
@@ -347,11 +353,11 @@ export default function App() {
 
   useEffect(() => {
     if (isBackendLoading) return;
-    const desiredPath = pathForScreen(screen, userRole, seekerInitialTab);
+    const desiredPath = pathForScreen(screen, userRole, seekerInitialTab, employerInitialTab, openEmployerPostJob);
     if (typeof window !== 'undefined' && window.location.pathname !== desiredPath) {
       window.history.replaceState({}, document.title, `${desiredPath}${window.location.search}`);
     }
-  }, [isBackendLoading, screen, seekerInitialTab, userRole]);
+  }, [employerInitialTab, isBackendLoading, openEmployerPostJob, screen, seekerInitialTab, userRole]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -362,6 +368,8 @@ export default function App() {
         return;
       }
       if (route.seekerTab) setSeekerInitialTab(route.seekerTab);
+      if (route.employerTab) setEmployerInitialTab(route.employerTab);
+      setOpenEmployerPostJob(Boolean(route.openPostJob));
       setScreen(route.screen);
     };
     if (typeof window !== 'undefined') {
@@ -539,60 +547,39 @@ export default function App() {
     }
   };
 
-  const handleApplyJob = (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string, resumeId?: string) => {
-    const applicationId = currentUserId ? crypto.randomUUID() : `app-${Date.now()}`;
-
-    // Add to Seeker applications
-    const newApp: Application = {
-      id: applicationId,
-      jobId: job.id,
-      jobTitle: job.title,
-      salonName: job.salonName,
-      salonLogo: job.salonLogo,
-      location: job.location,
-      appliedDate: 'Just now',
-      status: 'Submitted',
-      notes: 'Application received and under review by salon team.',
-      expectedSalary,
-      availability,
-    };
-
-    setApplications((prev) => [newApp, ...prev]);
-
-    // Add to Employer applicant candidate pipeline
-    const newApplicant: Applicant = {
-      id: `cand-${Date.now()}`,
-      name: userProfile.name,
-      appliedJobId: job.id,
-      appliedJobTitle: job.title,
-      email: userProfile.email,
-      phone: userProfile.phone,
-      experienceYears: 5,
-      licenseNumber: 'CA-COS-889124',
-      status: 'New',
-      appliedDate: 'Just now',
-      coverNote,
-      portfolioUrl: 'instagram.com/janedoe_hair',
-      expectedSalary,
-      availability,
-    };
-
-    setApplicants((prev) => [newApplicant, ...prev]);
-
-    if (currentUserId) {
-      void createApplication(
+  const handleApplyJob = async (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string, resumeId?: string): Promise<void> => {
+    if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
+    try {
+      // Confirmation is shown only after Supabase returns the persisted row id.
+      // This avoids the old false-success state where an optimistic card was
+      // later removed after a silent RPC failure.
+      const applicationId = await createApplication(
         currentUserId,
         job,
         coverNote,
         expectedSalary,
         availability,
-        applicationId,
+        undefined,
         resumeId,
-      ).catch((error) => {
-        setApplications((prev) => prev.filter((application) => application.id !== applicationId));
-        setApplicants((prev) => prev.filter((applicant) => applicant.id !== newApplicant.id));
-        setBackendError(mapBackendError(error, 'Unable to submit application.'));
-      });
+      );
+      const newApp: Application = {
+        id: applicationId,
+        jobId: job.id,
+        jobTitle: job.title,
+        salonName: job.salonName,
+        salonLogo: job.salonLogo,
+        location: job.location,
+        appliedDate: 'Just now',
+        status: 'Submitted',
+        notes: 'Application received and under review by salon team.',
+        expectedSalary,
+        availability,
+      };
+      setApplications((prev) => prev.some((item) => item.id === applicationId) ? prev : [newApp, ...prev]);
+    } catch (error) {
+      const message = mapBackendError(error, 'Unable to submit application. Your details are still here — please retry.');
+      setBackendError(message);
+      throw new Error(message);
     }
   };
 
@@ -603,8 +590,9 @@ export default function App() {
         setJobs((prev) => [savedJob, ...prev]);
         return;
       } catch (error) {
-        setBackendError(mapBackendError(error, 'Unable to submit job for approval.'));
-        throw error;
+        const message = mapBackendError(error, 'Unable to submit job for approval. Your job details are still here — please retry.');
+        setBackendError(message);
+        throw new Error(message);
       }
     }
 
@@ -916,6 +904,20 @@ export default function App() {
     return newConvId;
   };
 
+  const handleCandidateProfileSubmit = async (input: CandidateProfileInput): Promise<CandidateProfileSubmission> => {
+    if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
+    try {
+      const result = await submitCandidateProfile(input);
+      // Re-read every profile relation after the transaction. The confirmation
+      // uses the RPC result immediately, while the rest of the workspace gets
+      // the same authoritative data (including the stable candidate id).
+      await hydrateWorkspace(currentUserId, 'seeker');
+      return result;
+    } catch (error) {
+      throw new Error(mapBackendError(error, 'We could not submit your profile. Your entries are still here — please retry.'));
+    }
+  };
+
   const handleProfileUpdate = (updatedProfile: UserProfile) => {
     // Salon brand/location rows live outside `job_save_profile`, so they are
     // persisted separately — but only when they actually changed. Otherwise an
@@ -942,15 +944,19 @@ export default function App() {
     // the renderable URL, so paths resolve to a signed URL first.
     if (avatarUrl && isStoragePath(avatarUrl)) {
       const path = avatarUrl;
-      setUserProfile((prev) => ({ ...prev, avatarUrl: undefined }));
+      setUserProfile((prev) => ({ ...prev, avatarUrl: undefined, avatarPath: path }));
       void resolveStorageUrls(MEDIA_BUCKETS.profileMedia, [path]).then((resolved) => {
-        setUserProfile((prev) => ({ ...prev, avatarUrl: resolved.get(path) }));
+        setUserProfile((prev) => ({ ...prev, avatarUrl: resolved.get(path), avatarPath: path }));
       });
     } else {
-      setUserProfile((prev) => ({ ...prev, avatarUrl }));
+      setUserProfile((prev) => ({ ...prev, avatarUrl, avatarPath: undefined }));
     }
     if (currentUserId) {
-      const updatedProfile = { ...userProfile, avatarUrl };
+      const updatedProfile = {
+        ...userProfile,
+        avatarUrl,
+        avatarPath: avatarUrl && isStoragePath(avatarUrl) ? avatarUrl : undefined,
+      };
       void saveProfile(currentUserId, updatedProfile).catch((error) =>
         setBackendError(mapBackendError(error, 'Unable to save profile photo.')),
       );
@@ -1239,6 +1245,7 @@ export default function App() {
               onStartConversation={handleStartConversation}
               onUpdateAvatar={handleAvatarUpdate}
               onUpdateProfile={handleProfileUpdate}
+              onSubmitProfile={handleCandidateProfileSubmit}
               onMarkAlertRead={handleMarkAlertRead}
               onMarkAllAlertsRead={handleMarkAllAlertsRead}
               onClearAlert={handleClearAlert}
@@ -1276,6 +1283,12 @@ export default function App() {
               onUpdateAvatar={handleAvatarUpdate}
               onUpdateProfile={handleProfileUpdate}
               onJobAction={handleJobAction}
+              initialTab={employerInitialTab}
+              openPostJobOnMount={openEmployerPostJob}
+              onPostJobFlowExit={() => {
+                setOpenEmployerPostJob(false);
+                setEmployerInitialTab('jobs');
+              }}
               onLogout={handleLogout}
             />
           )}
@@ -1292,6 +1305,7 @@ export default function App() {
           onApplyJob={handleApplyJob}
           onBack={() => setScreen('main_app')}
           onNavigateToApplications={() => {
+            setSeekerInitialTab('applications');
             setScreen('main_app');
           }}
         />

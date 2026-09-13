@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { JobPosting, Application, ResumeFile, UserProfile } from '../../types';
-import { listResumes } from '../../services/backend';
+import { listResumes, mapBackendError } from '../../services/backend';
 import { motion, AnimatePresence } from 'motion/react';
 import { Check, Send, ArrowLeft, Info, FileText, Briefcase, Sparkles, User, AlertTriangle } from 'lucide-react';
 
@@ -9,7 +9,7 @@ interface ApplyJobScreenProps {
   selectedJob: JobPosting | null;
   applications: Application[];
   userProfile: UserProfile;
-  onApplyJob: (job: JobPosting, coverNote: string, expectedSalary: string, availability: string, resumeId?: string) => void;
+  onApplyJob: (job: JobPosting, coverNote: string, expectedSalary: string, availability: string, resumeId?: string) => Promise<void>;
   onBack: () => void;
   onNavigateToApplications?: () => void;
 }
@@ -35,6 +35,7 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
   
   // Submission Flow
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorToast, setErrorToast] = useState<string | null>(null);
 
   // The primary resume attaches to the application (optional but recommended).
@@ -70,18 +71,24 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
   // Duplicate Check
   const hasAlreadyApplied = applications.some((app) => app.jobId === selectedJob.id);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (hasAlreadyApplied) {
-      showTemporaryError('You have already submitted an application for this position.');
+    if (hasAlreadyApplied || isSubmitting) {
+      if (hasAlreadyApplied) showTemporaryError('You have already submitted an application for this position.');
       return;
     }
-    
-    // Call the parent state handler to persist the application
-    onApplyJob(selectedJob, coverNote, expectedSalary, availability, selectedResumeId || undefined);
-    
-    // Trigger successful animation transition state
-    setIsSubmitted(true);
+    setIsSubmitting(true);
+    setErrorToast(null);
+    try {
+      // Wait for the database id. A network/RLS error keeps every entered field
+      // on screen and exposes a retryable error instead of a false success page.
+      await onApplyJob(selectedJob, coverNote, expectedSalary, availability, selectedResumeId || undefined);
+      setIsSubmitted(true);
+    } catch (error) {
+      showTemporaryError(mapBackendError(error, 'Unable to submit your application. Your details are still here — please retry.'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const showTemporaryError = (msg: string) => {
@@ -320,14 +327,14 @@ export const ApplyJobScreen: React.FC<ApplyJobScreenProps> = ({
                 <div className="w-full max-w-2xl">
                   <button
                     type="submit"
-                    disabled={hasAlreadyApplied}
+                    disabled={hasAlreadyApplied || isSubmitting}
                     className={`w-full text-white font-card-title text-base rounded-full py-4 flex items-center justify-center gap-2 transition-all duration-200 ${
-                      hasAlreadyApplied
+                      hasAlreadyApplied || isSubmitting
                         ? 'bg-gray-400 cursor-not-allowed opacity-80'
                         : 'bg-[#b90064] hover:bg-secondary active:scale-[0.98]'
                     }`}
                   >
-                    {hasAlreadyApplied ? 'Already Applied' : 'Submit Application'}
+                    {hasAlreadyApplied ? 'Already Applied' : isSubmitting ? 'Submitting application…' : 'Submit Application'}
                     <Send className="w-5 h-5" />
                   </button>
                 </div>

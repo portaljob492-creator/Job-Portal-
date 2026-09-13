@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { JobPosting, Application, UserProfile, Conversation, ChatMessage, PortfolioItem, SavedFilter, JobAlertNotification } from '../../types';
+import { JobPosting, Application, UserProfile, Conversation, ChatMessage, PortfolioItem, SavedFilter, JobAlertNotification, CandidateProfileInput, CandidateProfileSubmission } from '../../types';
 import { ProfileImageUploader } from '../profile/ProfileImageUploader';
 import { MessagingCenter } from '../messaging/MessagingCenter';
 import { PortfolioGallery } from '../profile/PortfolioGallery';
@@ -62,11 +62,12 @@ interface JobSeekerWorkspaceProps {
   userProfile: UserProfile;
   jobAlerts?: JobAlertNotification[];
   onToggleBookmark: (jobId: string) => void;
-  onApplyJob: (job: JobPosting, coverNote: string) => void;
+  onApplyJob: (job: JobPosting, coverNote: string, expectedSalary?: string, availability?: string, resumeId?: string) => Promise<void>;
   onSendMessage?: (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => void;
   onStartConversation?: (jobId: string, targetSeekerName?: string, targetSalonName?: string) => string;
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
   onUpdateProfile?: (updatedProfile: UserProfile) => void;
+  onSubmitProfile: (input: CandidateProfileInput) => Promise<CandidateProfileSubmission>;
   onMarkAlertRead?: (alertId: string) => void;
   onMarkAllAlertsRead?: () => void;
   onClearAlert?: (alertId: string) => void;
@@ -91,6 +92,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   onStartConversation,
   onUpdateAvatar,
   onUpdateProfile,
+  onSubmitProfile,
   onMarkAlertRead,
   onMarkAllAlertsRead,
   onClearAlert,
@@ -319,6 +321,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
   const [expectedSalary, setExpectedSalary] = useState<string>('₹6,00,000 / year');
   const [availability, setAvailability] = useState<string>('Immediate (2 weeks notice)');
   const [applySuccess, setApplySuccess] = useState<boolean>(false);
+  const [isApplySubmitting, setIsApplySubmitting] = useState<boolean>(false);
 
   // Category & Filter Options
   const categories = ['All', 'Hair', 'Skincare', 'Nails', 'Lashes & Brows', 'Massage', 'Management'];
@@ -438,20 +441,26 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
     setSortBy('relevant');
   };
 
-  const handleApplySubmit = (e: React.FormEvent) => {
+  const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedJob) {
-      const alreadyApplied = applications.some(app => app.jobId === selectedJob.id);
-      if (alreadyApplied) {
-        showToast('You have already submitted an application for this position.');
-        return;
-      }
-      onApplyJob(selectedJob, coverNote);
+    if (!selectedJob || isApplySubmitting) return;
+    const alreadyApplied = applications.some(app => app.jobId === selectedJob.id);
+    if (alreadyApplied) {
+      showToast('You have already submitted an application for this position.');
+      return;
+    }
+    setIsApplySubmitting(true);
+    try {
+      await onApplyJob(selectedJob, coverNote, expectedSalary, availability);
       setApplySuccess(true);
       setTimeout(() => {
         setApplySuccess(false);
         setShowApplyModal(false);
       }, 1800);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to submit application. Please retry.');
+    } finally {
+      setIsApplySubmitting(false);
     }
   };
 
@@ -1530,6 +1539,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
           <SeekerProfileTab
             userProfile={userProfile}
             onUpdateProfile={onUpdateProfile}
+            onSubmitProfile={onSubmitProfile}
             onLogout={onLogout}
             onNavigateTab={(tab) => setActiveTab(tab)}
             onNavigateScreen={onNavigateScreen}
@@ -1769,7 +1779,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                   </button>
                   <button
                     type="submit"
-                    disabled={applications.some(app => app.jobId === selectedJob.id)}
+                    disabled={isApplySubmitting || applications.some(app => app.jobId === selectedJob.id)}
                     className={`flex-1 py-3 rounded-full text-xs font-bold text-white shadow-md flex items-center justify-center gap-1.5 transition-all ${
                       applications.some(app => app.jobId === selectedJob.id)
                         ? 'bg-gray-400 cursor-not-allowed'
@@ -1777,7 +1787,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
                     }`}
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>{applications.some(app => app.jobId === selectedJob.id) ? 'Already Applied' : 'Submit Application'}</span>
+                    <span>{applications.some(app => app.jobId === selectedJob.id) ? 'Already Applied' : isApplySubmitting ? 'Submitting application…' : 'Submit Application'}</span>
                   </button>
                 </div>
               </form>

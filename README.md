@@ -75,7 +75,20 @@ Migrations are under `supabase/migrations/`:
 20260913000300_jobs_query_performance.sql
 20260913000400_jobs_rpc_automation.sql
 20260913000500_jobs_integration_hardening.sql
+20260913000600_jobs_profile_sync.sql
+20260913000700_jobs_message_attachments.sql
+20260913000800_jobs_signup_trigger_fk_guard.sql
+20260913000900_jobs_register_role_profile_ensure.sql
+20260913001000_jobs_module_completion.sql
 ```
+
+`20260913001000_jobs_module_completion.sql` backs the eight-step candidate form
+with one authenticated transaction. It saves the shared identity, candidate
+profile, skills, experience, education, certifications and preferences, records
+the explicit submission time, and returns the server-calculated Candidate ID,
+completion percentage and application-readiness result used by the confirmation
+screen. Existing owner/related-employer RLS remains in force for every table and
+private profile/resume Storage objects remain owner-scoped.
 
 `20260913000500_jobs_integration_hardening.sql` closes the frontend/backend
 gaps the integration audit found. Candidate search gains full-text search: a

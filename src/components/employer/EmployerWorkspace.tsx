@@ -68,6 +68,9 @@ interface EmployerWorkspaceProps {
   onUpdateAvatar?: (newAvatarUrl: string | undefined) => void;
   onUpdateProfile?: (updated: UserProfile) => void;
   onJobAction?: (jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') => void;
+  initialTab?: 'dashboard' | 'jobs' | 'candidates';
+  openPostJobOnMount?: boolean;
+  onPostJobFlowExit?: () => void;
   onLogout: () => void;
 }
 
@@ -88,9 +91,12 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   onUpdateAvatar,
   onUpdateProfile,
   onJobAction,
+  initialTab,
+  openPostJobOnMount,
+  onPostJobFlowExit,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'candidates' | 'interviews' | 'messages' | 'analytics' | 'profile'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'candidates' | 'interviews' | 'messages' | 'analytics' | 'profile'>(initialTab || 'dashboard');
   const [openJobMenu, setOpenJobMenu] = useState<string | null>(null);
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
@@ -101,6 +107,13 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   const [hiredApplicant, setHiredApplicant] = useState<Applicant | null>(null);
   const [hiredOfferDetails, setHiredOfferDetails] = useState<any>(null);
   const [showLogoutModal, setShowLogoutModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
+  useEffect(() => {
+    if (openPostJobOnMount) setShowPostModal(true);
+  }, [openPostJobOnMount]);
 
   // New Job Form State
   const [title, setTitle] = useState('');
@@ -311,7 +324,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                 >
                   <Briefcase className="text-[#8e004b] mb-2 w-8 h-8 group-hover:scale-110 transition-transform" />
                   <span className="text-2xl md:text-3xl font-bold text-[#1c1b1b]">{jobs.length}</span>
-                  <span className="text-[13px] font-medium text-[#594047] mt-1">Active Jobs</span>
+                  <span className="text-[13px] font-medium text-[#594047] mt-1">Posted Jobs</span>
                 </div>
                 
                 <div 
@@ -453,7 +466,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
           {activeTab === 'jobs' && (
             <div className="flex flex-col w-full h-full">
               <div className="flex justify-between items-center mb-8">
-                <h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">Your Jobs</h2>
+                <div><h2 className="text-2xl md:text-[24px] font-semibold tracking-tight text-[#8e004b]">My Posted Jobs</h2><p className="text-xs text-[#594047] mt-1">Every job submitted by your salon, with its current approval status.</p></div>
                 <button
                   onClick={() => setShowPostModal(true)}
                   className="hidden md:flex bg-[#e2007c] text-white px-4 py-2 rounded-full text-[13px] font-medium items-center gap-1 hover:bg-[#b50062] transition-colors shadow-sm cursor-pointer"
@@ -465,10 +478,11 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div className="overflow-x-auto hide-scrollbar -mx-5 px-5 md:mx-0 md:px-0">
                   <div className="flex gap-2 min-w-max pb-1">
-                    <button className="bg-[#f2dde9] text-[#8e004b] px-4 py-2 rounded-full text-[13px] font-semibold border border-transparent cursor-pointer">Active ({jobs.length})</button>
-                    <button className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium hover:bg-[#ece7e7] transition-colors border border-transparent cursor-pointer">Draft (3)</button>
-                    <button className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium hover:bg-[#ece7e7] transition-colors border border-transparent cursor-pointer">Paused (1)</button>
-                    <button className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium hover:bg-[#ece7e7] transition-colors border border-transparent cursor-pointer">Closed (45)</button>
+                    <span className="bg-[#f2dde9] text-[#8e004b] px-4 py-2 rounded-full text-[13px] font-semibold border border-transparent">All Posted ({jobs.length})</span>
+                    <span className="bg-amber-50 text-amber-800 px-4 py-2 rounded-full text-[13px] font-medium">Pending ({jobs.filter((job) => job.approvalStatus === 'pending_approval').length})</span>
+                    <span className="bg-emerald-50 text-emerald-800 px-4 py-2 rounded-full text-[13px] font-medium">Live ({jobs.filter((job) => job.approvalStatus === 'approved').length})</span>
+                    <span className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium">Draft ({jobs.filter((job) => !job.approvalStatus || job.approvalStatus === 'draft' || job.approvalStatus === 'rejected').length})</span>
+                    <span className="bg-[#f1edec] text-[#594047] px-4 py-2 rounded-full text-[13px] font-medium">Paused / Closed ({jobs.filter((job) => ['paused', 'closed', 'expired', 'archived'].includes(job.approvalStatus || '')).length})</span>
                   </div>
                 </div>
                 <button 
@@ -815,7 +829,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       {/* POST NEW JOB WIZARD */}
       {showPostModal && (
         <PostJobWizard
-          onClose={() => setShowPostModal(false)}
+          onClose={() => { setShowPostModal(false); onPostJobFlowExit?.(); }}
           onComplete={async (newJobPartial) => {
             const newJob: JobPosting = {
               id: `job-${Date.now()}`,
@@ -837,9 +851,21 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
               isBookmarked: false,
               isFeatured: true,
               activeApplicantsCount: 0,
+              workplaceType: newJobPartial.workplaceType,
+              experienceMinMonths: newJobPartial.experienceMinMonths,
+              experienceMaxMonths: newJobPartial.experienceMaxMonths,
+              freshersAllowed: newJobPartial.freshersAllowed,
+              salaryMin: newJobPartial.salaryMin,
+              salaryMax: newJobPartial.salaryMax,
+              payType: newJobPartial.payType,
+              openings: newJobPartial.openings,
+              workingDays: newJobPartial.workingDays,
+              workingHours: newJobPartial.workingHours,
             };
             await onAddJob(newJob);
             setShowPostModal(false);
+            setActiveTab('jobs');
+            onPostJobFlowExit?.();
             setShowApprovalConfirmation(true);
           }}
         />

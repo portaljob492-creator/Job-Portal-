@@ -4,11 +4,14 @@ import { JobPosting } from '../../types';
 
 interface PostJobWizardProps {
   onClose: () => void;
-  onComplete: (job: Partial<JobPosting>) => void;
+  onComplete: (job: Partial<JobPosting>) => Promise<void>;
 }
 
 export const PostJobWizard: React.FC<PostJobWizardProps> = ({ onClose, onComplete }) => {
   const [step, setStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const totalSteps = 5;
 
   // Form State - Step 1
@@ -48,25 +51,76 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({ onClose, onComplet
     ? `₹${Number(minSalary).toLocaleString('en-IN')} - ₹${Number(maxSalary).toLocaleString('en-IN')}/${salaryPeriod}`
     : '₹3,60,000 - ₹6,00,000/year';
 
-  const handleNext = () => {
-    if (step < totalSteps) {
-      setStep(step + 1);
-    } else if (step === 5) {
-      setStep(6);
-    }
+  const validateCurrentStep = () => {
+    if (step === 1 && title.trim().length < 2) return 'Enter a job title before continuing.';
+    if (step === 2 && skills.length === 0) return 'Add at least one required skill.';
+    if (step === 3 && minSalary && maxSalary && Number(minSalary) > Number(maxSalary)) return 'Maximum salary must be greater than minimum salary.';
+    if (step === 4 && description.trim().length < 20) return 'Add a job description of at least 20 characters.';
+    return null;
   };
 
-  const handleComplete = () => {
-    onComplete({
-      title,
-      category: category === 'hair' ? 'Hair' : category === 'color' ? 'Hair' : 'Nails', // Map properly in real app
-      jobType: jobType === 'full-time' ? 'Full-time' : jobType === 'part-time' ? 'Part-time' : 'Commission',
-      location: workplaceType === 'remote' ? 'Remote' : 'Beverly Hills, CA',
-      salary: formattedSalary,
-      description: description || 'Detailed description here...',
-      requirements: skills,
-      benefits: fullBenefits ? ['Full Benefits', ...tipsAllowed ? ['Tips Allowed'] : []] : ['Benefits'],
-    });
+  const handleNext = () => {
+    const error = validateCurrentStep();
+    if (error) {
+      setValidationError(error);
+      return;
+    }
+    setValidationError(null);
+    if (step < totalSteps) setStep(step + 1);
+  };
+
+  const handleComplete = async () => {
+    if (isSubmitting) return;
+    if (title.trim().length < 2 || description.trim().length < 20) {
+      setSubmitError('Add a valid job title and a description of at least 20 characters before submitting.');
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const categoryMap: Record<string, JobPosting['category']> = {
+        hair: 'Hair', color: 'Hair', nails: 'Nails', spa: 'Massage', management: 'Management',
+      };
+      const jobTypeMap: Record<string, JobPosting['jobType']> = {
+        'full-time': 'Full-time', 'part-time': 'Part-time', internship: 'Part-time', contract: 'Contract', freelance: 'Commission',
+      };
+      const salaryDivisor = payType === 'Yearly' ? 12 : 1;
+      const databasePayType: JobPosting['payType'] = payType === 'Hourly'
+        ? 'hourly'
+        : payType === 'Commission'
+          ? 'commission'
+          : 'monthly';
+      const selectedBenefits = [
+        incentives ? 'Performance incentives' : '',
+        tipsAllowed ? 'Tips allowed' : '',
+        fullBenefits ? 'Health, dental and vision benefits' : '',
+        benefitsDesc.trim(),
+      ].filter(Boolean);
+      await onComplete({
+        title: title.trim(),
+        category: categoryMap[category] || 'Hair',
+        jobType: jobTypeMap[jobType] || 'Commission',
+        workplaceType: workplaceType === 'on-site' ? 'on_site' : workplaceType as 'hybrid' | 'remote',
+        experienceMinMonths: Number(minExp || 0) * 12,
+        experienceMaxMonths: maxExp ? Number(maxExp) * 12 : undefined,
+        freshersAllowed: fresherAllowed,
+        openings: Math.max(1, Number(openings || 1)),
+        location: workplaceType === 'remote' ? 'Remote' : 'Beverly Hills, CA',
+        salary: formattedSalary,
+        salaryMin: minSalary ? Math.round(Number(minSalary) / salaryDivisor) : undefined,
+        salaryMax: maxSalary ? Math.round(Number(maxSalary) / salaryDivisor) : undefined,
+        payType: databasePayType,
+        description: description.trim(),
+        requirements: skills,
+        benefits: selectedBenefits.length ? selectedBenefits : ['Benefits discussed during interview'],
+        workingDays,
+        workingHours,
+      });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Unable to submit this job. Your details are still here — please retry.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleAddSkill = (skill: string) => {
@@ -732,11 +786,20 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({ onClose, onComplet
         {/* CTA Area */}
         {step !== 6 && (
           <div className="mt-auto pt-6 pb-6 w-full bg-[#fdf8f8] border-t border-[#e0bec6]/30">
+            {(validationError || submitError) && (
+              <div role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                {validationError || submitError}
+                {submitError && (
+                  <button type="button" onClick={() => void handleComplete()} disabled={isSubmitting} className="ml-2 underline font-bold">Retry</button>
+                )}
+              </div>
+            )}
             <button 
-              onClick={handleNext}
-              className="w-full bg-[#e2007c] text-white text-[18px] font-semibold py-4 rounded-full shadow-sm hover:shadow-md hover:bg-[#b50062] transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+              onClick={step < totalSteps ? handleNext : () => void handleComplete()}
+              disabled={isSubmitting}
+              className="w-full bg-[#e2007c] disabled:opacity-70 text-white text-[18px] font-semibold py-4 rounded-full shadow-sm hover:shadow-md hover:bg-[#b50062] transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
             >
-              {step < totalSteps ? 'Continue' : 'Publish Job'}
+              {step < totalSteps ? 'Continue' : isSubmitting ? 'Submitting job…' : 'Submit Job for Approval'}
               {step < totalSteps && <ArrowRight className="w-5 h-5" />}
             </button>
           </div>

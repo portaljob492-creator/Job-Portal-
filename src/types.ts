@@ -45,6 +45,17 @@ export interface JobPosting {
   activeApplicantsCount?: number;
   approvalStatus?: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'paused' | 'closed' | 'expired' | 'archived';
   rejectionReason?: string;
+  /** Structured values collected by the Post a Job wizard. */
+  workplaceType?: 'on_site' | 'hybrid' | 'remote';
+  experienceMinMonths?: number;
+  experienceMaxMonths?: number;
+  freshersAllowed?: boolean;
+  salaryMin?: number;
+  salaryMax?: number;
+  payType?: 'monthly' | 'daily' | 'hourly' | 'commission';
+  openings?: number;
+  workingDays?: string;
+  workingHours?: string;
 }
 
 export interface Application {
@@ -193,12 +204,76 @@ export interface JobAlertNotification {
   isRead: boolean;
 }
 
+export type CandidateExperienceLevel = 'fresher' | 'junior' | 'mid' | 'senior' | 'lead';
+export type CandidateEmploymentType = 'full_time' | 'part_time' | 'internship' | 'freelance' | 'contract';
+
+export interface CandidateExperience {
+  id?: string;
+  salonName: string;
+  roleTitle: string;
+  city?: string;
+  state?: string;
+  startDate: string;
+  endDate?: string;
+  currentlyWorking: boolean;
+  description?: string;
+}
+
+export interface CandidateEducation {
+  id?: string;
+  courseName: string;
+  institutionName?: string;
+  completionYear?: number;
+  description?: string;
+}
+
+export interface CandidateCertification {
+  id?: string;
+  certificateName: string;
+  institutionName?: string;
+  completionYear?: number;
+  certificatePath?: string;
+}
+
+/** Complete payload behind /jobs/profile Review & Submit. */
+export interface CandidateProfileInput {
+  fullName: string;
+  phone: string;
+  avatarPath?: string;
+  headline: string;
+  bio?: string;
+  city: string;
+  state: string;
+  experienceLevel: CandidateExperienceLevel;
+  totalExperienceMonths: number;
+  expectedSalaryMin?: number;
+  expectedSalaryMax?: number;
+  availableFrom?: string;
+  openToRelocation: boolean;
+  skills: string[];
+  preferredRoles: string[];
+  employmentTypes: CandidateEmploymentType[];
+  experience: CandidateExperience[];
+  education: CandidateEducation[];
+  certifications: CandidateCertification[];
+}
+
+export interface CandidateProfileSubmission {
+  candidateId: string;
+  profileCompletion: number;
+  applicationReady: boolean;
+  submittedAt: string;
+}
+
 export interface UserProfile {
   name: string;
   email: string;
   phone: string;
   role: UserRole;
+  /** Renderable signed/remote URL. Never persist this field directly. */
   avatarUrl?: string;
+  /** Stable private Storage path used when a profile is submitted again. */
+  avatarPath?: string;
   businessName?: string;
   contactPerson?: string;
   licenseNumber?: string;
@@ -206,7 +281,24 @@ export interface UserProfile {
   skills?: string[];
   primaryRole?: string;
   location?: string;
+  city?: string;
+  state?: string;
   bio?: string;
+  candidateId?: string;
+  profileCompletion?: number;
+  profileSubmittedAt?: string;
+  applicationReady?: boolean;
+  experienceLevel?: CandidateExperienceLevel;
+  totalExperienceMonths?: number;
+  expectedSalaryMin?: number;
+  expectedSalaryMax?: number;
+  availableFrom?: string;
+  openToRelocation?: boolean;
+  preferredRoles?: string[];
+  employmentTypes?: CandidateEmploymentType[];
+  experience?: CandidateExperience[];
+  education?: CandidateEducation[];
+  certifications?: CandidateCertification[];
   /** Employer brand links, surfaced from the salon profile row. */
   website?: string;
   instagram?: string;

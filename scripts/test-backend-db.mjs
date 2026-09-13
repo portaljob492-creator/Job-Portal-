@@ -956,6 +956,62 @@ check('profile save only writes the caller role row',
 const badSave = await caught(seeker, `select public.job_save_profile('  ')`);
 check('profile save rejects an empty name', /VALIDATION_ERROR/.test(badSave.error ?? ''), badSave.error);
 
+// The eight-step form submits every candidate relation in one transaction and
+// returns only server-derived confirmation values.
+const candidateSubmit = await rpc(seeker, `select * from public.job_submit_candidate_profile(
+  'Seeker Complete','9990002222','${seeker}/avatar.jpg','Lead Colourist','Luxury salon specialist',
+  'Jaipur','Rajasthan','senior',72,50000,80000,'2026-10-01',true,
+  array['Balayage','Colour correction'],array['Lead Colourist'],array['full_time','contract'],
+  '[{"salon_name":"Studio One","role_title":"Senior Stylist","city":"Jaipur","state":"Rajasthan","start_date":"2020-01-01","currently_working":true}]'::jsonb,
+  '[{"course_name":"Advanced Cosmetology","institution_name":"Beauty Academy","completion_year":2019}]'::jsonb,
+  '[{"certificate_name":"Colour Master","institution_name":"Beauty Academy","completion_year":2020}]'::jsonb
+)`);
+const submittedConfirmation = candidateSubmit.rows[0];
+const submittedRelations = (await db.query(`select
+  (select count(*)::int from public.job_candidate_skills s join public.job_seeker_profiles c on c.id=s.candidate_id where c.user_id='${seeker}') as skills,
+  (select count(*)::int from public.job_candidate_experience e join public.job_seeker_profiles c on c.id=e.candidate_id where c.user_id='${seeker}') as experience,
+  (select count(*)::int from public.job_candidate_education e join public.job_seeker_profiles c on c.id=e.candidate_id where c.user_id='${seeker}') as education,
+  (select count(*)::int from public.job_candidate_certifications x join public.job_seeker_profiles c on c.id=x.candidate_id where c.user_id='${seeker}') as certifications,
+  (select count(*)::int from public.job_candidate_preferences p join public.job_seeker_profiles c on c.id=p.candidate_id where c.user_id='${seeker}' and p.preferred_city='Jaipur' and p.salary_min=50000) as preferences,
+  (select count(*)::int from public.job_candidate_preferred_roles r join public.job_seeker_profiles c on c.id=r.candidate_id where c.user_id='${seeker}' and r.role_name='Lead Colourist') as preferred_roles,
+  (select count(*)::int from public.job_candidate_employment_types t join public.job_seeker_profiles c on c.id=t.candidate_id where c.user_id='${seeker}') as employment_types,
+  (select count(*)::int from public.job_seeker_profiles c where c.user_id='${seeker}' and c.headline='Lead Colourist' and c.submitted_at is not null) as candidate,
+  (select count(*)::int from public.profiles p where p.id='${seeker}' and p.full_name='Seeker Complete' and p.phone='9990002222') as shared_profile
+`)).rows[0];
+check('full candidate submit returns confirmation id, completion and readiness',
+  Boolean(submittedConfirmation.candidate_id) && submittedConfirmation.profile_completion >= 80
+    && submittedConfirmation.application_ready === true && Boolean(submittedConfirmation.submitted_at),
+  JSON.stringify(submittedConfirmation));
+check('full candidate submit persists every nested profile section atomically',
+  submittedRelations.skills === 2 && submittedRelations.experience === 1
+    && submittedRelations.education === 1 && submittedRelations.certifications === 1
+    && submittedRelations.preferences === 1 && submittedRelations.preferred_roles === 1
+    && submittedRelations.employment_types === 2 && submittedRelations.candidate === 1
+    && submittedRelations.shared_profile === 1,
+  JSON.stringify(submittedRelations));
+const invalidLateCandidateSubmit = await caught(seeker, `select * from public.job_submit_candidate_profile(
+  'Must Roll Back','9990004444',null,'Must Roll Back','Late validation failure',
+  'Jaipur','Rajasthan','senior',72,50000,80000,'2026-10-01',true,
+  array['Temporary skill'],array['Temporary role'],array['invalid_type'],
+  '[]','[]','[]')`);
+const candidateAfterRollback = (await db.query(`select c.headline, p.full_name,
+  (select count(*)::int from public.job_candidate_skills s where s.candidate_id=c.id) as skills
+  from public.job_seeker_profiles c join public.profiles p on p.id=c.user_id where c.user_id='${seeker}'`)).rows[0];
+check('late candidate validation errors roll back the whole profile transaction',
+  /INVALID_EMPLOYMENT_TYPE/.test(invalidLateCandidateSubmit.error ?? '')
+    && candidateAfterRollback.headline === 'Lead Colourist'
+    && candidateAfterRollback.full_name === 'Seeker Complete'
+    && candidateAfterRollback.skills === 2,
+  `${invalidLateCandidateSubmit.error}; ${JSON.stringify(candidateAfterRollback)}`);
+const employerCandidateSubmit = await caught(employer, `select * from public.job_submit_candidate_profile(
+  'Wrong Role','9990003333',null,'Stylist',null,'Jaipur','Rajasthan','fresher',0,null,null,null,false,
+  array['Hair'],array['Stylist'],array['full_time'],'[]','[]','[]')`);
+check('employer cannot submit a candidate profile', /ROLE_NOT_ALLOWED/.test(employerCandidateSubmit.error ?? ''), employerCandidateSubmit.error);
+const unrelatedCandidateRead = await asUser(outsider, () => db.query(`select count(*)::int as n from public.job_candidate_experience e
+  join public.job_seeker_profiles c on c.id=e.candidate_id where c.user_id='${seeker}'`));
+check('candidate profile detail RLS hides rows from unrelated seekers', unrelatedCandidateRead.rows[0].n === 0,
+  `${unrelatedCandidateRead.rows[0].n} rows visible`);
+
 // job_open_conversation: participants resolved on the server.
 const employerCrossOpen = await caught(employerB, `select public.job_open_conversation('${job}', null, 'seeker@example.com')`);
 check('an employer from another salon cannot open a thread on this job',
