@@ -1,15 +1,15 @@
 /**
- * Portal-role resolution for the auth flows.
+ * Portal-role validation for the auth flows.
  *
  * One email is permanently linked to one portal role (`public.job_user_roles`,
- * enforced by `job_register_role`). That makes the portal a property of the
- * *account*, never of the tab somebody happened to click — so a Job Seeker tab
- * filled in with an Employer email is a routing detail, not an invalid request.
+ * enforced by `job_register_role`). The requested portal tab is therefore
+ * validated against that stored role before anything else happens: a Job Seeker
+ * tab filled in with an Employer email is refused up front, with the portal the
+ * account really belongs to, and the login form turns that refusal into the
+ * inline "Switch to … Portal" action.
  *
- * These helpers turn the backend's stored role into the decision the auth flows
- * act on: enter the account's own portal, or hand admin emails to the admin
- * sign-in. They are dependency-free so `npm run test:auth` can exercise them
- * directly.
+ * These helpers are dependency-free so `npm run test:signin` can exercise the
+ * decision directly, without Supabase.
  */
 
 import type { UserRole } from '../types';
@@ -39,36 +39,35 @@ export function normalizeStoredPortalRole(raw: unknown): UserRole | null {
 /**
  * Outcome of matching a clicked portal tab against the account behind an email.
  *
- * - `enter`: sign in and open `role`. `corrected` is true when that differs
- *   from the clicked tab, i.e. the user picked the "wrong" portal and is being
- *   routed to the right one instead of being refused.
- * - `admin_portal`: the email belongs to an administrator; Jobs portal entry is
- *   closed to it and the admin sign-in is the way in.
+ * - `enter`: the tab matches the account, or the account has no portal role
+ *   yet, so authentication may proceed.
+ * - `mismatch`: the email is permanently registered to a different portal. The
+ *   sign-in is refused *before the password is checked*, with `existingRole`
+ *   naming the portal the user has to come back through.
  */
 export type SignInPortalDecision =
-  | { kind: 'enter'; role: EnterablePortalRole; corrected: boolean }
-  | { kind: 'admin_portal' };
+  | { kind: 'enter'; role: EnterablePortalRole }
+  | { kind: 'mismatch'; existingRole: UserRole };
 
 /**
- * Decides which portal a password/OAuth sign-in opens.
+ * Validates the requested portal tab against the account's stored role.
  *
- * `storedRole` is the account's permanent role as reported by the backend
- * (null when the address is unknown, unassigned, or the lookup failed) and
- * `requestedRole` is the tab that was clicked. The stored role always wins when
- * it is a Jobs portal; otherwise the clicked tab is the best available guess and
- * `job_register_role` either assigns it or reports the real role on entry.
+ * `storedRole` is the permanent role the backend reports for the email (null
+ * when the address is unknown, has no Jobs portal role yet, or the lookup
+ * failed) and `requestedRole` is the tab that was clicked. A stored role — any
+ * stored role, admin included — that differs from the tab is a refusal: one
+ * email belongs to exactly one portal, and the login form offers the switch.
+ * With nothing stored yet the clicked tab is what `job_register_role` assigns.
  */
 export function decideSignInPortal(
   storedRole: UserRole | null,
   requestedRole: UserRole,
 ): SignInPortalDecision {
-  if (storedRole === 'admin') return { kind: 'admin_portal' };
-  if (isEnterablePortalRole(storedRole)) {
-    return { kind: 'enter', role: storedRole, corrected: storedRole !== requestedRole };
+  if (storedRole && storedRole !== requestedRole) {
+    return { kind: 'mismatch', existingRole: storedRole };
   }
   return {
     kind: 'enter',
     role: isEnterablePortalRole(requestedRole) ? requestedRole : 'seeker',
-    corrected: false,
   };
 }

@@ -97,9 +97,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
    * inline notification + "Switch to … Portal" action and blocks the submit.
    *
    * Debounced and best-effort: an unknown address, a failed lookup or an
-   * offline moment leaves the form alone, and the sign-in still resolves the
-   * real portal server-side, so a missed detection can never sign the user in
-   * to the wrong workspace.
+   * offline moment leaves the form alone. The backend verifies the portal
+   * again before validating the password, so a missed detection cannot sign
+   * the user in to the wrong workspace — it comes back as the same card.
    */
   useEffect(() => {
     if (!onResolvePortalRole) return;

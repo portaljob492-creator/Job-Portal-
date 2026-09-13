@@ -268,8 +268,18 @@ await check('sign-up still refuses to reassign an email to the other portal', ()
   const backend = read('src/services/backend.ts');
   const signUp = backend.slice(backend.indexOf('async signUp(input: SignUpInput)'), backend.indexOf('async signIn(email'));
   assert.ok(signUp.includes('throw new PortalRoleMismatchError'), 'signup keeps the structured mismatch');
-  const signIn = backend.slice(backend.indexOf('async signIn(email'), backend.indexOf('async signInAdmin(email'));
-  assert.ok(!/existingRole !== requestedBackendRole/.test(signIn), 'sign-in no longer gates on the clicked tab');
+});
+
+await check('sign-in verifies the portal before validating the password', () => {
+  const backend = read('src/services/backend.ts');
+  const signIn = backend.slice(backend.indexOf('async signIn(email'), backend.indexOf('async lookupPortalRole('));
+  const refusalAt = signIn.indexOf("decision.kind === 'mismatch'");
+  const passwordAt = signIn.indexOf('signInWithPassword');
+  assert.ok(refusalAt > -1, 'refuses a tab that does not match the stored role');
+  assert.ok(passwordAt > -1, 'authenticates');
+  assert.ok(refusalAt < passwordAt, `portal check precedes password validation (${refusalAt} < ${passwordAt})`);
+  assert.ok(signIn.includes('throw new PortalRoleMismatchError'), 'with the structured mismatch');
+  assert.ok(!/resolvePortalRole\(actualRole\)/.test(backend), 'portal entry is never retried into the other portal');
 });
 
 console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));

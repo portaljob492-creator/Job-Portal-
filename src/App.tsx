@@ -517,9 +517,10 @@ export default function App() {
       const { user, portalRole } = await authBackend.signIn(email, password, selectedRole);
       if (!user) throw new Error('Login succeeded but no user session was returned.');
       try {
-        // Enter the portal the account actually belongs to. `portalRole` comes
-        // from the backend, so picking the wrong tab still signs the user in and
-        // opens their real portal instead of failing a role check.
+        // Enter the portal the backend granted for this session. Portal
+        // verification already ran before the password check, so a mismatched
+        // tab never gets this far — it is refused and rendered as the login
+        // form's inline "Switch to … Portal" card.
         await enterAuthenticatedPortal(user.id, portalRole ?? selectedRole);
       } catch (portalError) {
         // Sign-in produced a session the portal cannot use (role mismatch or no

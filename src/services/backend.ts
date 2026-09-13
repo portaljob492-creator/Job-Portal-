@@ -485,13 +485,14 @@ export interface SignUpInput {
 
 /**
  * Result of a successful password sign-in: the Supabase auth response plus the
- * portal the account actually belongs to. The clicked tab can differ from it —
- * the app routes on `portalRole`, never on the tab.
+ * portal role the backend granted. Portal verification runs before the password
+ * check, so this always equals the requested tab; the app routes on it rather
+ * than on UI state.
  */
 export interface SignInResult {
   user: User | null;
   session: Session | null;
-  /** Portal the account actually belongs to; the tab that was clicked can differ. */
+  /** Portal role granted for this session. */
   portalRole: UserRole;
 }
 
@@ -588,11 +589,12 @@ export const authBackend = {
   /**
    * Password sign-in.
    *
-   * `requestedRole` is the portal tab the user clicked — a hint, not a claim.
-   * The account's own permanent role decides which portal opens, so signing in
-   * on the Job Seeker tab with an Employer email lands in the Employer
-   * workspace instead of failing with `PORTAL_ROLE_MISMATCH`. The resolved role
-   * is returned so the app routes to the right portal.
+   * `requestedRole` is the portal tab the user clicked, and it is validated
+   * against the account's stored portal role *before* the password is checked:
+   * a Job Seeker tab with an Employer email is refused up front with a
+   * `PortalRoleMismatchError` naming the Employer portal, which the login form
+   * renders as the inline card + "Switch to Employer Portal" action. On success
+   * the granted role is returned so the app routes to that portal.
    */
   async signIn(email: string, password: string, requestedRole: UserRole): Promise<SignInResult> {
     const client = requireSupabase();
@@ -604,15 +606,22 @@ export const authBackend = {
     // exist"). The password grant then starts from a clean anonymous state.
     await clearSessionBeforeSignUp(client);
 
-    // Read the account's permanent portal role before authenticating so the
-    // sign-in can enter the right portal. Fails open on lookup errors (missing
-    // RPC, offline): `resolvePortalRole` re-reads the role after the password
-    // check and corrects the route there.
+    // Portal verification, before any password validation: one email is
+    // permanently registered to exactly one portal, so a tab that does not
+    // match the account's stored role is refused without authenticating.
+    // Throwing the structured error (rather than a bare message) is what lets
+    // the login form render the inline card and its "Switch to … Portal"
+    // action. Fails open when the lookup itself fails — `resolvePortalRole`
+    // then enforces the same rule authoritatively after the password check.
     const { raw: storedRoleText, role: storedRole } = await readStoredPortalRole(client, normalizedEmail);
     const decision = decideSignInPortal(storedRole, requestedRole);
-    // Admin emails are refused below, after the password check; until then the
-    // clicked tab stands in so the failure copy still names a portal.
-    const effectiveRole: UserRole = decision.kind === 'enter' ? decision.role : requestedRole;
+    if (decision.kind === 'mismatch') {
+      throw new PortalRoleMismatchError({
+        email: normalizedEmail,
+        requestedRole,
+        existingRole: decision.existingRole,
+      });
+    }
 
     const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
     if (error) {
@@ -622,7 +631,7 @@ export const authBackend = {
         // re-send instead of a sentence with no action behind it.
         throw new PasswordSignInBlockedError({
           email: normalizedEmail,
-          role: effectiveRole,
+          role: requestedRole,
           reason: 'unconfirmed',
         });
       }
@@ -631,9 +640,8 @@ export const authBackend = {
         // forgotten password, or an account created through Google/Apple that has
         // no password at all. Throwing the structured error lets the login screen
         // offer recovery actions (reset link / social continue) instead of a
-        // sentence the user has to act on by themselves. The message names the
-        // portal the account really belongs to, not the tab that was clicked.
-        if (isEnterablePortalRole(storedRole) && storedRole === effectiveRole) {
+        // sentence the user has to act on by themselves.
+        if (isEnterablePortalRole(storedRole)) {
           // Try to detect whether this account was created via OAuth (no local
           // password). The check is best-effort: if the RPC is not deployed the
           // message still covers the case. The UI uses the `oauthOnly` hint to
@@ -641,7 +649,7 @@ export const authBackend = {
           const oauthOnly = await checkOAuthOnlyAccount(normalizedEmail);
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
-            role: effectiveRole,
+            role: requestedRole,
             reason: 'wrong_password',
             oauthOnly,
           });
@@ -649,7 +657,7 @@ export const authBackend = {
         if (storedRoleText === 'unassigned') {
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
-            role: effectiveRole,
+            role: requestedRole,
             reason: 'unassigned',
           });
         }
@@ -657,36 +665,25 @@ export const authBackend = {
       throw mapAuthError(error);
     }
 
-    // Administrators have their own sign-in: `job_register_role` refuses to open
-    // a Jobs portal for them. Reported only after the password matched, so a
-    // failed attempt never discloses that an email belongs to an admin.
-    if (decision.kind === 'admin_portal') {
-      await signOutDeliberately();
-      throw new PortalRoleMismatchError({
-        email: normalizedEmail,
-        requestedRole,
-        existingRole: 'admin',
-      });
-    }
-
     let portalRole: UserRole;
     try {
-      portalRole = await this.resolvePortalRole(effectiveRole, normalizedEmail);
+      portalRole = await this.resolvePortalRole(requestedRole, normalizedEmail);
     } catch (roleError) {
-      // The session was created but no portal could be entered (deactivated
-      // account, unassigned role): clear the tokens so no invalid/partial
-      // session survives, then surface the error.
+      // The session was created but the portal refused entry (role assigned to
+      // the other portal in the meantime, deactivated account): clear the
+      // tokens so no invalid/partial session survives, then surface the error.
       await signOutDeliberately();
-      throw mapPortalRoleError(roleError, effectiveRole, normalizedEmail);
+      throw mapPortalRoleError(roleError, requestedRole, normalizedEmail);
     }
     return { ...data, portalRole };
   },
 
   /**
    * Portal role permanently assigned to an email, or null when the address is
-   * unknown, has no portal role yet, or the lookup is unavailable. Used by the
-   * login screen to follow the account instead of the clicked tab; null simply
-   * leaves the current tab alone, so this must never block a sign-in.
+   * unknown, has no portal role yet, or the lookup is unavailable. The login
+   * screen uses it to verify the tab against the account before the user
+   * submits; null simply leaves the form alone, so this must never block a
+   * sign-in — the authoritative check is in `signIn` itself.
    */
   async lookupPortalRole(email: string): Promise<UserRole | null> {
     const normalized = normalizeEmail(email);
@@ -696,30 +693,21 @@ export const authBackend = {
   },
 
   /**
-   * Enters the portal for the signed-in user and returns the role actually
-   * granted.
+   * Enters the portal for the signed-in user and returns the role granted.
    *
-   * `job_register_role` is idempotent for the account's stored role and raises
-   * `PORTAL_ROLE_MISMATCH:<role>` otherwise — and that message names the real
-   * role. A mismatch is therefore a correction, not a dead end: retry once with
-   * the role the backend reported and the user lands in their own portal. Only
-   * a role no Jobs portal can serve (admin, unassigned) still raises.
+   * Strict, like the pre-auth check: `job_register_role` assigns the requested
+   * role when the account has none yet and raises `PORTAL_ROLE_MISMATCH:<role>`
+   * when it already has a different one. That makes it the authoritative
+   * backstop for the cases the lookup could not settle (RPC missing, offline,
+   * role assigned between the two calls) — the refusal is surfaced as the
+   * structured mismatch, never retried into the other portal.
    */
   async resolvePortalRole(requestedRole: UserRole, email = ''): Promise<UserRole> {
-    const client = requireSupabase();
-    const { data, error } = await client.rpc('job_register_role', { requested_role: backendRole(requestedRole) });
-    if (!error) return frontendRole(String(data));
-
-    const mismatch = parsePortalRoleMismatch(error, requestedRole, email);
-    if (mismatch && isEnterablePortalRole(mismatch.existingRole)) {
-      const actualRole = mismatch.existingRole;
-      const { error: retryError } = await client.rpc('job_register_role', {
-        requested_role: backendRole(actualRole),
-      });
-      if (retryError) throw mapPortalRoleError(retryError, actualRole, email);
-      return actualRole;
-    }
-    throw mapPortalRoleError(error, requestedRole, email);
+    const { data, error } = await requireSupabase().rpc('job_register_role', {
+      requested_role: backendRole(requestedRole),
+    });
+    if (error) throw mapPortalRoleError(error, requestedRole, email);
+    return frontendRole(String(data));
   },
 
   async signInAdmin(email: string, password: string) {
@@ -812,9 +800,10 @@ export const authBackend = {
  * Google/Apple, and returns the role that was granted — null when no provider
  * sign-in was pending.
  *
- * The provider button the user pressed only recorded a preference, so this uses
- * `resolvePortalRole`: an account that already belongs to the other portal is
- * entered there instead of being signed straight back out with a mismatch.
+ * The provider button the user pressed recorded the requested portal, and the
+ * same rule as password sign-in applies: an account that already belongs to the
+ * other portal is refused with the structured mismatch, so the app can drop the
+ * session and send the user to the login of the portal that owns the account.
  */
 export async function applyPendingOAuthRole(_userId: string): Promise<UserRole | null> {
   const pendingRole = window.localStorage.getItem('nexora_pending_role') as UserRole | null;

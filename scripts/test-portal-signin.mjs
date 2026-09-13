@@ -1,7 +1,7 @@
 /**
- * Portal-role sign-in checks: a login on the "wrong" portal tab must sign the
- * user in and open the portal their account actually belongs to, instead of
- * failing with PORTAL_ROLE_MISMATCH.
+ * Backend portal verification: a login on the "wrong" portal tab is refused
+ * against the account's stored role *before* the password is validated, with
+ * the structured mismatch the login form renders as its inline card.
  *
  * Runs offline with no credentials (tsx). It exercises the real shipped code —
  * `authBackend.signIn`, `authBackend.resolvePortalRole`,
@@ -110,7 +110,7 @@ function useClient(options) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Pure decision logic: the clicked tab is a hint, the stored role wins
+// 1. Pure decision logic: the stored role is validated against the clicked tab
 // ---------------------------------------------------------------------------
 
 await check('stored portal role normalises from backend values', () => {
@@ -121,82 +121,106 @@ await check('stored portal role normalises from backend values', () => {
   assert.equal(normalizeStoredPortalRole(null), null);
 });
 
-await check('a wrong tab enters the stored portal instead of failing', () => {
+await check('a tab that does not match the stored role is refused', () => {
   assert.deepEqual(decideSignInPortal('employer', 'seeker'), {
-    kind: 'enter',
-    role: 'employer',
-    corrected: true,
+    kind: 'mismatch',
+    existingRole: 'employer',
   });
   assert.deepEqual(decideSignInPortal('seeker', 'employer'), {
-    kind: 'enter',
-    role: 'seeker',
-    corrected: true,
+    kind: 'mismatch',
+    existingRole: 'seeker',
   });
 });
 
-await check('the matching tab is not marked as corrected', () => {
-  assert.deepEqual(decideSignInPortal('employer', 'employer'), {
-    kind: 'enter',
-    role: 'employer',
-    corrected: false,
-  });
+await check('the matching tab may authenticate', () => {
+  assert.deepEqual(decideSignInPortal('employer', 'employer'), { kind: 'enter', role: 'employer' });
+  assert.deepEqual(decideSignInPortal('seeker', 'seeker'), { kind: 'enter', role: 'seeker' });
 });
 
-await check('unknown/unassigned accounts keep the clicked tab', () => {
-  assert.deepEqual(decideSignInPortal(null, 'employer'), {
-    kind: 'enter',
-    role: 'employer',
-    corrected: false,
-  });
+await check('unknown/unassigned accounts are assigned the clicked portal', () => {
+  assert.deepEqual(decideSignInPortal(null, 'employer'), { kind: 'enter', role: 'employer' });
 });
 
-await check('admin emails are routed to the admin sign-in', () => {
-  assert.deepEqual(decideSignInPortal('admin', 'seeker'), { kind: 'admin_portal' });
+await check('an admin account is refused on both Jobs portals', () => {
+  assert.deepEqual(decideSignInPortal('admin', 'seeker'), { kind: 'mismatch', existingRole: 'admin' });
+  assert.deepEqual(decideSignInPortal('admin', 'employer'), { kind: 'mismatch', existingRole: 'admin' });
 });
 
 // ---------------------------------------------------------------------------
-// 2. The shipped sign-in: seeker tab + employer email signs in as an employer
+// 2. The shipped sign-in: a wrong tab is refused before the password is checked
 // ---------------------------------------------------------------------------
 
-await check('seeker tab with an employer email signs in and resolves employer', async () => {
+await check('seeker tab with an employer email is refused, naming the Employer portal', async () => {
   const client = useClient({ storedRole: 'employer', accountRole: 'employer' });
-  const result = await authBackend.signIn('employer@example.com', PASSWORD, 'seeker');
+  await assert.rejects(
+    () => authBackend.signIn('employer@example.com', PASSWORD, 'seeker'),
+    (error) => {
+      assert.ok(isPortalRoleMismatchError(error), `structured mismatch, got ${error?.name}`);
+      assert.equal(error.existingRole, 'employer');
+      assert.equal(error.requestedRole, 'seeker');
+      assert.equal(error.email, 'employer@example.com');
+      assert.equal(
+        error.message,
+        'This email is already registered as an Employer. Please sign in through the Employer portal.',
+      );
+      return true;
+    },
+  );
+  assert.ok(
+    !client.calls.some((call) => call.startsWith('auth.signInWithPassword')),
+    `refused before password validation: ${client.calls.join(', ')}`,
+  );
+  assert.ok(
+    !client.calls.some((call) => call.startsWith('job_register_role')),
+    'no portal role is touched for a refused sign-in',
+  );
+});
+
+await check('employer tab with a seeker email is refused the same way', async () => {
+  const client = useClient({ storedRole: 'job_seeker', accountRole: 'job_seeker' });
+  await assert.rejects(
+    () => authBackend.signIn('seeker@example.com', PASSWORD, 'employer'),
+    (error) => {
+      assert.ok(isPortalRoleMismatchError(error), `structured mismatch, got ${error?.name}`);
+      assert.equal(error.existingRole, 'seeker');
+      assert.equal(
+        error.message,
+        'This email is already registered as a Job Seeker. Please sign in through the Job Seeker portal.',
+      );
+      return true;
+    },
+  );
+  assert.ok(!client.calls.some((call) => call.startsWith('auth.signInWithPassword')));
+});
+
+await check('the matching tab still signs in normally', async () => {
+  const client = useClient({ storedRole: 'employer', accountRole: 'employer' });
+  const result = await authBackend.signIn('employer@example.com', PASSWORD, 'employer');
   assert.equal(result.portalRole, 'employer');
   assert.equal(result.user?.email, 'employer@example.com');
   assert.ok(
     client.calls.includes('job_register_role:{"requested_role":"employer"}'),
-    `registered the account's own portal: ${client.calls.join(', ')}`,
-  );
-  assert.ok(
-    !client.calls.some((call) => call.includes('"requested_role":"job_seeker"')),
-    'never asks the backend for the tab that was clicked',
+    `entered the requested portal: ${client.calls.join(', ')}`,
   );
 });
 
-await check('employer tab with a seeker email signs in and resolves seeker', async () => {
-  useClient({ storedRole: 'job_seeker', accountRole: 'job_seeker' });
-  const result = await authBackend.signIn('seeker@example.com', PASSWORD, 'employer');
-  assert.equal(result.portalRole, 'seeker');
-});
-
-await check('the matching tab still signs in normally', async () => {
-  useClient({ storedRole: 'employer', accountRole: 'employer' });
-  const result = await authBackend.signIn('employer@example.com', PASSWORD, 'employer');
-  assert.equal(result.portalRole, 'employer');
-});
-
-await check('an unavailable role lookup self-heals from the register mismatch', async () => {
+await check('an unavailable lookup falls back to the authoritative post-auth check', async () => {
+  // The pre-check cannot settle it, so the password is verified first and
+  // job_register_role refuses: same structured error, no session left behind.
   const client = useClient({ storedRole: new Error('function not deployed'), accountRole: 'employer' });
-  const result = await authBackend.signIn('employer@example.com', PASSWORD, 'seeker');
-  assert.equal(result.portalRole, 'employer');
+  await assert.rejects(
+    () => authBackend.signIn('employer@example.com', PASSWORD, 'seeker'),
+    (error) => {
+      assert.ok(isPortalRoleMismatchError(error), `structured mismatch, got ${error?.name}`);
+      assert.equal(error.existingRole, 'employer');
+      return true;
+    },
+  );
   assert.ok(
     client.calls.includes('job_register_role:{"requested_role":"job_seeker"}'),
-    'first attempt uses the clicked tab',
+    'the clicked tab was checked against the account',
   );
-  assert.ok(
-    client.calls.includes('job_register_role:{"requested_role":"employer"}'),
-    'the reported role is retried instead of failing the sign-in',
-  );
+  assert.ok(client.calls.includes('auth.signOut'), 'the partial session is cleared');
 });
 
 await check('an unassigned account is registered to the clicked portal', async () => {
@@ -209,10 +233,10 @@ await check('an unassigned account is registered to the clicked portal', async (
 // 3. Failures still fail — with the account's real portal named
 // ---------------------------------------------------------------------------
 
-await check('a wrong password on the wrong tab names the real portal', async () => {
+await check('a wrong password on the matching portal is a credential failure', async () => {
   useClient({ storedRole: 'employer', accountRole: 'employer' });
   await assert.rejects(
-    () => authBackend.signIn('employer@example.com', 'not-the-password', 'seeker'),
+    () => authBackend.signIn('employer@example.com', 'not-the-password', 'employer'),
     (error) => {
       assert.ok(isPasswordSignInBlockedError(error), `structured error, got ${error?.name}`);
       assert.equal(error.reason, 'wrong_password');
@@ -224,7 +248,21 @@ await check('a wrong password on the wrong tab names the real portal', async () 
   );
 });
 
-await check('an admin email is refused after the password matches', async () => {
+await check('a wrong tab is refused even when the password would have been wrong', async () => {
+  // Portal verification comes first: the credential is never checked, so the
+  // refusal is the mismatch, not "invalid login credentials".
+  useClient({ storedRole: 'employer', accountRole: 'employer' });
+  await assert.rejects(
+    () => authBackend.signIn('employer@example.com', 'not-the-password', 'seeker'),
+    (error) => {
+      assert.ok(isPortalRoleMismatchError(error), `structured mismatch, got ${error?.name}`);
+      assert.equal(error.existingRole, 'employer');
+      return true;
+    },
+  );
+});
+
+await check('an admin email is refused before the password is checked', async () => {
   const client = useClient({ storedRole: 'admin', accountRole: 'admin' });
   await assert.rejects(
     () => authBackend.signIn('admin@example.com', PASSWORD, 'seeker'),
@@ -236,7 +274,10 @@ await check('an admin email is refused after the password matches', async () => 
       return true;
     },
   );
-  assert.ok(client.calls.includes('auth.signOut'), 'the unusable session is cleared');
+  assert.ok(
+    !client.calls.some((call) => call.startsWith('auth.signInWithPassword')),
+    `no password validation: ${client.calls.join(', ')}`,
+  );
   assert.ok(
     !client.calls.some((call) => call.startsWith('job_register_role')),
     'no Jobs portal role is registered for an admin',
@@ -274,20 +315,45 @@ await check('lookupPortalRole reports the portal behind an email', async () => {
   assert.equal(await authBackend.lookupPortalRole('   '), null);
 });
 
-await check('an OAuth return enters the stored portal, not the pressed button', async () => {
-  const client = useClient({ storedRole: 'employer', accountRole: 'employer' });
+/** Minimal localStorage stand-in that actually tracks removal. */
+function usePendingRoleStore(role) {
+  const store = role ? { nexora_pending_role: role } : {};
   globalThis.window = {
     localStorage: {
-      getItem: (key) => (key === 'nexora_pending_role' ? 'seeker' : null),
-      removeItem: () => undefined,
+      getItem: (key) => (key in store ? store[key] : null),
+      removeItem: (key) => {
+        delete store[key];
+      },
     },
   };
+  return store;
+}
+
+await check('an OAuth return on the matching portal is granted that role', async () => {
+  const client = useClient({ storedRole: 'employer', accountRole: 'employer' });
+  usePendingRoleStore('employer');
   const resolved = await applyPendingOAuthRole('user-1');
   assert.equal(resolved, 'employer');
   assert.ok(
     client.calls.includes('job_register_role:{"requested_role":"employer"}'),
-    `registered the account's own portal: ${client.calls.join(', ')}`,
+    `entered the requested portal: ${client.calls.join(', ')}`,
   );
+  delete globalThis.window;
+});
+
+await check('an OAuth return for the other portal is refused and signed out', async () => {
+  const client = useClient({ storedRole: 'employer', accountRole: 'employer' });
+  const store = usePendingRoleStore('seeker');
+  await assert.rejects(
+    () => applyPendingOAuthRole('user-1'),
+    (error) => {
+      assert.ok(isPortalRoleMismatchError(error), `structured mismatch, got ${error?.name}`);
+      assert.equal(error.existingRole, 'employer');
+      return true;
+    },
+  );
+  assert.ok(client.calls.includes('auth.signOut'), 'the unusable provider session is cleared');
+  assert.equal(store.nexora_pending_role, undefined, 'pending role cleared');
   delete globalThis.window;
 });
 
