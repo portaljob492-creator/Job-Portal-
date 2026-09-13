@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 
+function readAdminEmailPrefill(): string {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('email') ?? '';
+}
+
 export function AdminLoginScreen({ onLogin, onBack }: { onLogin:(email:string,password:string)=>Promise<void>; onBack:()=>void }) {
-  const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [error,setError]=useState(''); const [busy,setBusy]=useState(false);
+  const [email,setEmail]=useState(readAdminEmailPrefill); const [password,setPassword]=useState(''); const [error,setError]=useState(''); const [busy,setBusy]=useState(false);
   return <main className="min-h-screen bg-[#fdf8f8] grid place-items-center p-5"><form className="w-full max-w-md bg-white border border-[#e0bec6] rounded-3xl p-7 shadow-xl space-y-5" onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await onLogin(email,password)}catch(x){setError(x instanceof Error?x.message:'Admin login failed.')}finally{setBusy(false)}}}>
     <div className="text-center"><ShieldCheck className="w-12 h-12 text-[#8e004b] mx-auto"/><h1 className="text-2xl font-extrabold mt-3">Nexora Jobs Admin</h1><p className="text-sm text-[#594047]">Restricted approval workspace</p></div>
     <label className="block text-xs font-bold">Admin email<input className="mt-1 w-full border border-[#e0bec6] rounded-xl p-3" type="email" required value={email} onChange={e=>setEmail(e.target.value)} /></label>

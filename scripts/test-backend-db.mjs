@@ -287,6 +287,37 @@ try {
 check('portal role cannot be switched after assignment -> PORTAL_ROLE_MISMATCH',
   /PORTAL_ROLE_MISMATCH/.test(roleSwitch), roleSwitch);
 
+// An OAuth-style signup carries no app_context metadata, so the signup trigger
+// skips it entirely. Portal entry through job_register_role must still converge
+// the account to a complete row set (role + shared profile).
+const oauthUser = uid(7);
+await db.exec(`insert into auth.users(id,email,raw_user_meta_data) values ('${oauthUser}','oauth@example.com','{}');`);
+await rpc(oauthUser, `select public.job_register_role('job_seeker')`);
+const oauthRows = await db.query(`
+  select
+    (select role from public.job_user_roles where user_id='${oauthUser}') as role,
+    (select full_name from public.profiles where id='${oauthUser}') as name,
+    (select is_active from public.profiles where id='${oauthUser}') as active`);
+check('role registration heals a missing shared profile row',
+  oauthRows.rows[0].role === 'job_seeker' && oauthRows.rows[0].name === 'oauth' && oauthRows.rows[0].active === true,
+  JSON.stringify(oauthRows.rows[0]));
+
+// The healing must not reactivate a deliberately deactivated account.
+const dormant = uid(8);
+await db.exec(`
+  insert into auth.users(id,email) values ('${dormant}','dormant@example.com');
+  insert into public.profiles(id,full_name,is_active) values ('${dormant}','Dormant',false)
+  on conflict (id) do update set full_name=excluded.full_name, is_active=false;
+`);
+let dormantError = '';
+try {
+  await rpc(dormant, `select public.job_register_role('job_seeker')`);
+} catch (error) {
+  dormantError = error.message;
+}
+check('deactivated accounts stay blocked with ACCOUNT_INACTIVE',
+  /ACCOUNT_INACTIVE/.test(dormantError), dormantError);
+
 const salonId = (await rpc(employer, `select public.complete_job_employer_onboarding(
   'Probe Salon','Owner','1 Main St','Jaipur','Rajasthan',null,'salon',null,null) as id`)).rows[0].id;
 check('employer onboarding returns a salon', Boolean(salonId));

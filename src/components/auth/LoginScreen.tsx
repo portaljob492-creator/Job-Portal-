@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { UserRole } from '../../types';
-import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound, Mail } from 'lucide-react';
+import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound, Mail, ShieldCheck } from 'lucide-react';
 import {
   formatRetryCountdown,
   isAuthRateLimitError,
@@ -10,7 +10,7 @@ import {
   type PasswordSignInBlockedError,
   type PortalRoleMismatchError,
 } from '../../lib/authErrors';
-import { loginPathWithPrefill } from '../../routing';
+import { jobPortalPath, loginPathWithPrefill } from '../../routing';
 
 interface LoginScreenProps {
   onLoginSuccess: (role: UserRole, email: string, password: string) => Promise<void> | void;
@@ -153,6 +153,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setRoleMismatch(null);
     setSignInBlocked(null);
     setError(null);
+    if (target === 'admin') {
+      // Admins have no tab on this screen: route to the admin sign-in with the
+      // email carried over, mirroring the app's event-driven navigation.
+      setEmail(prefilledEmail);
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams();
+        if (prefilledEmail.trim()) params.set('email', prefilledEmail.trim());
+        const query = params.toString();
+        window.history.replaceState({}, document.title, `${jobPortalPath('admin')}${query ? `?${query}` : ''}`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }
+      return;
+    }
     setActiveRole(target);
     setEmail(prefilledEmail);
     if (typeof window !== 'undefined') {
@@ -272,8 +285,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   onClick={handleSwitchPortal}
                   className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
                 >
-                  {roleMismatch.existingRole === 'employer' ? <Building2 className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
-                  Switch to {portalRoleLabel(roleMismatch.existingRole)} Portal
+                  {roleMismatch.existingRole === 'employer'
+                    ? <Building2 className="w-3.5 h-3.5" />
+                    : roleMismatch.existingRole === 'admin'
+                      ? <ShieldCheck className="w-3.5 h-3.5" />
+                      : <UserCheck className="w-3.5 h-3.5" />}
+                  {roleMismatch.existingRole === 'admin'
+                    ? 'Go to Admin Sign In'
+                    : `Switch to ${portalRoleLabel(roleMismatch.existingRole)} Portal`}
                 </button>
               </div>
             )}

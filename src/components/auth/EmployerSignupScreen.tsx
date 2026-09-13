@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, UserCheck } from 'lucide-react';
 import type { UserRole } from '../../types';
 import {
+  formatRetryCountdown,
+  isAuthRateLimitError,
   isPortalRoleMismatchError,
   portalRoleLabel,
   type PortalRoleMismatchError,
@@ -30,9 +32,18 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
+  /** Seconds left on a signup throttle. Submit stays disabled so attempts are not burned. */
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = typeof window !== 'undefined' ? window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000) : 0;
+    return () => { if (typeof window !== 'undefined') window.clearInterval(timer); };
+  }, [cooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting || cooldown > 0) return;
     setError(null);
     setRoleMismatch(null);
     if (!agreeTerms) {
@@ -56,6 +67,12 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
         // explainer + switch action instead of a generic sign-up error.
         setError(null);
         setRoleMismatch(signupError);
+      } else if (isAuthRateLimitError(signupError)) {
+        // Throttled (usually the email quota): count down instead of letting
+        // the user burn more attempts while the quota recovers.
+        setRoleMismatch(null);
+        setCooldown(signupError.retryAfterSeconds);
+        setError(signupError.message);
       } else {
         setRoleMismatch(null);
         setError(signupError instanceof Error ? signupError.message : 'Unable to create employer account.');
@@ -216,15 +233,15 @@ export const EmployerSignupScreen: React.FC<EmployerSignupScreenProps> = ({
             {/* CTA */}
             <button
               type="submit"
-              disabled={!agreeTerms || isSubmitting}
+              disabled={!agreeTerms || isSubmitting || cooldown > 0}
               className={`w-full h-12 rounded-full font-bold text-sm tracking-wide transition-all duration-200 mt-2 flex items-center justify-center gap-2 shadow-md cursor-pointer ${
-                agreeTerms && !isSubmitting
+                agreeTerms && !isSubmitting && cooldown <= 0
                   ? 'bg-[#e6007e] text-white hover:bg-[#b50062] active:scale-[0.98]'
                   : 'bg-[#e6e1e1] text-[#594047] opacity-60 cursor-not-allowed'
               }`}
             >
-              <span>{isSubmitting ? 'Creating account…' : 'Create Employer Account'}</span>
-              {!isSubmitting && <ArrowRight className="w-4 h-4" />}
+              <span>{isSubmitting ? 'Creating account…' : cooldown > 0 ? `Try again in ${formatRetryCountdown(cooldown)}` : 'Create Employer Account'}</span>
+              {!isSubmitting && cooldown <= 0 && <ArrowRight className="w-4 h-4" />}
             </button>
           </form>
 

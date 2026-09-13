@@ -19,8 +19,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   AuthRateLimitError,
   isActionableAuthScreenError,
+  parsePortalRoleMismatch,
+  portalRoleLabel,
   PortalRoleMismatchError,
+  roleMismatchMessage,
 } from '../src/lib/authErrors.ts';
+import { buildAuthClientOptions } from '../src/lib/supabase.ts';
 import { mapBackendError } from '../src/services/backend.ts';
 import { LoginScreen } from '../src/components/auth/LoginScreen.tsx';
 
@@ -117,6 +121,66 @@ await check('login screen wires the throttle countdown', () => {
   assert.ok(screen.includes('setCooldown(loginError.retryAfterSeconds)'), 'counts down from the server wait');
   assert.ok(screen.includes('Try again in ${formatRetryCountdown(cooldown)}'), 'countdown on the button');
   assert.ok(screen.includes('disabled={isLoading || cooldown > 0}'), 'submit blocked while cooling down');
+});
+
+// ---------------------------------------------------------------------------
+// 4. Option 1: admin mismatch routing, client config, signup cooldowns
+// ---------------------------------------------------------------------------
+
+await check('admin mismatch parses to the admin portal', () => {
+  const parsed = parsePortalRoleMismatch(new Error('PORTAL_ROLE_MISMATCH:admin'), 'seeker', 'a@b.c');
+  assert.ok(parsed, 'parsed');
+  assert.equal(parsed.existingRole, 'admin');
+  assert.equal(parsed.requestedRole, 'seeker');
+  assert.equal(parsed.email, 'a@b.c');
+});
+
+await check('unknown mismatch suffix stays unparsed', () => {
+  assert.equal(parsePortalRoleMismatch(new Error('PORTAL_ROLE_MISMATCH:superuser'), 'seeker', ''), null);
+  assert.equal(parsePortalRoleMismatch(new Error('boom'), 'seeker', ''), null);
+});
+
+await check('mismatch copy names each portal with the right article', () => {
+  assert.equal(
+    roleMismatchMessage('admin'),
+    'This email is already registered as an Admin. Please sign in through the Admin portal.',
+  );
+  assert.ok(roleMismatchMessage('seeker').includes('as a Job Seeker'));
+  assert.ok(roleMismatchMessage('employer').includes('as an Employer'));
+  assert.equal(portalRoleLabel('admin'), 'Admin');
+});
+
+await check('supabase client enables persistence and auto-refresh', () => {
+  const options = buildAuthClientOptions('test-key');
+  assert.equal(options.storageKey, 'test-key');
+  assert.equal(options.persistSession, true);
+  assert.equal(options.autoRefreshToken, true);
+  assert.equal(options.detectSessionInUrl, true);
+  assert.equal(options.flowType, 'pkce');
+});
+
+await check('login screen routes admin mismatches to the admin sign-in', () => {
+  const screen = read('src/components/auth/LoginScreen.tsx');
+  assert.ok(screen.includes("jobPortalPath('admin')"), 'admin path navigation');
+  assert.ok(screen.includes('Go to Admin Sign In'), 'admin switch label');
+  assert.ok(screen.includes('new PopStateEvent'), 'event-driven navigation');
+});
+
+await check('admin login pre-fills the carried-over email', () => {
+  const screen = read('src/components/admin/AdminLoginScreen.tsx');
+  assert.ok(screen.includes("get('email')"), 'reads the email prefill param');
+});
+
+await check('both signup screens wire the throttle countdown', () => {
+  for (const file of [
+    'src/components/auth/JobSeekerSignupScreen.tsx',
+    'src/components/auth/EmployerSignupScreen.tsx',
+  ]) {
+    const screen = read(file);
+    assert.ok(screen.includes('isAuthRateLimitError(signupError)'), `${file}: classifies throttling`);
+    assert.ok(screen.includes('setCooldown(signupError.retryAfterSeconds)'), `${file}: counts down`);
+    assert.ok(screen.includes('cooldown > 0'), `${file}: gates submit`);
+  }
 });
 
 console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));

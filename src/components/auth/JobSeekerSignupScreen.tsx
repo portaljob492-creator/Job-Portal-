@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, Bell, Apple, Building2 } from 'lucide-react';
 import type { UserRole } from '../../types';
 import {
+  formatRetryCountdown,
+  isAuthRateLimitError,
   isPortalRoleMismatchError,
   portalRoleLabel,
   type PortalRoleMismatchError,
@@ -34,9 +36,18 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
+  /** Seconds left on a signup throttle. Submit stays disabled so attempts are not burned. */
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = typeof window !== 'undefined' ? window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000) : 0;
+    return () => { if (typeof window !== 'undefined') window.clearInterval(timer); };
+  }, [cooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting || cooldown > 0) return;
     setError(null);
     setRoleMismatch(null);
     if (!agreedToTerms) {
@@ -65,6 +76,12 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
         // explainer + switch action instead of a generic sign-up error.
         setError(null);
         setRoleMismatch(signupError);
+      } else if (isAuthRateLimitError(signupError)) {
+        // Throttled (usually the email quota): count down instead of letting
+        // the user burn more attempts. Social sign-up stays available.
+        setRoleMismatch(null);
+        setCooldown(signupError.retryAfterSeconds);
+        setError(signupError.message);
       } else {
         setRoleMismatch(null);
         setError(signupError instanceof Error ? signupError.message : 'Unable to create account.');
@@ -290,10 +307,10 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
           {/* Submit CTA */}
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || cooldown > 0}
             className="mt-2 w-full py-3.5 bg-[#e2007c] disabled:opacity-60 disabled:cursor-wait text-white rounded-full text-sm font-bold tracking-wide hover:bg-[#b90064] active:scale-95 transition-all shadow-md cursor-pointer"
           >
-            {isSubmitting ? 'Creating account…' : 'Create Account'}
+            {isSubmitting ? 'Creating account…' : cooldown > 0 ? `Try again in ${formatRetryCountdown(cooldown)}` : 'Create Account'}
           </button>
         </form>
 
