@@ -1,806 +1,499 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ChevronDown, Store, MapPin, Home, ArrowRight, Search, X, Plus, Gift, Banknote, ShieldPlus, Clock, Calendar } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  BriefcaseBusiness,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+  MapPin,
+  Plus,
+  Store,
+  X,
+} from 'lucide-react';
 import { JobPosting } from '../../types';
 
 interface PostJobWizardProps {
   onClose: () => void;
-  onComplete: (job: Partial<JobPosting>) => Promise<void>;
+  onComplete: (job: Partial<JobPosting>) => Promise<JobPosting>;
+  onViewJobPosts: () => void;
+  onViewApplications: () => void;
+  initialBusinessName?: string;
+  initialContactPerson?: string;
+  initialContactMobile?: string;
+  initialCity?: string;
+  initialArea?: string;
 }
 
-export const PostJobWizard: React.FC<PostJobWizardProps> = ({ onClose, onComplete }) => {
+type InterviewMode = NonNullable<JobPosting['interviewMode']>;
+type PostingStatus = NonNullable<JobPosting['postingStatus']>;
+
+const inputClass = 'w-full rounded-lg border border-[#e0bec6] bg-[#fdf8f8] px-4 py-3 text-base text-[#1c1b1b] outline-none transition-all placeholder:text-[#8c7077] focus:border-[#8e004b] focus:bg-white focus:ring-1 focus:ring-[#8e004b]';
+const labelClass = 'text-[13px] font-semibold text-[#1c1b1b]';
+
+function Field({ label, id, children }: { label: string; id: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <label className={labelClass} htmlFor={id}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function digits(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+export const PostJobWizard: React.FC<PostJobWizardProps> = ({
+  onClose,
+  onComplete,
+  onViewJobPosts,
+  onViewApplications,
+  initialBusinessName = '',
+  initialContactPerson = '',
+  initialContactMobile = '',
+  initialCity = '',
+  initialArea = '',
+}) => {
+  const totalSteps = 5;
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const totalSteps = 5;
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [savedJob, setSavedJob] = useState<JobPosting | null>(null);
 
-  // Form State - Step 1
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('hair');
-  const [openings, setOpenings] = useState('1');
-  const [jobType, setJobType] = useState('full-time');
-  const [workplaceType, setWorkplaceType] = useState('on-site');
+  const [businessName, setBusinessName] = useState(initialBusinessName);
+  const [category, setCategory] = useState<JobPosting['category']>('Hair');
+  const [jobRole, setJobRole] = useState('');
+  const [description, setDescription] = useState('');
 
-  // Form State - Step 2
-  const [minExp, setMinExp] = useState('1');
-  const [maxExp, setMaxExp] = useState('5');
-  const [fresherAllowed, setFresherAllowed] = useState(false);
-  const [skills, setSkills] = useState<string[]>(['Hair Styling', 'Coloring', 'Scalp Treatment']);
+  const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState('');
-
-  // Form State - Step 3
+  const [minExp, setMinExp] = useState('0');
+  const [maxExp, setMaxExp] = useState('2');
+  const [freshersAllowed, setFreshersAllowed] = useState(false);
   const [minSalary, setMinSalary] = useState('');
   const [maxSalary, setMaxSalary] = useState('');
-  const [payType, setPayType] = useState('Yearly');
-  const [incentives, setIncentives] = useState(true);
-  const [tipsAllowed, setTipsAllowed] = useState(true);
-  const [fullBenefits, setFullBenefits] = useState(false);
-  const [benefitsDesc, setBenefitsDesc] = useState('');
+  const [payType, setPayType] = useState<NonNullable<JobPosting['payType']>>('monthly');
+  const [jobType, setJobType] = useState<JobPosting['jobType']>('Full-time');
 
-  // Form State - Step 4
-  const [description, setDescription] = useState('');
-  const [responsibilities, setResponsibilities] = useState('');
-  const [workingDays, setWorkingDays] = useState('Mon-Fri');
-  const [workingHours, setWorkingHours] = useState('9:00 AM - 6:00 PM');
-  const [joiningDate, setJoiningDate] = useState('');
-  const [weeklyOff, setWeeklyOff] = useState('Sunday');
+  const [workplaceType, setWorkplaceType] = useState<NonNullable<JobPosting['workplaceType']>>('on_site');
+  const [workLocation, setWorkLocation] = useState('');
+  const [city, setCity] = useState(initialCity);
+  const [area, setArea] = useState(initialArea);
+  const [openings, setOpenings] = useState('1');
 
-  const suggestedSkills = ['Balayage', 'Keratin', 'Customer Service'];
-  const salaryPeriod = payType === 'Yearly' ? 'year' : payType === 'Monthly' ? 'month' : 'hour';
+  const [contactPerson, setContactPerson] = useState(initialContactPerson);
+  const [contactMobile, setContactMobile] = useState(initialContactMobile);
+  const [whatsappNumber, setWhatsappNumber] = useState(initialContactMobile);
+  const [interviewMode, setInterviewMode] = useState<InterviewMode>('in_person');
+  const [postingStatus, setPostingStatus] = useState<PostingStatus>('published');
+
+  const salarySuffix: Record<NonNullable<JobPosting['payType']>, string> = {
+    monthly: '/month',
+    daily: '/day',
+    hourly: '/hour',
+    commission: ' commission',
+  };
   const formattedSalary = minSalary && maxSalary
-    ? `₹${Number(minSalary).toLocaleString('en-IN')} - ₹${Number(maxSalary).toLocaleString('en-IN')}/${salaryPeriod}`
-    : '₹3,60,000 - ₹6,00,000/year';
+    ? `₹${Number(minSalary).toLocaleString('en-IN')} - ₹${Number(maxSalary).toLocaleString('en-IN')}${salarySuffix[payType]}`
+    : 'Not entered';
+  const displayLocation = workplaceType === 'remote' ? 'Remote' : [area, city].filter(Boolean).join(', ');
 
-  const validateCurrentStep = () => {
-    if (step === 1 && title.trim().length < 2) return 'Enter a job title before continuing.';
-    if (step === 2 && skills.length === 0) return 'Add at least one required skill.';
-    if (step === 3 && minSalary && maxSalary && Number(minSalary) > Number(maxSalary)) return 'Maximum salary must be greater than minimum salary.';
-    if (step === 4 && description.trim().length < 20) return 'Add a job description of at least 20 characters.';
+  const addSkill = (value: string) => {
+    const skill = value.trim();
+    if (skill && !skills.some((item) => item.toLowerCase() === skill.toLowerCase())) {
+      setSkills((current) => [...current, skill]);
+    }
+    setSkillInput('');
+  };
+
+  const validateStep = (targetStep = step) => {
+    if (targetStep === 1) {
+      if (title.trim().length < 2) return 'Enter a valid job title.';
+      if (businessName.trim().length < 2) return 'Enter your business or salon name.';
+      if (jobRole.trim().length < 2) return 'Enter the job role.';
+      if (description.trim().length < 20) return 'Add a job description of at least 20 characters.';
+    }
+    if (targetStep === 2) {
+      if (skills.length === 0) return 'Add at least one required skill.';
+      if (Number(maxExp) < Number(minExp)) return 'Maximum experience must be greater than minimum experience.';
+      if (!minSalary || !maxSalary || Number(minSalary) <= 0 || Number(maxSalary) <= 0) return 'Enter a valid salary range.';
+      if (Number(maxSalary) < Number(minSalary)) return 'Maximum salary must be greater than minimum salary.';
+    }
+    if (targetStep === 3) {
+      if (workLocation.trim().length < 2) return 'Enter the work location.';
+      if (city.trim().length < 2) return 'Enter the city.';
+      if (area.trim().length < 2) return 'Enter the area.';
+      if (!Number.isInteger(Number(openings)) || Number(openings) < 1 || Number(openings) > 1000) return 'Enter a valid number of openings.';
+    }
+    if (targetStep === 4) {
+      if (contactPerson.trim().length < 2) return 'Enter the contact person name.';
+      if (digits(contactMobile).length < 7 || digits(contactMobile).length > 15) return 'Enter a valid contact mobile number.';
+      if (digits(whatsappNumber).length < 7 || digits(whatsappNumber).length > 15) return 'Enter a valid WhatsApp number.';
+    }
     return null;
   };
 
   const handleNext = () => {
-    const error = validateCurrentStep();
+    const error = validateStep();
     if (error) {
       setValidationError(error);
       return;
     }
     setValidationError(null);
-    if (step < totalSteps) setStep(step + 1);
+    setStep((current) => Math.min(totalSteps, current + 1));
+  };
+
+  const validateAll = () => {
+    for (let current = 1; current <= 4; current += 1) {
+      const error = validateStep(current);
+      if (error) return error;
+    }
+    return null;
   };
 
   const handleComplete = async () => {
     if (isSubmitting) return;
-    if (title.trim().length < 2 || description.trim().length < 20) {
-      setSubmitError('Add a valid job title and a description of at least 20 characters before submitting.');
+    const error = validateAll();
+    if (error) {
+      setSubmitError(error);
       return;
     }
+
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const categoryMap: Record<string, JobPosting['category']> = {
-        hair: 'Hair', color: 'Hair', nails: 'Nails', spa: 'Massage', management: 'Management',
-      };
-      const jobTypeMap: Record<string, JobPosting['jobType']> = {
-        'full-time': 'Full-time', 'part-time': 'Part-time', internship: 'Part-time', contract: 'Contract', freelance: 'Commission',
-      };
-      const salaryDivisor = payType === 'Yearly' ? 12 : 1;
-      const databasePayType: JobPosting['payType'] = payType === 'Hourly'
-        ? 'hourly'
-        : payType === 'Commission'
-          ? 'commission'
-          : 'monthly';
-      const selectedBenefits = [
-        incentives ? 'Performance incentives' : '',
-        tipsAllowed ? 'Tips allowed' : '',
-        fullBenefits ? 'Health, dental and vision benefits' : '',
-        benefitsDesc.trim(),
-      ].filter(Boolean);
-      await onComplete({
+      const now = new Date().toISOString();
+      const result = await onComplete({
         title: title.trim(),
-        category: categoryMap[category] || 'Hair',
-        jobType: jobTypeMap[jobType] || 'Commission',
-        workplaceType: workplaceType === 'on-site' ? 'on_site' : workplaceType as 'hybrid' | 'remote',
-        experienceMinMonths: Number(minExp || 0) * 12,
-        experienceMaxMonths: maxExp ? Number(maxExp) * 12 : undefined,
-        freshersAllowed: fresherAllowed,
-        openings: Math.max(1, Number(openings || 1)),
-        location: workplaceType === 'remote' ? 'Remote' : 'Beverly Hills, CA',
-        salary: formattedSalary,
-        salaryMin: minSalary ? Math.round(Number(minSalary) / salaryDivisor) : undefined,
-        salaryMax: maxSalary ? Math.round(Number(maxSalary) / salaryDivisor) : undefined,
-        payType: databasePayType,
+        salonName: businessName.trim(),
+        businessName: businessName.trim(),
+        category,
+        jobRole: jobRole.trim(),
         description: description.trim(),
         requirements: skills,
-        benefits: selectedBenefits.length ? selectedBenefits : ['Benefits discussed during interview'],
-        workingDays,
-        workingHours,
+        experienceMinMonths: Number(minExp) * 12,
+        experienceMaxMonths: Number(maxExp) * 12,
+        freshersAllowed,
+        salary: formattedSalary,
+        salaryMin: Number(minSalary),
+        salaryMax: Number(maxSalary),
+        payType,
+        jobType,
+        workplaceType,
+        workLocation: workLocation.trim(),
+        location: displayLocation,
+        city: city.trim(),
+        area: area.trim(),
+        contactPerson: contactPerson.trim(),
+        contactMobile: contactMobile.trim(),
+        whatsappNumber: whatsappNumber.trim(),
+        openings: Number(openings),
+        interviewMode,
+        postingStatus,
+        approvalStatus: postingStatus === 'published' ? 'approved' : 'draft',
+        postedDate: 'Just now',
+        publishedAt: now,
+        tags: ['New Listing'],
+        benefits: ['Benefits discussed during interview'],
       });
-    } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : 'Unable to submit this job. Your details are still here — please retry.');
+      setSavedJob(result);
+      setStep(6);
+    } catch (caught) {
+      setSubmitError(caught instanceof Error ? caught.message : 'Unable to save this job. Your details are still here — please retry.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleAddSkill = (skill: string) => {
-    if (skill.trim() && !skills.includes(skill.trim())) {
-      setSkills([...skills, skill.trim()]);
-    }
+  const resetForAnotherJob = () => {
+    setTitle('');
+    setJobRole('');
+    setDescription('');
+    setSkills([]);
     setSkillInput('');
-  };
-
-  const handleRemoveSkill = (skillToRemove: string) => {
-    setSkills(skills.filter(s => s !== skillToRemove));
+    setMinExp('0');
+    setMaxExp('2');
+    setFreshersAllowed(false);
+    setMinSalary('');
+    setMaxSalary('');
+    setWorkLocation('');
+    setOpenings('1');
+    setPostingStatus('published');
+    setSavedJob(null);
+    setSubmitError(null);
+    setValidationError(null);
+    setStep(1);
   };
 
   const renderStep1 = () => (
-    <div className="flex flex-col gap-8 animate-in fade-in duration-200">
-      <section className="flex flex-col gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-[#1c1b1b]">Basic Details</h2>
-          <p className="text-base text-[#594047]">Let's start with the essential information about the role.</p>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-medium text-[#1c1b1b]" htmlFor="job-title">Job Title</label>
-          <input
-            id="job-title"
-            type="text"
-            placeholder="e.g. Senior Hair Stylist"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg px-4 py-3 text-base text-[#1c1b1b] placeholder:text-[#594047] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-all outline-none shadow-sm"
-          />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-medium text-[#1c1b1b]" htmlFor="category">Category</label>
+    <div className="space-y-6 animate-in fade-in duration-200">
+      <div>
+        <h2 className="text-xl font-semibold text-[#1c1b1b]">Job details</h2>
+        <p className="mt-1 text-sm text-[#594047]">Tell candidates about the role and your business.</p>
+      </div>
+      <Field label="Job Title" id="job-title">
+        <input id="job-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Senior Hair Stylist" className={inputClass} />
+      </Field>
+      <Field label="Business / Salon Name" id="business-name">
+        <input id="business-name" value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Your registered business name" className={inputClass} />
+      </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Category" id="job-category">
           <div className="relative">
-            <select
-              id="category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg px-4 py-3 pr-10 text-base text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-all outline-none shadow-sm appearance-none cursor-pointer"
-            >
-              <option value="" disabled>Select a category</option>
-              <option value="hair">Hair Styling</option>
-              <option value="color">Hair Coloring</option>
-              <option value="nails">Nail Care</option>
-              <option value="spa">Spa & Massage</option>
-              <option value="management">Salon Management</option>
+            <select id="job-category" value={category} onChange={(event) => setCategory(event.target.value as JobPosting['category'])} className={`${inputClass} appearance-none pr-10`}>
+              {(['Hair', 'Skincare', 'Nails', 'Lashes & Brows', 'Massage', 'Management'] as JobPosting['category'][]).map((value) => <option key={value}>{value}</option>)}
             </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-[#594047]">
-              <ChevronDown className="w-5 h-5" />
-            </div>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#594047]" />
           </div>
-        </div>
-
-        <div className="flex flex-col gap-2 w-1/2">
-          <label className="text-[13px] font-medium text-[#1c1b1b]" htmlFor="openings">Number of Openings</label>
-          <input
-            id="openings"
-            type="number"
-            min="1"
-            value={openings}
-            onChange={(e) => setOpenings(e.target.value)}
-            className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg px-4 py-3 text-base text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-all outline-none shadow-sm"
-          />
-        </div>
-      </section>
-
-      <hr className="border-[#e0bec6] opacity-50" />
-
-      <section className="flex flex-col gap-4">
-        <h3 className="text-[13px] font-medium text-[#1c1b1b]">Job Type</h3>
-        <div className="flex flex-wrap gap-3">
-          {['full-time', 'part-time', 'internship', 'contract', 'freelance'].map((type) => (
-            <label key={type} className="cursor-pointer group">
-              <input
-                type="radio"
-                name="job-type"
-                value={type}
-                checked={jobType === type}
-                onChange={() => setJobType(type)}
-                className="peer sr-only"
-              />
-              <span className="inline-flex items-center justify-center px-4 py-2 border border-[#e0bec6] rounded-full text-[13px] text-[#594047] bg-[#fdf8f8] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b] peer-checked:border-[#8e004b] peer-checked:font-semibold transition-all hover:bg-[#ece7e7] peer-focus-visible:ring-2 peer-focus-visible:ring-[#8e004b] peer-focus-visible:ring-offset-2 capitalize">
-                {type.replace('-', ' ')}
-              </span>
-            </label>
-          ))}
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-4 pb-8">
-        <h3 className="text-[13px] font-medium text-[#1c1b1b]">Workplace Type</h3>
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { id: 'on-site', label: 'On-site', icon: Store },
-            { id: 'hybrid', label: 'Hybrid', icon: MapPin },
-            { id: 'remote', label: 'Remote', icon: Home },
-          ].map((type) => (
-            <label key={type.id} className="cursor-pointer group">
-              <input
-                type="radio"
-                name="workplace-type"
-                value={type.id}
-                checked={workplaceType === type.id}
-                onChange={() => setWorkplaceType(type.id)}
-                className="peer sr-only"
-              />
-              <div className="flex flex-col items-center justify-center p-4 border border-[#e0bec6] rounded-lg bg-[#fdf8f8] peer-checked:bg-[#ffd9e2] peer-checked:border-[#8e004b] peer-checked:shadow-sm transition-all hover:bg-[#ece7e7] text-[#594047] peer-checked:text-[#8e004b] gap-2 h-24">
-                <type.icon className="w-6 h-6" />
-                <span className="text-[13px] peer-checked:font-semibold">{type.label}</span>
-              </div>
-            </label>
-          ))}
-        </div>
-      </section>
+        </Field>
+        <Field label="Job Role" id="job-role">
+          <input id="job-role" value={jobRole} onChange={(event) => setJobRole(event.target.value)} placeholder="e.g. Lead Stylist" className={inputClass} />
+        </Field>
+      </div>
+      <Field label="Job Description" id="job-description">
+        <textarea id="job-description" rows={6} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe the work, responsibilities and ideal candidate..." className={inputClass} />
+      </Field>
     </div>
   );
 
   const renderStep2 = () => (
-    <div className="flex flex-col gap-8 animate-in fade-in duration-200">
+    <div className="space-y-7 animate-in fade-in duration-200">
       <div>
-        <h2 className="text-xl md:text-2xl font-bold text-[#1c1b1b] mb-2 tracking-tight">Skills & Experience</h2>
-        <p className="text-[#594047]">Define the qualifications needed for this role.</p>
+        <h2 className="text-xl font-semibold text-[#1c1b1b]">Requirements and salary</h2>
+        <p className="mt-1 text-sm text-[#594047]">Set clear experience, skill and pay expectations.</p>
       </div>
-
-      <section className="flex flex-col gap-4">
-        <h3 className="text-lg font-semibold text-[#1c1b1b]">Experience Required</h3>
-        
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-2">
-            <label className="text-[13px] font-medium text-[#594047]" htmlFor="min-exp">Minimum Experience</label>
-            <div className="relative">
-              <select
-                id="min-exp"
-                value={minExp}
-                onChange={(e) => setMinExp(e.target.value)}
-                className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg px-4 py-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-all outline-none shadow-sm appearance-none cursor-pointer"
-              >
-                <option value="0">0 Years</option>
-                <option value="1">1 Year</option>
-                <option value="2">2 Years</option>
-                <option value="3">3+ Years</option>
-              </select>
-              <ChevronDown className="w-5 h-5 absolute right-3 top-1/2 -translate-y-1/2 text-[#594047] pointer-events-none" />
-            </div>
-          </div>
-          
-          <div className="flex flex-col gap-2">
-            <label className="text-[13px] font-medium text-[#594047]" htmlFor="max-exp">Maximum Experience</label>
-            <div className="relative">
-              <select
-                id="max-exp"
-                value={maxExp}
-                onChange={(e) => setMaxExp(e.target.value)}
-                className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg px-4 py-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-all outline-none shadow-sm appearance-none cursor-pointer"
-              >
-                <option value="1">1 Year</option>
-                <option value="2">2 Years</option>
-                <option value="3">3 Years</option>
-                <option value="5">5 Years</option>
-                <option value="10">10+ Years</option>
-              </select>
-              <ChevronDown className="w-5 h-5 absolute right-3 top-1/2 -translate-y-1/2 text-[#594047] pointer-events-none" />
-            </div>
-          </div>
+      <Field label="Skills Required" id="skill-input">
+        <div className="flex gap-2">
+          <input
+            id="skill-input"
+            value={skillInput}
+            onChange={(event) => setSkillInput(event.target.value)}
+            onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addSkill(skillInput); } }}
+            placeholder="Type a skill and press Enter"
+            className={inputClass}
+          />
+          <button type="button" onClick={() => addSkill(skillInput)} className="rounded-lg bg-[#ffd9e2] px-4 text-[#8e004b] hover:bg-[#ffcbd9]" aria-label="Add skill"><Plus className="h-5 w-5" /></button>
         </div>
-
-        <div className="flex items-center justify-between p-4 bg-white border border-[#e0bec6] rounded-lg mt-2">
-          <div className="flex flex-col">
-            <span className="text-[15px] font-semibold text-[#1c1b1b]">Freshers can apply</span>
-            <span className="text-[13px] text-[#594047]">Allow candidates with 0 years experience</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFresherAllowed(!fresherAllowed)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e004b] focus-visible:ring-offset-2 ${
-              fresherAllowed ? 'bg-[#b90064]' : 'bg-[#e6e1e1]'
-            }`}
-          >
-            <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                fresherAllowed ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-4">
-        <h3 className="text-lg font-semibold text-[#1c1b1b]">Skills</h3>
-        
-        <div className="flex flex-col gap-2">
-          <div className="relative">
-            <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-[#594047] pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search skills..."
-              value={skillInput}
-              onChange={(e) => setSkillInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddSkill(skillInput);
-                }
-              }}
-              className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg pl-10 pr-4 py-3 text-[#1c1b1b] placeholder:text-[#8c7077] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-all outline-none shadow-sm"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-2">
-          {skills.map((skill) => (
-            <div key={skill} className="flex items-center bg-[#ffd9e2] text-[#3e001e] px-3 py-1.5 rounded-full text-[13px] font-medium border border-[#ffb0c8]/50">
-              {skill}
-              <button
-                type="button"
-                onClick={() => handleRemoveSkill(skill)}
-                className="ml-1 text-[#8e004b] hover:text-[#ba1a1a] transition-colors focus:outline-none cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="pt-4 border-t border-[#e0bec6]/50">
-          <p className="text-[13px] text-[#594047] mb-3">Suggested for this role:</p>
-          <div className="flex flex-wrap gap-2">
-            {suggestedSkills.filter(s => !skills.includes(s)).map((skill) => (
-              <button
-                key={skill}
-                type="button"
-                onClick={() => handleAddSkill(skill)}
-                className="flex items-center gap-1 px-3 py-1.5 border border-[#e0bec6] rounded-full text-[13px] font-medium text-[#1c1b1b] hover:bg-[#ece7e7] hover:border-[#8c7077] transition-colors cursor-pointer"
-              >
-                {skill} <Plus className="w-4 h-4" />
-              </button>
+        {skills.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-2">
+            {skills.map((skill) => (
+              <span key={skill} className="inline-flex items-center gap-1 rounded-full border border-[#ffb0c8] bg-[#ffd9e2] px-3 py-1.5 text-[13px] font-semibold text-[#3e001e]">
+                {skill}
+                <button type="button" onClick={() => setSkills((current) => current.filter((item) => item !== skill))} aria-label={`Remove ${skill}`}><X className="h-4 w-4" /></button>
+              </span>
             ))}
           </div>
+        )}
+      </Field>
+      <section className="rounded-xl border border-[#e0bec6] bg-white p-4">
+        <h3 className={labelClass}>Experience Required</h3>
+        <div className="mt-3 grid grid-cols-2 gap-4">
+          <Field label="Minimum years" id="minimum-experience"><input id="minimum-experience" type="number" min="0" max="50" value={minExp} onChange={(event) => setMinExp(event.target.value)} className={inputClass} /></Field>
+          <Field label="Maximum years" id="maximum-experience"><input id="maximum-experience" type="number" min="0" max="50" value={maxExp} onChange={(event) => setMaxExp(event.target.value)} className={inputClass} /></Field>
+        </div>
+        <label className="mt-4 flex cursor-pointer items-center gap-3 text-sm font-medium text-[#594047]">
+          <input type="checkbox" checked={freshersAllowed} onChange={(event) => setFreshersAllowed(event.target.checked)} className="h-4 w-4 accent-[#e2007c]" /> Freshers can apply
+        </label>
+      </section>
+      <section className="rounded-xl border border-[#e0bec6] bg-white p-4">
+        <h3 className={labelClass}>Salary Range</h3>
+        <div className="mt-3 grid grid-cols-2 gap-4">
+          <Field label="Minimum" id="minimum-salary"><input id="minimum-salary" type="number" min="0" value={minSalary} onChange={(event) => setMinSalary(event.target.value)} placeholder="20000" className={inputClass} /></Field>
+          <Field label="Maximum" id="maximum-salary"><input id="maximum-salary" type="number" min="0" value={maxSalary} onChange={(event) => setMaxSalary(event.target.value)} placeholder="35000" className={inputClass} /></Field>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {(['monthly', 'daily', 'hourly', 'commission'] as const).map((value) => (
+            <label key={value} className="cursor-pointer">
+              <input type="radio" name="pay-type" value={value} checked={payType === value} onChange={() => setPayType(value)} className="peer sr-only" />
+              <span className="inline-flex rounded-full border border-[#e0bec6] px-4 py-2 text-[13px] font-medium capitalize text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">{value}</span>
+            </label>
+          ))}
         </div>
       </section>
+      <div>
+        <h3 className={labelClass}>Job Type</h3>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(['Full-time', 'Part-time', 'Contract', 'Commission'] as JobPosting['jobType'][]).map((value) => (
+            <label key={value} className="cursor-pointer">
+              <input type="radio" name="job-type" checked={jobType === value} onChange={() => setJobType(value)} className="peer sr-only" />
+              <span className="inline-flex rounded-full border border-[#e0bec6] px-4 py-2 text-[13px] font-medium text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">{value === 'Commission' ? 'Freelance' : value}</span>
+            </label>
+          ))}
+        </div>
+      </div>
     </div>
   );
 
   const renderStep3 = () => (
-    <div className="flex flex-col gap-8 animate-in fade-in duration-200">
+    <div className="space-y-7 animate-in fade-in duration-200">
       <div>
-        <h2 className="text-xl md:text-2xl font-bold text-[#1c1b1b] mb-2 tracking-tight">Salary & Benefits</h2>
-        <p className="text-[#594047]">Detail the compensation package to attract the best talent.</p>
+        <h2 className="text-xl font-semibold text-[#1c1b1b]">Location and openings</h2>
+        <p className="mt-1 text-sm text-[#594047]">Help candidates understand where the work happens.</p>
       </div>
-
-      <section className="bg-white rounded-xl p-4 md:p-6 border border-[#e0bec6] shadow-[0_4px_12px_rgba(90,63,71,0.02)]">
-        <h3 className="text-lg font-semibold text-[#1c1b1b] mb-4">Salary Range</h3>
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-[13px] font-medium text-[#594047]" htmlFor="min-salary">Minimum</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8c7077]">₹</span>
-                <input
-                  id="min-salary"
-                  type="number"
-                  placeholder="3,60,000"
-                  value={minSalary}
-                  onChange={(e) => setMinSalary(e.target.value)}
-                  className="w-full bg-[#fdf8f8] border border-transparent rounded-lg py-3 pl-8 pr-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-colors outline-none"
-                />
-              </div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-[13px] font-medium text-[#594047]" htmlFor="max-salary">Maximum</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8c7077]">₹</span>
-                <input
-                  id="max-salary"
-                  type="number"
-                  placeholder="6,00,000"
-                  value={maxSalary}
-                  onChange={(e) => setMaxSalary(e.target.value)}
-                  className="w-full bg-[#fdf8f8] border border-transparent rounded-lg py-3 pl-8 pr-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-colors outline-none"
-                />
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex flex-col gap-2 pt-2">
-            <span className="text-[13px] font-medium text-[#594047]">Pay Type</span>
-            <div className="flex flex-wrap gap-2">
-              {['Yearly', 'Monthly', 'Hourly', 'Commission'].map((type) => (
-                <label key={type} className="cursor-pointer">
-                  <input
-                    type="radio"
-                    name="pay_type"
-                    value={type}
-                    checked={payType === type}
-                    onChange={() => setPayType(type)}
-                    className="peer sr-only"
-                  />
-                  <span className="inline-flex items-center justify-center px-4 py-2 rounded-full border border-[#e0bec6] text-[#594047] text-[13px] font-medium peer-checked:bg-[#b50062] peer-checked:text-white peer-checked:border-[#b50062] transition-all hover:bg-[#ece7e7]">
-                    {type}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
+      <div>
+        <h3 className={labelClass}>Workplace Type</h3>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {([['on_site', 'On-site'], ['hybrid', 'Hybrid'], ['remote', 'Remote']] as const).map(([value, label]) => (
+            <label key={value} className="cursor-pointer">
+              <input type="radio" name="workplace-type" checked={workplaceType === value} onChange={() => { setWorkplaceType(value); if (value === 'remote' && !workLocation) setWorkLocation('Remote'); }} className="peer sr-only" />
+              <span className="flex justify-center rounded-lg border border-[#e0bec6] bg-white px-2 py-4 text-sm font-medium text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">{label}</span>
+            </label>
+          ))}
         </div>
-      </section>
-
-      <section className="bg-white rounded-xl p-4 md:p-6 border border-[#e0bec6] shadow-[0_4px_12px_rgba(90,63,71,0.02)]">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-[#1c1b1b]">Additional Perks</h3>
-          <span className="text-[13px] text-[#8c7077]">Optional</span>
-        </div>
-        
-        <div className="flex flex-col divide-y divide-[#e6e1e1]">
-          {/* Incentives */}
-          <div className="flex items-center justify-between py-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#fdf8f8] flex items-center justify-center text-[#b50062]">
-                <Gift className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-[15px] font-semibold text-[#1c1b1b]">Incentives</p>
-                <p className="text-[13px] text-[#594047]">Performance bonuses, retail commission</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIncentives(!incentives)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e004b] focus-visible:ring-offset-2 ${
-                incentives ? 'bg-[#b90064]' : 'bg-[#e6e1e1]'
-              }`}
-            >
-              <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${incentives ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
-          
-          {/* Tips Allowed */}
-          <div className="flex items-center justify-between py-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#fdf8f8] flex items-center justify-center text-[#b50062]">
-                <Banknote className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-[15px] font-semibold text-[#1c1b1b]">Tips Allowed</p>
-                <p className="text-[13px] text-[#594047]">Clients can leave gratuity</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setTipsAllowed(!tipsAllowed)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e004b] focus-visible:ring-offset-2 ${
-                tipsAllowed ? 'bg-[#b90064]' : 'bg-[#e6e1e1]'
-              }`}
-            >
-              <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${tipsAllowed ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
-
-          {/* Full Benefits */}
-          <div className="flex items-center justify-between py-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#fdf8f8] flex items-center justify-center text-[#b50062]">
-                <ShieldPlus className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-[15px] font-semibold text-[#1c1b1b]">Full Benefits</p>
-                <p className="text-[13px] text-[#594047]">Health, Dental, Vision</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setFullBenefits(!fullBenefits)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e004b] focus-visible:ring-offset-2 ${
-                fullBenefits ? 'bg-[#b90064]' : 'bg-[#e6e1e1]'
-              }`}
-            >
-              <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${fullBenefits ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2 pt-4 mt-2 border-t border-[#e6e1e1]">
-          <label className="text-[13px] font-medium text-[#594047]" htmlFor="benefits-desc">Benefits Description</label>
-          <textarea
-            id="benefits-desc"
-            rows={3}
-            placeholder="Elaborate on the perks of working with your team..."
-            value={benefitsDesc}
-            onChange={(e) => setBenefitsDesc(e.target.value)}
-            className="w-full bg-[#fdf8f8] border border-transparent rounded-lg p-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-colors resize-none outline-none"
-          />
-        </div>
-      </section>
+      </div>
+      <Field label="Work Location" id="work-location">
+        <input id="work-location" value={workLocation} onChange={(event) => setWorkLocation(event.target.value)} placeholder="Building, street or Remote" className={inputClass} />
+      </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="City" id="job-city"><input id="job-city" value={city} onChange={(event) => setCity(event.target.value)} placeholder="e.g. Jaipur" className={inputClass} /></Field>
+        <Field label="Area" id="job-area"><input id="job-area" value={area} onChange={(event) => setArea(event.target.value)} placeholder="e.g. C-Scheme" className={inputClass} /></Field>
+      </div>
+      <Field label="Number of Openings" id="job-openings">
+        <input id="job-openings" type="number" min="1" max="1000" value={openings} onChange={(event) => setOpenings(event.target.value)} className={inputClass} />
+      </Field>
     </div>
   );
 
   const renderStep4 = () => (
-    <div className="flex flex-col gap-8 animate-in fade-in duration-200">
+    <div className="space-y-7 animate-in fade-in duration-200">
       <div>
-        <h2 className="text-xl md:text-2xl font-bold text-[#1c1b1b] mb-2 tracking-tight">Job Details</h2>
-        <p className="text-[#594047]">Describe the role and schedule.</p>
+        <h2 className="text-xl font-semibold text-[#1c1b1b]">Contact and publishing</h2>
+        <p className="mt-1 text-sm text-[#594047]">Set the contact details, interview mode and job status.</p>
       </div>
-
-      <section className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-medium text-[#594047]" htmlFor="job-description">Job Description</label>
-          <textarea
-            id="job-description"
-            rows={5}
-            placeholder="Describe the role and your salon..."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg p-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-all resize-none outline-none shadow-sm"
-          />
+      <Field label="Contact Person" id="contact-person"><input id="contact-person" value={contactPerson} onChange={(event) => setContactPerson(event.target.value)} placeholder="Full name" className={inputClass} /></Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Contact Mobile" id="contact-mobile"><input id="contact-mobile" type="tel" value={contactMobile} onChange={(event) => setContactMobile(event.target.value)} placeholder="+91 98765 43210" className={inputClass} /></Field>
+        <Field label="WhatsApp Number" id="whatsapp-number"><input id="whatsapp-number" type="tel" value={whatsappNumber} onChange={(event) => setWhatsappNumber(event.target.value)} placeholder="+91 98765 43210" className={inputClass} /></Field>
+      </div>
+      <div>
+        <h3 className={labelClass}>Interview Mode</h3>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {([['in_person', 'In-person'], ['video', 'Video'], ['phone', 'Phone'], ['hybrid', 'Hybrid']] as const).map(([value, label]) => (
+            <label key={value} className="cursor-pointer">
+              <input type="radio" name="interview-mode" checked={interviewMode === value} onChange={() => setInterviewMode(value)} className="peer sr-only" />
+              <span className="flex justify-center rounded-lg border border-[#e0bec6] bg-white px-2 py-3 text-[13px] font-medium text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">{label}</span>
+            </label>
+          ))}
         </div>
-        <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-medium text-[#594047]" htmlFor="responsibilities">Responsibilities</label>
-          <textarea
-            id="responsibilities"
-            rows={5}
-            placeholder="List key daily tasks..."
-            value={responsibilities}
-            onChange={(e) => setResponsibilities(e.target.value)}
-            className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg p-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-all resize-none outline-none shadow-sm"
-          />
-        </div>
-      </section>
-
-      <hr className="border-[#e0bec6] opacity-50" />
-
-      <section className="flex flex-col gap-4">
-        <h3 className="text-lg font-semibold text-[#1c1b1b]">Working Schedule</h3>
-        
-        <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-medium text-[#594047]">Working Days</label>
-          <div className="flex flex-wrap gap-2">
-            {['Mon-Fri', 'Mon-Sat', 'Flexible', 'Custom'].map((days) => (
-              <button
-                key={days}
-                type="button"
-                onClick={() => setWorkingDays(days)}
-                className={`px-4 py-2 rounded-full border text-[13px] font-medium transition-colors cursor-pointer ${
-                  workingDays === days
-                    ? 'bg-[#ffd9e2] text-[#8e004b] border-[#ffb0c8]'
-                    : 'bg-[#fdf8f8] border-[#e0bec6] text-[#594047] hover:bg-[#ece7e7]'
-                }`}
-              >
-                {days}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-2">
-            <label className="text-[13px] font-medium text-[#594047]" htmlFor="working-hours">Working Hours</label>
-            <div className="relative">
-              <Clock className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8c7077] pointer-events-none" />
-              <input
-                id="working-hours"
-                type="text"
-                placeholder="9:00 AM - 6:00 PM"
-                value={workingHours}
-                onChange={(e) => setWorkingHours(e.target.value)}
-                className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg py-3 pl-10 pr-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-colors outline-none shadow-sm"
-              />
-            </div>
-          </div>
-          
-          <div className="flex flex-col gap-2">
-            <label className="text-[13px] font-medium text-[#594047]" htmlFor="joining-date">Joining Date</label>
-            <div className="relative">
-              <Calendar className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8c7077] pointer-events-none" />
-              <input
-                id="joining-date"
-                type="date"
-                value={joiningDate}
-                onChange={(e) => setJoiningDate(e.target.value)}
-                className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg py-3 pl-10 pr-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-colors outline-none shadow-sm appearance-none"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-medium text-[#594047]" htmlFor="weekly-off">Weekly Off</label>
-          <div className="relative">
-            <select
-              id="weekly-off"
-              value={weeklyOff}
-              onChange={(e) => setWeeklyOff(e.target.value)}
-              className="w-full bg-[#fdf8f8] border border-[#e0bec6] rounded-lg p-3 text-[#1c1b1b] focus:bg-white focus:border-[#8e004b] focus:ring-1 focus:ring-[#8e004b] transition-colors outline-none shadow-sm appearance-none pr-10 cursor-pointer"
-            >
-              <option value="Sunday">Sunday</option>
-              <option value="Saturday & Sunday">Saturday & Sunday</option>
-              <option value="Monday">Monday</option>
-              <option value="Rotating">Rotating</option>
-            </select>
-            <ChevronDown className="w-5 h-5 absolute right-3 top-1/2 -translate-y-1/2 text-[#594047] pointer-events-none" />
-          </div>
+      </div>
+      <section className="rounded-xl border border-[#e0bec6] bg-white p-4">
+        <h3 className={labelClass}>Status: Draft / Published</h3>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          {([['draft', 'Draft'], ['published', 'Published']] as const).map(([value, label]) => (
+            <label key={value} className="cursor-pointer">
+              <input type="radio" name="posting-status" checked={postingStatus === value} onChange={() => setPostingStatus(value)} className="peer sr-only" />
+              <span className="flex flex-col rounded-lg border border-[#e0bec6] p-4 text-[#594047] peer-checked:border-[#8e004b] peer-checked:bg-[#ffd9e2] peer-checked:text-[#8e004b]">
+                <strong className="text-sm">{label}</strong>
+                <span className="mt-1 text-xs">{value === 'published' ? 'Visible to candidates immediately' : 'Keep private and publish later'}</span>
+              </span>
+            </label>
+          ))}
         </div>
       </section>
     </div>
   );
 
   const renderStep5 = () => (
-    <div className="flex flex-col gap-8 animate-in fade-in duration-200">
-      <section className="space-y-2">
-        <h2 className="text-xl md:text-2xl font-bold text-[#1c1b1b] tracking-tight">Review your job</h2>
-        <p className="text-[#594047]">Here is a preview of exactly how your job will appear to candidates.</p>
+    <div className="space-y-6 animate-in fade-in duration-200">
+      <div>
+        <h2 className="text-xl font-semibold text-[#1c1b1b]">Review your job post</h2>
+        <p className="mt-1 text-sm text-[#594047]">Confirm the details before saving them to your account.</p>
+      </div>
+      <section className="overflow-hidden rounded-xl border border-[#e0bec6] bg-white shadow-sm">
+        <div className="bg-gradient-to-r from-[#ffd9e2] to-[#ffcbd9] p-6">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-white text-[#e2007c] shadow-sm"><Store className="h-6 w-6" /></div>
+          <h3 className="text-xl font-bold text-[#3e001e]">{title}</h3>
+          <p className="mt-1 text-sm font-medium text-[#594047]">{businessName} · {jobRole}</p>
+        </div>
+        <dl className="grid gap-4 p-5 sm:grid-cols-2">
+          {[
+            ['Category', category],
+            ['Location', displayLocation],
+            ['Salary', formattedSalary],
+            ['Experience', `${minExp}–${maxExp} years`],
+            ['Job Type', jobType === 'Commission' ? 'Freelance' : jobType],
+            ['Openings', openings],
+            ['Interview Mode', interviewMode.replace('_', ' ')],
+            ['Status', postingStatus === 'published' ? 'Published' : 'Draft'],
+          ].map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-[#8c7077]">{label}</dt>
+              <dd className="mt-1 text-sm font-semibold capitalize text-[#1c1b1b]">{value}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
-
-      <div className="bg-white rounded-lg border border-[#e0bec6] shadow-[0_4px_12px_rgba(90,63,71,0.05)] p-4 md:p-6 overflow-hidden relative">
-        <div className="h-48 -mx-4 md:-mx-6 -mt-4 md:-mt-6 mb-4 bg-[#e6e1e1] relative overflow-hidden flex items-center justify-center">
-          <div className="w-full h-full bg-gradient-to-r from-[#ffd9e2] to-[#ffcbd9] opacity-50 absolute inset-0"></div>
-          <div className="absolute bottom-4 left-4 bg-white rounded-lg p-2 shadow-sm border border-[#e0bec6] flex items-center justify-center">
-            <Store className="w-8 h-8 text-[#b50062]" />
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-[18px] font-semibold text-[#1c1b1b]">{title || 'Job Title'}</h3>
-            <p className="text-[16px] text-[#594047] mt-1 flex items-center gap-2">
-              Luxe & Co Salon Group <span className="w-1 h-1 bg-[#8c7077] rounded-full inline-block"></span> {workplaceType === 'remote' ? 'Remote' : 'Beverly Hills, CA'}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-1 bg-[#f1edec] text-[#1c1b1b] px-3 py-1 rounded-full text-[13px] font-medium">
-              <Banknote className="w-4 h-4" />
-              {formattedSalary}
-            </span>
-            <span className="inline-flex items-center gap-1 bg-[#f1edec] text-[#1c1b1b] px-3 py-1 rounded-full text-[13px] font-medium capitalize">
-              <Store className="w-4 h-4" />
-              {jobType.replace('-', ' ')}
-            </span>
-            <span className="inline-flex items-center gap-1 bg-[#f1edec] text-[#1c1b1b] px-3 py-1 rounded-full text-[13px] font-medium capitalize">
-              <MapPin className="w-4 h-4" />
-              {workplaceType}
-            </span>
-          </div>
-
-          <hr className="border-t border-[#e0bec6]" />
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <h4 className="text-[13px] font-medium text-[#594047]">Experience</h4>
-              <p className="text-[16px] text-[#1c1b1b]">{minExp}-{maxExp} Years</p>
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-[13px] font-medium text-[#594047]">Skills</h4>
-              <p className="text-[16px] text-[#1c1b1b]">{skills.join(', ') || 'None specified'}</p>
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-[13px] font-medium text-[#594047]">Compensation</h4>
-              <p className="text-[16px] text-[#1c1b1b]">
-                {payType}
-                {incentives && ' + Incentives'}
-                {tipsAllowed && ' + Tips'}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-[13px] font-medium text-[#594047]">Schedule</h4>
-              <p className="text-[16px] text-[#1c1b1b]">{workingDays}, {workingHours}</p>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 
-
-  const renderStep6 = () => (
-    <div className="flex-1 flex flex-col items-center justify-center px-5 pt-12 pb-32 w-full relative z-10 animate-in zoom-in-95 duration-500">
-      <div className="absolute inset-0 pointer-events-none overflow-hidden -z-10">
-        <div className="absolute top-[-10%] left-[-10%] w-[120%] h-[120%] bg-gradient-to-b from-[#ffd9e2]/30 to-[#fdf8f8] opacity-50 rounded-full blur-3xl"></div>
-      </div>
-      
-      <div className="w-32 h-32 rounded-full bg-[#f1edec] shadow-sm flex items-center justify-center mb-8 relative animate-in pop-in">
-        <div className="absolute inset-0 rounded-full border-4 border-[#e2007c] opacity-20 scale-110"></div>
-        <Store className="w-16 h-16 text-[#e2007c]" />
-      </div>
-
-      <div className="text-center w-full mb-8 animate-in slide-in-from-bottom-4 duration-500 delay-100 fill-mode-both">
-        <h1 className="text-2xl md:text-3xl font-bold text-[#8e004b] mb-2">Job published</h1>
-        <p className="text-[16px] text-[#594047]">Your listing is now live and visible to candidates.</p>
-      </div>
-
-      <div className="w-full bg-white rounded-xl shadow-sm border border-[#e0bec6]/30 p-4 mb-8 animate-in slide-in-from-bottom-4 duration-500 delay-200 fill-mode-both">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[13px] font-medium text-[#594047] uppercase tracking-wider">Role</span>
-          <div className="flex items-center gap-1.5 bg-[#e8f5e9] text-[#2e7d32] px-3 py-1 rounded-full">
-            <div className="w-2 h-2 rounded-full bg-[#4caf50]"></div>
-            <span className="text-[13px] font-medium">Published</span>
-          </div>
+  const renderConfirmation = () => {
+    const published = (savedJob?.postingStatus || postingStatus) === 'published' || savedJob?.approvalStatus === 'approved';
+    const postedDate = new Date(savedJob?.publishedAt || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    return (
+      <div className="flex min-h-full flex-1 flex-col items-center justify-center py-10 animate-in zoom-in-95 duration-300">
+        <div className="flex h-24 w-24 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-14 w-14" /></div>
+        <div className="mt-6 text-center">
+          <h1 className="text-2xl font-bold text-[#8e004b]">{published ? 'Your job post has been published successfully.' : 'Your job post has been saved as a draft.'}</h1>
+          <p className="mt-2 text-sm text-[#594047]">{published ? 'Candidates can now find and apply to this role.' : 'You can publish this job later from My Posted Jobs.'}</p>
         </div>
-        <h2 className="text-[18px] font-semibold text-[#1c1b1b] mb-1">{title || 'Job Title'}</h2>
-        <div className="flex items-center text-[#594047] gap-2 mt-2">
-          <MapPin className="w-4 h-4" />
-          <span className="text-[14px]">{workplaceType === 'remote' ? 'Remote' : 'Downtown Salon'}</span>
+        <dl className="mt-7 w-full rounded-xl border border-[#e0bec6] bg-white p-5 shadow-sm">
+          {[
+            ['Job Title', savedJob?.title || title],
+            ['Location', savedJob?.location || displayLocation],
+            ['Salary', savedJob?.salary || formattedSalary],
+            ['Job Status', published ? 'Published' : 'Draft'],
+            ['Posted Date', postedDate],
+          ].map(([label, value]) => (
+            <div key={label} className="flex items-start justify-between gap-4 border-b border-[#f1edec] py-3 last:border-0">
+              <dt className="text-sm font-medium text-[#594047]">{label}</dt>
+              <dd className="text-right text-sm font-bold text-[#1c1b1b]">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="mt-7 grid w-full gap-3 sm:grid-cols-2">
+          <button type="button" onClick={onViewJobPosts} className="rounded-full bg-[#e2007c] px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#b50062]">View My Job Posts</button>
+          <button type="button" onClick={resetForAnotherJob} className="rounded-full border border-[#e0bec6] bg-white px-5 py-3 text-sm font-bold text-[#8e004b] hover:bg-[#f1edec]">Post Another Job</button>
+          <button type="button" onClick={onViewApplications} className="rounded-full border border-[#e0bec6] bg-white px-5 py-3 text-sm font-bold text-[#8e004b] hover:bg-[#f1edec] sm:col-span-2">View Applications</button>
         </div>
       </div>
-
-      <div className="w-full flex flex-col gap-4 animate-in slide-in-from-bottom-4 duration-500 delay-300 fill-mode-both">
-        <button 
-          onClick={handleComplete}
-          className="w-full h-12 bg-[#e2007c] text-white rounded-full text-[13px] font-medium shadow-sm hover:bg-[#b50062] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
-        >
-          Manage Applications
-        </button>
-        <button 
-          onClick={handleComplete}
-          className="w-full h-12 bg-white text-[#8e004b] border border-[#e0bec6] rounded-full text-[13px] font-medium hover:bg-[#ece7e7] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
-        >
-          View Job
-        </button>
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#fdf8f8] overflow-y-auto flex flex-col hide-scrollbar animate-in slide-in-from-bottom-4 duration-300">
-      {/* TopAppBar */}
+    <div className="fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-[#fdf8f8] animate-in slide-in-from-bottom-4 duration-300">
       {step !== 6 && (
-        <header className="sticky top-0 w-full bg-[#fdf8f8] shadow-sm z-50">
-          <div className="flex justify-between items-center w-full px-5 h-16 max-w-2xl mx-auto">
-            <button 
-              onClick={step > 1 ? () => setStep(step - 1) : onClose}
-              className="p-2 -ml-2 rounded-full hover:bg-[#ece7e7] transition-colors active:scale-95 text-[#594047] flex items-center justify-center cursor-pointer"
-            >
-              <ArrowLeft className="w-6 h-6" />
-            </button>
-            <h1 className="text-xl md:text-2xl font-semibold text-[#8e004b] absolute left-1/2 transform -translate-x-1/2">
-              Post a Job
-            </h1>
-            <span className="text-[13px] font-medium text-[#594047]">
-              Step {step}/{totalSteps}
-            </span>
+        <header className="sticky top-0 z-50 bg-[#fdf8f8] shadow-sm">
+          <div className="relative mx-auto flex h-16 w-full max-w-2xl items-center justify-between px-5">
+            <button type="button" onClick={step > 1 ? () => { setValidationError(null); setStep((current) => current - 1); } : onClose} className="-ml-2 rounded-full p-2 text-[#594047] hover:bg-[#ece7e7]" aria-label={step > 1 ? 'Previous step' : 'Close post job form'}><ArrowLeft className="h-6 w-6" /></button>
+            <h1 className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold text-[#8e004b]">Post a Job</h1>
+            <span className="text-[13px] font-medium text-[#594047]">Step {step}/{totalSteps}</span>
           </div>
-          
-          {/* Progress Bar */}
-          <div className="w-full h-1 bg-[#e6e1e1]">
-            <div 
-              className="h-full bg-[#e2007c] transition-all duration-500 ease-in-out"
-              style={{ width: `${(Math.min(step, totalSteps) / totalSteps) * 100}%` }}
-            />
-          </div>
+          <div className="h-1 w-full bg-[#e6e1e1]"><div className="h-full bg-[#e2007c] transition-all" style={{ width: `${(step / totalSteps) * 100}%` }} /></div>
         </header>
       )}
 
-      {/* Main Content */}
-      <main className={`flex-1 px-5 max-w-2xl mx-auto w-full flex flex-col ${step === 6 ? 'pt-0 pb-0 justify-center' : 'py-6 gap-8'}`}>
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-5 py-6">
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
         {step === 3 && renderStep3()}
         {step === 4 && renderStep4()}
         {step === 5 && renderStep5()}
-        {step === 6 && renderStep6()}
+        {step === 6 && renderConfirmation()}
 
-        {/* CTA Area */}
         {step !== 6 && (
-          <div className="mt-auto pt-6 pb-6 w-full bg-[#fdf8f8] border-t border-[#e0bec6]/30">
-            {(validationError || submitError) && (
-              <div role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-                {validationError || submitError}
-                {submitError && (
-                  <button type="button" onClick={() => void handleComplete()} disabled={isSubmitting} className="ml-2 underline font-bold">Retry</button>
-                )}
-              </div>
-            )}
-            <button 
+          <div className="mt-auto border-t border-[#e0bec6]/50 pt-6">
+            {(validationError || submitError) && <div role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{validationError || submitError}</div>}
+            <button
+              type="button"
               onClick={step < totalSteps ? handleNext : () => void handleComplete()}
               disabled={isSubmitting}
-              className="w-full bg-[#e2007c] disabled:opacity-70 text-white text-[18px] font-semibold py-4 rounded-full shadow-sm hover:shadow-md hover:bg-[#b50062] transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+              aria-busy={isSubmitting}
+              className="flex w-full items-center justify-center gap-2 rounded-full bg-[#e2007c] py-4 text-lg font-semibold text-white shadow-sm transition-all hover:bg-[#b50062] disabled:cursor-wait disabled:opacity-70"
             >
-              {step < totalSteps ? 'Continue' : isSubmitting ? 'Submitting job…' : 'Submit Job for Approval'}
-              {step < totalSteps && <ArrowRight className="w-5 h-5" />}
+              {step < totalSteps ? <>Continue <ArrowRight className="h-5 w-5" /></> : isSubmitting ? <><Loader2 className="h-5 w-5 animate-spin" /> Posting job…</> : <><BriefcaseBusiness className="h-5 w-5" /> Post Job</>}
             </button>
           </div>
         )}

@@ -622,9 +622,9 @@ export default function App() {
       try {
         const savedJob = await createJob(currentUserId, newJob);
         setJobs((prev) => [savedJob, ...prev]);
-        return;
+        return savedJob;
       } catch (error) {
-        const message = mapBackendError(error, 'Unable to submit job for approval. Your job details are still here — please retry.');
+        const message = mapBackendError(error, 'Unable to save this job post. Your details are still here — please retry.');
         setBackendError(message);
         throw new Error(message);
       }
@@ -637,6 +637,7 @@ export default function App() {
     if (matchedAlerts.length > 0) {
       setJobAlerts((prev) => [...matchedAlerts, ...prev]);
     }
+    return newJob;
   };
 
   const handleMarkAlertRead = (alertId: string) => {
@@ -1339,9 +1340,9 @@ export default function App() {
               onJobAction={handleJobAction}
               initialTab={employerInitialTab}
               openPostJobOnMount={openEmployerPostJob}
-              onPostJobFlowExit={() => {
+              onPostJobFlowExit={(destination = 'jobs') => {
                 setOpenEmployerPostJob(false);
-                setEmployerInitialTab('jobs');
+                setEmployerInitialTab(destination);
               }}
               onLogout={handleLogout}
             />

@@ -323,6 +323,76 @@ const salonId = (await rpc(employer, `select public.complete_job_employer_onboar
 check('employer onboarding returns a salon', Boolean(salonId));
 await rpc(seeker, `select public.complete_job_seeker_onboarding('Stylist','Bio','Jaipur','Rajasthan','mid',24,null,null,null,false,'{}','{full_time}')`);
 
+// The dedicated Post a Job RPC persists every employer-entered field in one
+// transaction, derives created_by from auth.uid(), links the shop/salon, and
+// supports both Draft and Published without trusting client ownership fields.
+const publishedPostId = (await rpc(employer, `
+  select (public.post_employer_job(
+    '${salonId}','Colour Specialist','Probe Salon','Hair','Senior Colourist',
+    'Join our Jaipur salon as an experienced colour specialist.',
+    array['Hair colouring','Customer service'],12,60,false,25000,45000,'monthly',
+    'full_time','on_site','1 Main Street','Jaipur','C-Scheme','Owner',
+    '+91 9876543210','+91 9876543210',2,'in_person','published',
+    'Performance incentives','Monday-Saturday','10 AM - 7 PM',array['New Listing'],null
+  )).id as id`)).rows[0].id;
+const publishedPost = (await db.query(`
+  select created_by,salon_id,shop_id,title,business_name,category,job_role,description,
+    responsibilities,experience_min_months,experience_max_months,salary_min,salary_max,
+    pay_type,employment_type,workplace_type,work_location,city,area,openings,
+    contact_person,contact_mobile,whatsapp_number,interview_mode,status,published_at
+  from public.job_posts where id='${publishedPostId}'`)).rows[0];
+check('Post a Job links auth.uid(), salon and shop atomically',
+  publishedPost.created_by === employer && publishedPost.salon_id === salonId && publishedPost.shop_id === salonId,
+  JSON.stringify(publishedPost));
+check('Post a Job persists role, description, skills, experience, salary and job type',
+  publishedPost.title === 'Colour Specialist' && publishedPost.category === 'Hair'
+    && publishedPost.job_role === 'Senior Colourist' && publishedPost.description.includes('experienced colour specialist')
+    && publishedPost.responsibilities.includes('Hair colouring')
+    && publishedPost.experience_min_months === 12 && publishedPost.experience_max_months === 60
+    && Number(publishedPost.salary_min) === 25000 && Number(publishedPost.salary_max) === 45000
+    && publishedPost.pay_type === 'monthly' && publishedPost.employment_type === 'full_time',
+  JSON.stringify(publishedPost));
+check('Post a Job persists business, location, openings, contact and interview fields',
+  publishedPost.business_name === 'Probe Salon' && publishedPost.workplace_type === 'on_site'
+    && publishedPost.work_location === '1 Main Street' && publishedPost.city === 'Jaipur'
+    && publishedPost.area === 'C-Scheme' && publishedPost.openings === 2
+    && publishedPost.contact_person === 'Owner' && publishedPost.contact_mobile === '+91 9876543210'
+    && publishedPost.whatsapp_number === '+91 9876543210' && publishedPost.interview_mode === 'in_person',
+  JSON.stringify(publishedPost));
+check('Published Post a Job rows are live with a server publication timestamp',
+  publishedPost.status === 'approved' && Boolean(publishedPost.published_at), JSON.stringify(publishedPost));
+const publicPublishedPost = (await db.query(`select salon_name,city,area from public.public_job_listings where id='${publishedPostId}'`)).rows[0];
+check('published employer jobs appear in candidate search with the entered salon and area',
+  publicPublishedPost?.salon_name === 'Probe Salon' && publicPublishedPost?.city === 'Jaipur'
+    && publicPublishedPost?.area === 'C-Scheme', JSON.stringify(publicPublishedPost));
+
+const draftPostId = (await rpc(employer, `
+  select (public.post_employer_job(
+    '${salonId}','Nail Artist','Probe Salon','Nails','Nail Technician',
+    'Join our Jaipur nail team and deliver premium client services.',
+    array['Nail art'],0,24,true,18000,28000,'monthly','part_time','on_site',
+    '1 Main Street','Jaipur','C-Scheme','Owner','9876543210','9876543210',1,
+    'video','draft','Benefits discussed','Monday-Friday','10 AM - 6 PM',array[]::text[],null
+  )).id as id`)).rows[0].id;
+const draftPost = (await db.query(`select status,published_at from public.job_posts where id='${draftPostId}'`)).rows[0];
+check('Draft Post a Job rows remain private and unpublished',
+  draftPost.status === 'draft' && draftPost.published_at === null
+    && (await db.query(`select 1 from public.public_job_listings where id='${draftPostId}'`)).rows.length === 0,
+  JSON.stringify(draftPost));
+let seekerPostError = '';
+try {
+  await rpc(seeker, `
+    select public.post_employer_job(
+      '${salonId}','Fake Job','Probe Salon','Hair','Stylist',
+      'This unauthorized posting attempt must always be rejected by the server.',array['Hair'],
+      0,12,true,10000,20000,'monthly','full_time','on_site','Address','Jaipur','Area',
+      'Person','9876543210','9876543210',1,'phone','published',null,null,null,array[]::text[],null)`);
+} catch (error) {
+  seekerPostError = error.message;
+}
+check('non-employers cannot create job posts for a salon',
+  /SALON_ACCESS_DENIED/.test(seekerPostError), seekerPostError || 'allowed');
+
 const jobId = await rpc(employer, `select public.create_job_post(
   '${salonId}', null, 'Senior Stylist', 'Hair',
   'We are hiring an experienced senior hair stylist for our Jaipur salon.', 'full_time') as id`);

@@ -58,6 +58,19 @@ export interface JobPosting {
   openings?: number;
   workingDays?: string;
   workingHours?: string;
+  /** Employer-entered posting details retained with the Supabase job row. */
+  businessName?: string;
+  jobRole?: string;
+  workLocation?: string;
+  city?: string;
+  area?: string;
+  contactPerson?: string;
+  contactMobile?: string;
+  whatsappNumber?: string;
+  interviewMode?: 'in_person' | 'video' | 'phone' | 'hybrid';
+  postingStatus?: 'draft' | 'published';
+  shopId?: string;
+  createdBy?: string;
 }
 
 export type CandidateApplicationStatus = 'Applied' | 'Under Review' | 'Shortlisted' | 'Rejected' | 'Hired' | 'Withdrawn';

@@ -213,12 +213,16 @@ function mapJob(row: any, isBookmarked = false, salonLookup?: Map<string, any>):
   const location = one<any>(row.location);
   const city = row.city || location?.city || salon?.city || '';
   const state = row.state || location?.state || salon?.state || '';
+  const area = row.area || '';
+  const displayLocation = row.workplace_type === 'remote'
+    ? 'Remote'
+    : [area, city, state].filter(Boolean).join(', ');
   return {
     id: row.id,
     title: row.title,
     salonName: row.salon_name || salon?.name || 'Salon',
     salonLogo: row.logo_path || salon?.logo_path || undefined,
-    location: [city, state].filter(Boolean).join(', '),
+    location: displayLocation,
     image: row.image_path || row.cover_image_path || '',
     rating: Number(row.rating_average ?? salon?.rating_average ?? 0),
     reviewsCount: Number(row.review_count ?? salon?.review_count ?? 0),
@@ -241,6 +245,18 @@ function mapJob(row: any, isBookmarked = false, salonLookup?: Map<string, any>):
     openings: row.openings == null ? undefined : Number(row.openings),
     workingDays: row.working_days || undefined,
     workingHours: row.working_hours || undefined,
+    businessName: row.business_name || row.salon_name || salon?.name || undefined,
+    jobRole: row.job_role || undefined,
+    workLocation: row.work_location || undefined,
+    city: city || undefined,
+    area: area || undefined,
+    contactPerson: row.contact_person || undefined,
+    contactMobile: row.contact_mobile || undefined,
+    whatsappNumber: row.whatsapp_number || undefined,
+    interviewMode: row.interview_mode || undefined,
+    postingStatus: row.status === 'approved' ? 'published' : row.status === 'draft' ? 'draft' : undefined,
+    shopId: row.shop_id || row.salon_id || undefined,
+    createdBy: row.created_by || undefined,
     isBookmarked,
     isFeatured: Boolean(row.salon_verified || salon?.verified),
     activeApplicantsCount: Number(row.active_applicants_count || 0),
@@ -1222,41 +1238,41 @@ export async function createJob(_userId: string, job: JobPosting): Promise<JobPo
     .limit(1)
     .single();
   if (membershipError) throw membershipError;
-  const { data: location } = await client
-    .from('job_salon_locations')
-    .select('id')
-    .eq('salon_id', membership.salon_id)
-    .eq('is_primary', true)
-    .maybeSingle();
   const salary = salaryDetails(job.salary);
-  const { data: id, error } = await client.rpc('create_job_post', {
+  const { data, error } = await client.rpc('post_employer_job', {
     p_salon_id: membership.salon_id,
-    p_location_id: location?.id || null,
     p_title: job.title,
+    p_business_name: job.businessName || job.salonName,
     p_category: job.category,
+    p_job_role: job.jobRole || job.title,
     p_description: job.description,
-    p_employment_type: employmentToDb[job.jobType],
-    p_workplace_type: job.workplaceType || 'on_site',
+    p_skills: job.requirements,
     p_experience_min_months: job.experienceMinMonths ?? 0,
     p_experience_max_months: job.experienceMaxMonths ?? null,
     p_freshers_allowed: job.freshersAllowed ?? true,
     p_salary_min: job.salaryMin ?? salary.minimum,
     p_salary_max: job.salaryMax ?? salary.maximum,
     p_pay_type: job.payType || salary.payType,
+    p_employment_type: employmentToDb[job.jobType],
+    p_workplace_type: job.workplaceType || 'on_site',
+    p_work_location: job.workLocation || job.location,
+    p_city: job.city || job.location,
+    p_area: job.area || job.location,
+    p_contact_person: job.contactPerson || '',
+    p_contact_mobile: job.contactMobile || '',
+    p_whatsapp_number: job.whatsappNumber || '',
+    p_openings: job.openings ?? 1,
+    p_interview_mode: job.interviewMode || 'in_person',
+    p_publish_mode: job.postingStatus || 'published',
     p_benefits: job.benefits.join('\n'),
     p_working_days: job.workingDays || null,
     p_working_hours: job.workingHours || null,
-    p_openings: job.openings ?? 1,
     p_tags: job.tags,
     p_image_path: job.image || null,
   });
   if (error) throw error;
-  const { data: saved, error: readError } = await client
-    .from('job_posts')
-    .select('*, location:job_salon_locations!job_posts_location_id_fkey(*)')
-    .eq('id', id)
-    .single();
-  if (readError) throw readError;
+  const saved = Array.isArray(data) ? data[0] : data;
+  if (!saved?.id) throw new Error('The job could not be confirmed after saving. Please retry.');
   const { data: salonData } = await client
     .from('public_job_salon_profiles')
     .select('*')

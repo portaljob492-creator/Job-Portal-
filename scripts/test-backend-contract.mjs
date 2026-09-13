@@ -219,6 +219,23 @@ check('the employer dashboard exposes the lifecycle actions',
   && /'submit' \| 'pause' \| 'resume' \| 'close'/.test(read('src/services/backend.ts')));
 
 const seekerWorkspace = read('src/components/seeker/JobSeekerWorkspace.tsx');
+const postJobWizard = read('src/components/employer/PostJobWizard.tsx');
+check('Post a Job exposes every requested employer field',
+  ['Job Title', 'Business / Salon Name', 'Category', 'Job Role', 'Job Description', 'Skills Required',
+    'Experience Required', 'Salary Range', 'Job Type', 'Work Location', 'City', 'Area', 'Contact Person',
+    'Contact Mobile', 'WhatsApp Number', 'Number of Openings', 'Interview Mode', 'Status: Draft / Published']
+    .every((label) => postJobWizard.includes(label)));
+check('Post a Job waits for persistence and renders the requested confirmation',
+  postJobWizard.includes('await onComplete({')
+  && postJobWizard.includes('aria-busy={isSubmitting}')
+  && ['Your job post has been published successfully.', 'Job Status', 'Posted Date',
+    'View My Job Posts', 'Post Another Job', 'View Applications']
+    .every((label) => postJobWizard.includes(label)));
+check('Post a Job uses the authenticated ownership and shop-linked RPC',
+  read('src/services/backend.ts').includes("rpc('post_employer_job'")
+  && /created_by[\s\S]*actor/.test(finalFunctionBody.post_employer_job || '')
+  && /shop_id[\s\S]*p_salon_id/.test(finalFunctionBody.post_employer_job || '')
+  && /job_is_active_salon_member/.test(finalFunctionBody.post_employer_job || ''));
 check('My Applications renders the requested job and application fields',
   ['My Applications', 'Salary Range', 'Job Type', 'Applied Date', 'View Job', 'Withdraw Application']
     .every((label) => seekerWorkspace.includes(label)));

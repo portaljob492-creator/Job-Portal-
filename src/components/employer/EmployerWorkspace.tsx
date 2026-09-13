@@ -18,7 +18,6 @@ import {
   Building2,
   Users,
   Briefcase,
-  CheckCircle2,
   Calendar,
   Clock,
   X,
@@ -49,7 +48,7 @@ interface EmployerWorkspaceProps {
   conversations?: Conversation[];
   messages?: ChatMessage[];
   userProfile: UserProfile;
-  onAddJob: (newJob: JobPosting) => Promise<void> | void;
+  onAddJob: (newJob: JobPosting) => Promise<JobPosting>;
   onUpdateApplicantStatus: (applicantId: string, status: Applicant['status']) => void;
   /** Persists a real interview row from the scheduling form payload. */
   onScheduleInterview: (applicantId: string, payload: InterviewSchedulePayload) => Promise<void>;
@@ -70,7 +69,7 @@ interface EmployerWorkspaceProps {
   onJobAction?: (jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') => void;
   initialTab?: 'dashboard' | 'jobs' | 'candidates';
   openPostJobOnMount?: boolean;
-  onPostJobFlowExit?: () => void;
+  onPostJobFlowExit?: (destination?: 'jobs' | 'candidates') => void;
   onLogout: () => void;
 }
 
@@ -100,7 +99,6 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   const [openJobMenu, setOpenJobMenu] = useState<string | null>(null);
   const [activeConvId, setActiveConvId] = useState<string | undefined>(undefined);
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
-  const [showApprovalConfirmation, setShowApprovalConfirmation] = useState(false);
   const [showImageUploader, setShowImageUploader] = useState<boolean>(false);
   const [viewingPortfolioApplicant, setViewingPortfolioApplicant] = useState<Applicant | null>(null);
   const [offeringApplicant, setOfferingApplicant] = useState<Applicant | null>(null);
@@ -114,16 +112,6 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
   useEffect(() => {
     if (openPostJobOnMount) setShowPostModal(true);
   }, [openPostJobOnMount]);
-
-  // New Job Form State
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState<JobPosting['category']>('Hair');
-  const [jobType, setJobType] = useState<JobPosting['jobType']>('Commission');
-  const [salary, setSalary] = useState('₹5,00,000 - ₹7,00,000/year');
-  const [location, setLocation] = useState('Beverly Hills, CA');
-  const [description, setDescription] = useState('We are hiring a dedicated beauty professional to join our salon team...');
-  const [requirements, setRequirements] = useState('Valid State License, 2+ years experience');
-  const [benefits, setBenefits] = useState('Health Insurance, Paid Masterclasses, Product Discounts');
 
   // Candidate Filter State
   const [candidateFilter, setCandidateFilter] = useState<string>('All');
@@ -153,38 +141,6 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     if (candidateFilter === 'All') return true;
     return a.status === candidateFilter;
   });
-
-  const handlePostJob = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title) return;
-
-    const newJob: JobPosting = {
-      id: `job-${Date.now()}`,
-      title,
-      salonName: userProfile.businessName || 'Luxe & Co Salon Group',
-      salonLogo: userProfile.avatarUrl || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=120&h=120',
-      location,
-      image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&q=80&w=800',
-      rating: 5.0,
-      reviewsCount: 1,
-      salary,
-      jobType,
-      category,
-      tags: ['New Listing', 'Flexible Hours', 'Health Benefits'],
-      description,
-      requirements: requirements.split(',').map((r) => r.trim()),
-      benefits: benefits.split(',').map((b) => b.trim()),
-      postedDate: 'Just now',
-      isBookmarked: false,
-      isFeatured: true,
-      activeApplicantsCount: 0,
-    };
-
-    await onAddJob(newJob);
-    setShowPostModal(false);
-    setShowApprovalConfirmation(true);
-    setTitle('');
-  };
 
   const handleScheduleConfirm = async (payload: InterviewSchedulePayload) => {
     if (!selectedApplicant || isScheduling) return;
@@ -815,58 +771,49 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       </nav>
 
       {/* MODALS */}
-      {showApprovalConfirmation && (
-        <div className="fixed inset-0 z-[120] bg-black/45 backdrop-blur-sm grid place-items-center p-4">
-          <div className="w-full max-w-md bg-white rounded-3xl border border-[#e0bec6] p-7 text-center shadow-2xl">
-            <CheckCircle2 className="w-14 h-14 mx-auto text-emerald-600" />
-            <h2 className="text-2xl font-extrabold mt-4">Job Submitted</h2>
-            <p className="text-sm text-[#594047] mt-2 leading-relaxed">Your job post has been submitted successfully and is currently under Admin Approval. It will be reviewed and published within 24 hours.</p>
-            <button onClick={() => { setShowApprovalConfirmation(false); setActiveTab('jobs'); }} className="mt-6 w-full bg-[#e2007c] text-white rounded-full py-3 font-bold">View My Jobs</button>
-          </div>
-        </div>
-      )}
-      
       {/* POST NEW JOB WIZARD */}
       {showPostModal && (
         <PostJobWizard
-          onClose={() => { setShowPostModal(false); onPostJobFlowExit?.(); }}
+          initialBusinessName={userProfile.businessName}
+          initialContactPerson={userProfile.contactPerson || userProfile.name}
+          initialContactMobile={userProfile.phone}
+          initialCity={userProfile.city || userProfile.location?.split(',')[0]?.trim()}
+          onClose={() => { setShowPostModal(false); onPostJobFlowExit?.('jobs'); }}
           onComplete={async (newJobPartial) => {
             const newJob: JobPosting = {
               id: `job-${Date.now()}`,
               title: newJobPartial.title || 'New Position',
-              salonName: userProfile.businessName || 'Luxe & Co Salon Group',
-              salonLogo: userProfile.avatarUrl || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=120&h=120',
-              location: newJobPartial.location || 'Beverly Hills, CA',
-              image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&q=80&w=800',
-              rating: 5.0,
-              reviewsCount: 1,
-              salary: newJobPartial.salary || '₹5,00,000 - ₹7,00,000/year',
-              jobType: newJobPartial.jobType || 'Commission',
+              salonName: newJobPartial.businessName || userProfile.businessName || 'Salon',
+              salonLogo: userProfile.avatarUrl,
+              location: newJobPartial.location || 'Location not specified',
+              image: '',
+              rating: 0,
+              reviewsCount: 0,
+              salary: newJobPartial.salary || 'Salary not specified',
+              jobType: newJobPartial.jobType || 'Full-time',
               category: newJobPartial.category || 'Hair',
-              tags: ['New Listing', 'Flexible Hours', 'Health Benefits'],
-              description: newJobPartial.description || 'We are hiring a dedicated beauty professional to join our salon team...',
-              requirements: newJobPartial.requirements || ['Valid State License', '2+ years experience'],
-              benefits: newJobPartial.benefits || ['Health Insurance', 'Paid Masterclasses', 'Product Discounts'],
+              tags: newJobPartial.tags || ['New Listing'],
+              description: newJobPartial.description || '',
+              requirements: newJobPartial.requirements || [],
+              benefits: newJobPartial.benefits || ['Benefits discussed during interview'],
               postedDate: 'Just now',
               isBookmarked: false,
               isFeatured: true,
               activeApplicantsCount: 0,
-              workplaceType: newJobPartial.workplaceType,
-              experienceMinMonths: newJobPartial.experienceMinMonths,
-              experienceMaxMonths: newJobPartial.experienceMaxMonths,
-              freshersAllowed: newJobPartial.freshersAllowed,
-              salaryMin: newJobPartial.salaryMin,
-              salaryMax: newJobPartial.salaryMax,
-              payType: newJobPartial.payType,
-              openings: newJobPartial.openings,
-              workingDays: newJobPartial.workingDays,
-              workingHours: newJobPartial.workingHours,
+              ...newJobPartial,
             };
-            await onAddJob(newJob);
+            return onAddJob(newJob);
+          }}
+          onViewJobPosts={() => {
             setShowPostModal(false);
             setActiveTab('jobs');
-            onPostJobFlowExit?.();
-            setShowApprovalConfirmation(true);
+            onPostJobFlowExit?.('jobs');
+          }}
+          onViewApplications={() => {
+            setShowPostModal(false);
+            setCandidateFilter('All');
+            setActiveTab('candidates');
+            onPostJobFlowExit?.('candidates');
           }}
         />
       )}
