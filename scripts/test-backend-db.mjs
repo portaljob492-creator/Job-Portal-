@@ -248,6 +248,71 @@ const updatedAtTriggers = await db.query(`
 `);
 check('updated_at trigger coverage', updatedAtTriggers.rows[0].n >= 19, `${updatedAtTriggers.rows[0].n} triggers`);
 
+// The requested flat candidate contract is a compatibility view over the
+// normalized profile model. It must never become a second source-of-truth table.
+const candidateContractRelation = (await db.query(`
+  select relkind from pg_class c join pg_namespace n on n.oid=c.relnamespace
+   where n.nspname='public' and c.relname='candidate_profiles'`)).rows[0];
+check('candidate_profiles is a compatibility view, not a duplicate table',
+  candidateContractRelation?.relkind === 'v', candidateContractRelation?.relkind || 'missing');
+
+const missingContractColumns = async (relation, required) => {
+  const actual = new Set((await db.query(`
+    select column_name from information_schema.columns
+     where table_schema='public' and table_name='${relation}'`)).rows.map((row) => row.column_name));
+  return required.filter((column) => !actual.has(column));
+};
+const missingCandidateColumns = await missingContractColumns('candidate_profiles', [
+  'id','user_id','full_name','email','mobile','profile_image_url','city','area',
+  'education','experience_years','skills','preferred_job_role',
+  'preferred_salary_min','preferred_salary_max','resume_url','profile_status',
+  'is_complete','created_at','updated_at',
+]);
+check('candidate profile compatibility shape is complete', missingCandidateColumns.length === 0,
+  missingCandidateColumns.join(', '));
+
+const missingPostColumns = await missingContractColumns('job_posts', [
+  'id','owner_id','salon_id','shop_id','business_name','job_title','category','job_role',
+  'description','skills_required','experience_required','salary_min','salary_max','pay_type',
+  'job_type','workplace_type','city','area','address','contact_person','contact_mobile',
+  'whatsapp_number','openings','interview_mode','status','created_at','updated_at',
+]);
+check('job post compatibility shape is complete', missingPostColumns.length === 0,
+  missingPostColumns.join(', '));
+
+const missingApplicationColumns = await missingContractColumns('job_applications', [
+  'id','job_id','candidate_id','candidate_profile_id','candidate_user_id','owner_id',
+  'status','applied_at','submitted_at','updated_at',
+]);
+check('job application compatibility shape is complete', missingApplicationColumns.length === 0,
+  missingApplicationColumns.join(', '));
+
+const contractForeignKeys = await db.query(`
+  select c.conname, pg_get_constraintdef(c.oid) as definition
+    from pg_constraint c join pg_class t on t.oid=c.conrelid
+    join pg_namespace n on n.oid=t.relnamespace
+   where n.nspname='public' and t.relname in ('job_posts','job_applications') and c.contype='f'`);
+const contractFkText = contractForeignKeys.rows.map((row) => row.definition).join(' | ');
+check('compatibility owners and candidate references have direct foreign keys',
+  /FOREIGN KEY \(owner_id\) REFERENCES auth\.users\(id\)/.test(contractFkText)
+    && /FOREIGN KEY \(candidate_id\) REFERENCES job_seeker_profiles\(id\)/.test(contractFkText)
+    && /FOREIGN KEY \(candidate_user_id\) REFERENCES auth\.users\(id\)/.test(contractFkText),
+  contractFkText);
+
+const applicationUniqueColumns = await db.query(`
+  select array_agg(a.attname order by keys.ordinality) as columns
+    from pg_constraint c
+    cross join lateral unnest(c.conkey) with ordinality as keys(attnum,ordinality)
+    join pg_attribute a on a.attrelid=c.conrelid and a.attnum=keys.attnum
+   where c.conrelid='public.job_applications'::regclass and c.contype='u'
+   group by c.oid`);
+check('database enforces one application per candidate per job',
+  applicationUniqueColumns.rows.some((row) => JSON.stringify(row.columns) === JSON.stringify(['job_id','candidate_user_id'])),
+  JSON.stringify(applicationUniqueColumns.rows));
+check('candidate profile compatibility access is authenticated-only',
+  !(await db.query(`select has_table_privilege('anon','public.candidate_profiles','SELECT') as allowed`)).rows[0].allowed
+    && (await db.query(`select has_table_privilege('authenticated','public.candidate_profiles','SELECT') as allowed`)).rows[0].allowed);
+
 // ---------------------------------------------------------------------------
 // 2. Application flow: approved job is applicable, pending/closed job is not
 // ---------------------------------------------------------------------------
@@ -361,6 +426,17 @@ check('Post a Job persists business, location, openings, contact and interview f
   JSON.stringify(publishedPost));
 check('Published Post a Job rows are live with a server publication timestamp',
   publishedPost.status === 'approved' && Boolean(publishedPost.published_at), JSON.stringify(publishedPost));
+const postContractAliases = (await db.query(`
+  select owner_id,job_title,skills_required,experience_required,job_type,address
+    from public.job_posts where id='${publishedPostId}'`)).rows[0];
+check('job post compatibility aliases stay synchronized with canonical writes',
+  postContractAliases.owner_id === employer
+    && postContractAliases.job_title === 'Colour Specialist'
+    && JSON.stringify(postContractAliases.skills_required) === JSON.stringify(['Hair colouring','Customer service'])
+    && postContractAliases.experience_required === '1 - 5 years'
+    && postContractAliases.job_type === 'full_time'
+    && postContractAliases.address === '1 Main Street',
+  JSON.stringify(postContractAliases));
 const publicPublishedPost = (await db.query(`select salon_name,city,area from public.public_job_listings where id='${publishedPostId}'`)).rows[0];
 check('published employer jobs appear in candidate search with the entered salon and area',
   publicPublishedPost?.salon_name === 'Probe Salon' && publicPublishedPost?.city === 'Jaipur'
@@ -449,10 +525,18 @@ try {
 } catch (error) {
   applyResult = error.message;
 }
-const applications = await db.query(`select id, status from public.job_applications where job_id='${job}'`);
+const applications = await db.query(`
+  select id,status,candidate_id,candidate_profile_id,candidate_user_id,owner_id,applied_at,submitted_at
+    from public.job_applications where job_id='${job}'`);
 check('REGRESSION: candidate can apply to an approved job', applications.rows.length === 1,
   applications.rows.length ? '' : applyResult);
 check('new application is submitted', applications.rows[0]?.status === 'submitted', applications.rows[0]?.status);
+check('application compatibility references and timestamp stay synchronized',
+  applications.rows[0]?.candidate_id === applications.rows[0]?.candidate_profile_id
+    && applications.rows[0]?.candidate_user_id === seeker
+    && applications.rows[0]?.owner_id === employer
+    && String(applications.rows[0]?.applied_at) === String(applications.rows[0]?.submitted_at),
+  JSON.stringify(applications.rows[0]));
 const myApplicationListings = await rpc(seeker, `select application_id,
   listing->>'title' as title, listing->>'salon_name' as salon_name,
   listing->>'employment_type' as employment_type
@@ -1104,6 +1188,37 @@ check('full candidate submit persists every nested profile section atomically',
     && submittedRelations.employment_types === 2 && submittedRelations.candidate === 1
     && submittedRelations.shared_profile === 1,
   JSON.stringify(submittedRelations));
+const flatCandidateProfile = (await rpc(seeker, `
+  select id,user_id,full_name,email,mobile,profile_image_url,city,education,
+    experience_years,skills,preferred_job_role,preferred_salary_min,
+    preferred_salary_max,profile_status,is_complete,created_at,updated_at
+  from public.candidate_profiles where user_id='${seeker}'`)).rows[0];
+check('candidate compatibility view flattens the canonical normalized profile',
+  flatCandidateProfile?.id === submittedConfirmation.candidate_id
+    && flatCandidateProfile.user_id === seeker
+    && flatCandidateProfile.full_name === 'Seeker Complete'
+    && flatCandidateProfile.email === 'seeker@example.com'
+    && flatCandidateProfile.mobile === '9990002222'
+    && flatCandidateProfile.profile_image_url === `${seeker}/avatar.jpg`
+    && flatCandidateProfile.city === 'Jaipur'
+    && flatCandidateProfile.education.includes('Advanced Cosmetology')
+    && Number(flatCandidateProfile.experience_years) === 6
+    && JSON.stringify(flatCandidateProfile.skills) === JSON.stringify(['Balayage','Colour correction'])
+    && flatCandidateProfile.preferred_job_role === 'Lead Colourist'
+    && Number(flatCandidateProfile.preferred_salary_min) === 50000
+    && Number(flatCandidateProfile.preferred_salary_max) === 80000
+    && flatCandidateProfile.profile_status === 'submitted'
+    && flatCandidateProfile.is_complete === true
+    && Boolean(flatCandidateProfile.created_at) && Boolean(flatCandidateProfile.updated_at),
+  JSON.stringify(flatCandidateProfile));
+const ownerCandidateProfile = await rpc(employer, `
+  select user_id from public.candidate_profiles where user_id='${seeker}'`);
+const unrelatedFlatProfile = await rpc(outsider, `
+  select user_id from public.candidate_profiles where user_id='${seeker}'`);
+check('job owner can read the compatibility profile of their applicant',
+  ownerCandidateProfile.rows.length === 1, `${ownerCandidateProfile.rows.length} rows`);
+check('compatibility view hides candidate PII from unrelated users',
+  unrelatedFlatProfile.rows.length === 0, `${unrelatedFlatProfile.rows.length} rows`);
 const invalidLateCandidateSubmit = await caught(seeker, `select * from public.job_submit_candidate_profile(
   'Must Roll Back','9990004444',null,'Must Roll Back','Late validation failure',
   'Jaipur','Rajasthan','senior',72,50000,80000,'2026-10-01',true,
@@ -1333,6 +1448,12 @@ check('job-specific employer applications return the candidate card and attached
     && employerApplicationCards.rows[0].status === 'submitted'
     && Boolean(employerApplicationCards.rows[0].submitted_at),
   JSON.stringify(employerApplicationCards.rows));
+const compatibleResume = await rpc(employer, `
+  select resume_url from public.candidate_profiles where user_id='${seeker}'`);
+check('candidate compatibility view exposes only an application-attached resume to the job owner',
+  compatibleResume.rows.length === 1
+    && compatibleResume.rows[0].resume_url === `${seeker}/resume.pdf`,
+  JSON.stringify(compatibleResume.rows));
 let foreignApplicationsError = '';
 try {
   await rpc(employerB, `select * from public.get_employer_job_applications('${linkedJob}')`);
