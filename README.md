@@ -161,6 +161,15 @@ npm run test:reset    # password policy, recovery-token parsing, reset CLI (offl
 npm run test:pwa      # build + PWA artifact checks
 ```
 
+`npm run test:db` covers tenant isolation as well as the happy paths: it runs
+every workflow as the `authenticated` role and then tries to break out of it —
+a second salon inserting a conversation on the first salon's job, opening a
+thread with a candidate who never applied, forging salon membership or a
+posting, reading another candidate's applications, and reading the rows of the
+shared user tables as somebody else. It also scans every policy in `pg_policies`
+for a comparison of a column with itself, the mistake that had made one policy
+always true.
+
 `npm run test:db` boots an in-process PostgreSQL (PGlite), applies every file in
 `supabase/migrations` in order on top of a minimal Supabase bootstrap (roles,
 `auth.users`, `auth.uid()`, `storage.objects`, the realtime publication and the

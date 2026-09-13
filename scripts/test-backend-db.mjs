@@ -127,6 +127,9 @@ await db.exec(`
   grant select on public.profiles, public.salons to authenticated;
   grant select on public.salons to anon;
   grant insert on public.organizations, public.salons to authenticated;
+  -- Production grants these through schema default privileges; the policies (not
+  -- the grants) are what must keep user rows private, so model that faithfully.
+  grant select, insert, update, delete on public.notifications, public.push_subscriptions to anon, authenticated;
 
   alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
   alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
@@ -769,6 +772,41 @@ for (const table of ['notifications', 'push_subscriptions']) {
   check(`${table} has RLS enabled with own-row policies`, state.rls === true && state.policies >= 4,
     `rls=${state.rls} policies=${state.policies}`);
 }
+
+// Own-row policies in action: a user may write their own rows and must not be
+// able to see or touch anyone else's.
+const asUserResult = (userId, sql) => asUser(userId, async () => {
+  try { return { ok: true, rows: (await db.query(sql)).rows }; }
+  catch (error) { return { ok: false, error: error.message }; }
+});
+const ownRow = await asUserResult(seeker, `insert into public.notifications(user_id) values ('${seeker}') returning id`);
+check('a user can insert their own notification row', ownRow.ok, ownRow.error);
+const foreignRow = await asUserResult(seeker, `insert into public.notifications(user_id) values ('${employer}')`);
+check('a user cannot insert a notification row for someone else', !foreignRow.ok, JSON.stringify(foreignRow.rows));
+const ownRows = await asUserResult(seeker, `select count(*)::int as n from public.notifications`);
+check('a user reads their own notification rows', ownRows.rows?.[0]?.n === 1, JSON.stringify(ownRows.rows));
+const foreignRows = await asUserResult(employer, `select count(*)::int as n from public.notifications`);
+check('a user cannot read another user notification rows', foreignRows.rows?.[0]?.n === 0, JSON.stringify(foreignRows.rows));
+const foreignDelete = await asUserResult(employer, `delete from public.notifications where user_id='${seeker}'`);
+check('a user cannot delete another user notification rows', foreignDelete.ok && foreignDelete.rows.length === 0,
+  foreignDelete.error || JSON.stringify(foreignDelete.rows));
+await db.exec(`set role anon;`);
+const anonNotifications = await (async () => {
+  try { return { ok: true, rows: (await db.query(`select count(*)::int as n from public.notifications`)).rows }; }
+  catch (error) { return { ok: false, error: error.message }; }
+})();
+await db.exec(`reset role;`);
+check('anonymous visitors cannot read notification rows',
+  !anonNotifications.ok || anonNotifications.rows[0].n === 0, JSON.stringify(anonNotifications.rows));
+const memberRows = await (async () => {
+  await db.exec(`set role authenticated; set request.jwt.claim.sub='${employerB}';`);
+  try { return { ok: true, rows: (await db.query(`select count(*)::int as n from public.organization_members`)).rows }; }
+  catch (error) { return { ok: false, error: error.message }; }
+  finally { await db.exec(`reset role; reset request.jwt.claim.sub;`); }
+})();
+// RLS is on with no policy, so this is either denied outright or returns nothing.
+check('organization membership stays unreadable without a policy',
+  !memberRows.ok || memberRows.rows[0].n === 0, JSON.stringify(memberRows.rows));
 
 // Generic guard against the shadowing bug that produced this whole section: a
 // policy that compares an identifier with itself is always true.
