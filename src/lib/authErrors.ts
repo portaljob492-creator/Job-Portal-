@@ -133,24 +133,34 @@ export type PasswordSignInBlockedReason = 'wrong_password' | 'unassigned' | 'unc
  * Carrying the email and role lets the login screen turn a dead-end sentence
  * into actions: send a reset link without retyping the email, or continue with
  * the social provider the account may have been created with.
+ *
+ * `oauthOnly` is a best-effort hint from `job_account_has_password` that the
+ * account has no local password identity — it was created exclusively via
+ * Google/Apple OAuth. The UI uses it to disable the password reset card and
+ * show a dedicated OAuth-only explainer instead.
  */
 export class PasswordSignInBlockedError extends Error {
   readonly email: string;
   readonly role: UserRole;
   readonly reason: PasswordSignInBlockedReason;
+  /** True when the server confirmed the account has no password identity. */
+  readonly oauthOnly: boolean;
 
-  constructor(details: { email: string; role: UserRole; reason: PasswordSignInBlockedReason }) {
+  constructor(details: { email: string; role: UserRole; reason: PasswordSignInBlockedReason; oauthOnly?: boolean }) {
     super(
-      details.reason === 'unconfirmed'
-        ? 'Your account exists but its email address was never confirmed. Open the confirmation email we sent, or send a fresh one below.'
-        : details.reason === 'unassigned'
-          ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Use the same password or social sign-in method you used when creating it, then select the correct Jobs portal.'
-          : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Reset the password, or continue with Google/Apple if that is how the account was created.`,
+      details.oauthOnly
+        ? `This account was created via Google or Apple and has no password set. Please sign in using OAuth — you can set a password later from your account settings.`
+        : details.reason === 'unconfirmed'
+          ? 'Your account exists but its email address was never confirmed. Open the confirmation email we sent, or send a fresh one below.'
+          : details.reason === 'unassigned'
+            ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Use the same password or social sign-in method you used when creating it, then select the correct Jobs portal.'
+            : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Reset the password, or continue with Google/Apple if that is how the account was created.`,
     );
     this.name = 'PasswordSignInBlockedError';
     this.email = details.email;
     this.role = details.role;
     this.reason = details.reason;
+    this.oauthOnly = details.oauthOnly ?? false;
   }
 }
 

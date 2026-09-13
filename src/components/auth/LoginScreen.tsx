@@ -18,6 +18,11 @@ interface LoginScreenProps {
   onSignUp: () => void;
   /** Receives the email already typed so the reset screen starts pre-filled. */
   onForgotPassword: (email: string) => void;
+  /**
+   * Sends a password-reset email directly from the inline recovery card
+   * (no navigation). Called when the user taps "Email a reset link to …".
+   */
+  onSendResetLink?: (email: string) => Promise<void> | void;
   /** Email carried over from a previous screen (reset flow, portal switch). */
   initialEmail?: string;
   /**
@@ -47,6 +52,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   onSocialLogin,
   onSignUp,
   onForgotPassword,
+  onSendResetLink,
   initialEmail = '',
 }) => {
   const prefill = readLoginPrefill();
@@ -59,6 +65,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
   const [signInBlocked, setSignInBlocked] = useState<PasswordSignInBlockedError | null>(null);
   const [confirmResend, setConfirmResend] = useState<{ email: string; state: 'idle' | 'sending' | 'sent' } | null>(null);
+  /** Inline password-reset feedback (sent / sending / error). */
+  const [resetLink, setResetLink] = useState<{ email: string; state: 'idle' | 'sending' | 'sent' | 'error'; message?: string } | null>(null);
   /** Seconds left on a sign-in throttle. The submit stays disabled so attempts are not burned. */
   const [cooldown, setCooldown] = useState(0);
 
@@ -75,6 +83,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setRoleMismatch(null);
     setSignInBlocked(null);
     setConfirmResend(null);
+    setResetLink(null);
     setIsLoading(true);
     try {
       await onLoginSuccess(activeRole, email, password);
@@ -131,6 +140,30 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   };
 
   /**
+   * Sends the password-reset email directly from the inline recovery card
+   * (no navigation). Shows inline feedback so the user knows the email is on
+   * the way without leaving the login screen.
+   */
+  const handleInlineReset = async () => {
+    if (!onSendResetLink) {
+      // Fallback: navigate to the forgot-password screen when no inline
+      // handler is available.
+      handleResetPassword();
+      return;
+    }
+    const target = (signInBlocked?.email || email).trim();
+    if (!target) return;
+    setResetLink({ email: target, state: 'sending' });
+    try {
+      await onSendResetLink(target);
+      setResetLink({ email: target, state: 'sent' });
+    } catch (resetError) {
+      const message = resetError instanceof Error ? resetError.message : 'Unable to send the reset link. Try again.';
+      setResetLink({ email: target, state: 'error', message });
+    }
+  };
+
+  /**
    * Sends the user to the reset screen with the email they already typed, so a
    * failed sign-in turns into a recovery in one tap.
    */
@@ -139,6 +172,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setSignInBlocked(null);
     setError(null);
     onForgotPassword(target);
+  };
+
+  /**
+   * Switches the active portal tab and clears all sensitive / error state so
+   * nothing leaks across roles. Toggling tabs is a deliberate navigation and
+   * should always leave the user on a clean form.
+   */
+  const handleTabSwitch = (role: UserRole) => {
+    setActiveRole(role);
+    setError(null);
+    setRoleMismatch(null);
+    setSignInBlocked(null);
+    setConfirmResend(null);
+    setResetLink(null);
   };
 
   /**
@@ -190,7 +237,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         <div className="bg-[#f1edec] p-1 rounded-full flex gap-1 border border-[#e0bec6]/30">
           <button
             type="button"
-            onClick={() => setActiveRole('seeker')}
+            onClick={() => handleTabSwitch('seeker')}
             className={`flex-1 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeRole === 'seeker'
                 ? 'bg-white text-[#8e004b] shadow-sm'
@@ -202,7 +249,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveRole('employer')}
+            onClick={() => handleTabSwitch('employer')}
             className={`flex-1 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeRole === 'employer'
                 ? 'bg-white text-[#8e004b] shadow-sm'
@@ -298,8 +345,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             )}
 
             {signInBlocked && (
-              <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 flex flex-col gap-2.5">
-                <p className="text-xs font-medium text-amber-900 leading-relaxed">{signInBlocked.message}</p>
+              <div role="alert" className={`rounded-xl border px-3.5 py-3 flex flex-col gap-2.5 ${
+                signInBlocked.oauthOnly
+                  ? 'border-indigo-200 bg-indigo-50'
+                  : 'border-amber-200 bg-amber-50'
+              }`}>
+                <p className={`text-xs font-medium leading-relaxed ${
+                  signInBlocked.oauthOnly ? 'text-indigo-900' : 'text-amber-900'
+                }`}>{signInBlocked.message}</p>
                 {signInBlocked.reason === 'unconfirmed' ? (
                   <>
                     <button
@@ -321,20 +374,77 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       </p>
                     )}
                   </>
+                ) : signInBlocked.oauthOnly ? (
+                <>
+                {/* OAuth-only: the server confirmed no password identity exists. */}
+                <p className="text-[11px] font-semibold text-indigo-800">
+                  This account was created via Google or Apple and has no password set.
+                  Please sign in using OAuth — you can set a password later from your account settings.
+                </p>
+                {onSocialLogin && (
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSocialLogin('google')}
+                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-900 text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+                    >
+                      Continue with Google
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSocialLogin('apple')}
+                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-900 text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
+                    >
+                      <Apple className="w-3.5 h-3.5" />
+                      Continue with Apple
+                    </button>
+                  </div>
+                )}
+                </>
                 ) : (
                 <>
-                <button
-                  type="button"
-                  onClick={handleResetPassword}
-                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
-                >
-                  <KeyRound className="w-3.5 h-3.5" />
-                  Email a reset link to {signInBlocked.email || 'my address'}
-                </button>
+                {/* Inline password-reset: sends the email without navigating away. */}
+                {resetLink?.state === 'sent' ? (
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2.5 flex flex-col gap-1">
+                    <p className="text-[11px] font-bold text-emerald-800">
+                      ✓ Password reset link sent to {resetLink.email}
+                    </p>
+                    <p className="text-[11px] font-medium text-emerald-700">
+                      Check your inbox and spam folder. The link expires after 60 minutes.
+                    </p>
+                  </div>
+                ) : resetLink?.state === 'error' ? (
+                  <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 flex flex-col gap-1.5">
+                    <p className="text-[11px] font-bold text-rose-800">
+                      {resetLink.message || 'Unable to send the reset link.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleInlineReset}
+                      className="text-[11px] font-bold text-[#8e004b] hover:text-[#e2007c] transition-colors cursor-pointer underline underline-offset-2 self-start"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void handleInlineReset()}
+                    disabled={resetLink?.state === 'sending'}
+                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    {resetLink?.state === 'sending'
+                      ? 'Sending reset link…'
+                      : `Email a reset link to ${signInBlocked.email || 'my address'}`}
+                  </button>
+                )}
                 {onSocialLogin && signInBlocked.reason !== 'unconfirmed' && (
                   <>
                     <p className="text-[11px] font-semibold text-amber-800">
-                      Created the account with Google or Apple? Use the same button — those accounts have no password.
+                      {signInBlocked.reason === 'wrong_password'
+                        ? 'This account may have been created via Google or Apple — those accounts have no password. Use the buttons below to sign in without one.'
+                        : 'Created the account with Google or Apple? Use the same button — those accounts have no password.'}
                     </p>
                     <div className="flex flex-col gap-2">
                       <button
