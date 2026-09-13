@@ -4,6 +4,7 @@ import { INITIAL_JOBS, INITIAL_APPLICATIONS, INITIAL_APPLICANTS, INITIAL_CONVERS
 import { processNewJobForAlerts } from './utils/jobAlertMatcher';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import {
+  isActionableAuthScreenError,
   isPortalRoleMismatchError,
   isSessionInvalidError,
   isUnassignedPortalRoleError,
@@ -21,9 +22,11 @@ import {
   applyPendingOAuthRole,
   authBackend,
   completeEmployerOnboarding,
+  completeInterviewStage,
   completeSeekerOnboarding,
   createApplication,
   createConversationRecord,
+  setJobLifecycleState,
   createJob,
   deleteAlert,
   getUserRole,
@@ -31,11 +34,15 @@ import {
   loadWorkspace,
   markAllAlertsRead,
   RecoverySessionLostError,
+  respondToInterview,
+  respondToJobOffer,
   saveProfile,
+  sendJobOffer,
   sendMessageRecord,
   setBookmark,
   updateAlertRead,
   updateApplicationStatus,
+  mapBackendError,
 } from './services/backend';
 
 type SeekerWorkspaceTab = 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
@@ -45,6 +52,8 @@ const normalizeSeekerTab = (tab: string): SeekerWorkspaceTab => tab === 'explore
 import { WelcomeScreen } from './components/auth/WelcomeScreen';
 import { RoleSelectionScreen } from './components/auth/RoleSelectionScreen';
 import { JobSeekerSignupScreen } from './components/auth/JobSeekerSignupScreen';
+import { ConfirmEmailScreen } from './components/auth/ConfirmEmailScreen';
+import { resolveSignUpResult } from './lib/signUpOutcome';
 import { EmployerSignupScreen } from './components/auth/EmployerSignupScreen';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { ForgotPasswordScreen } from './components/auth/ForgotPasswordScreen';
@@ -69,6 +78,8 @@ import { AdminJobsScreen } from './components/admin/AdminJobsScreen';
 export default function App() {
   const initialRoute = useRef<JobPortalRoute>(resolveJobPortalRoute()).current;
   const pendingProtectedRoute = useRef<JobPortalRoute | null>(initialRoute.protected ? initialRoute : null);
+  /** The user whose workspace was already entered, so an auth event cannot re-enter it. */
+  const enteredPortalUserId = useRef<string | null>(null);
   const [screen, setScreen] = useState<ScreenState>(initialRoute.protected ? (initialRoute.requiredRole === 'admin' ? 'admin_login' : 'login') : initialRoute.screen);
   const [userRole, setUserRole] = useState<UserRole>('seeker');
   const [selectedJobForApply, setSelectedJobForApply] = useState<JobPosting | null>(null);
@@ -78,6 +89,8 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isBackendLoading, setIsBackendLoading] = useState(isSupabaseConfigured);
   const [backendError, setBackendError] = useState<string | null>(null);
+  /** Set when sign-up succeeded but Supabase still requires the email to be confirmed. */
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<{ email: string; role: 'seeker' | 'employer' } | null>(null);
   const [passwordRecoveryState, setPasswordRecoveryState] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   /** Email shared between login → reset → login so it is never retyped. */
   const [recoveryEmail, setRecoveryEmail] = useState('');
@@ -126,6 +139,7 @@ export default function App() {
   }, []);
 
   const enterAuthenticatedPortal = useCallback(async (userId: string, expectedRole?: UserRole) => {
+    enteredPortalUserId.current = userId;
     // Auth succeeded: drop the /login?role=…&email=… prefill params so the
     // dashboard URL stays clean and the prefill can't leak into later states.
     if (typeof window !== 'undefined') {
@@ -166,8 +180,27 @@ export default function App() {
         const queryParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
         const hashParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.hash.replace(/^#/, '')) : new URLSearchParams();
         const isRecovery = queryParams.get('recovery') === '1';
+        const isConfirmationReturn = queryParams.get('confirmed') === '1';
         const recoveryError = queryParams.get('error_description') || hashParams.get('error_description');
-        if (isRecovery) {
+        if (isConfirmationReturn) {
+          // The PKCE code from the confirmation link has been exchanged by the
+          // time getSession() resolves, so a session here means the account is
+          // confirmed and the normal signed-in path below handles it. No session
+          // means the link was already used or opened where the exchange could
+          // not happen (another browser/device): send the user to sign in with
+          // an explanation instead of a bare login form.
+          if (!data.session?.user) {
+            setScreen('login');
+            setBackendError(
+              recoveryError
+                ? decodeURIComponent(recoveryError.replace(/\+/g, ' '))
+                : 'That confirmation link is no longer valid. Sign in, or create the account again if it was never confirmed.',
+            );
+            if (typeof window !== 'undefined') {
+              window.history.replaceState({}, document.title, loginPathWithPrefill(undefined, sessionEmail));
+            }
+          }
+        } else if (isRecovery) {
           setScreen('reset_password');
           if (recoveryError) {
             setPasswordRecoveryState('invalid');
@@ -180,8 +213,15 @@ export default function App() {
         } else if (data.session?.user) {
           await applyPendingOAuthRole(data.session.user.id);
           await enterAuthenticatedPortal(data.session.user.id, data.session.user.user_metadata?.role as UserRole | undefined);
-          if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('verified')) {
-            window.history.replaceState({}, document.title, window.location.pathname);
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            // Drop the one-time auth params so a reload cannot replay them.
+            if (params.has('verified') || params.has('confirmed')) {
+              params.delete('verified');
+              params.delete('confirmed');
+              const rest = params.toString();
+              window.history.replaceState({}, document.title, `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+            }
           }
         }
       } catch (error) {
@@ -233,12 +273,28 @@ export default function App() {
     void bootstrap();
     // Shared auth store: the app registers no direct Supabase auth listener, so
     // auth events stay single-sourced alongside the location sync lifecycle.
-    const unsubscribeAuth = subscribeToAuthChanges((event, _session, authSnapshot) => {
+    const unsubscribeAuth = subscribeToAuthChanges((event, session, authSnapshot) => {
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecoveryState('valid');
         setScreen('reset_password');
       }
+      if (event === 'SIGNED_IN' && session?.user) {
+        // Confirming an email or returning from a provider can produce the
+        // session after the bootstrap already decided the visitor was signed
+        // out. Enter the portal here as well — once per user — so those flows
+        // never leave a live session sitting on the welcome/login screen.
+        const userId = session.user.id;
+        if (enteredPortalUserId.current !== userId) {
+          enteredPortalUserId.current = userId;
+          void applyPendingOAuthRole(userId)
+            .then(() => enterAuthenticatedPortal(userId, session.user.user_metadata?.role as UserRole | undefined))
+            .catch((error) => {
+              setBackendError(mapBackendError(error, 'Unable to open your workspace.'));
+            });
+        }
+      }
       if (event === 'SIGNED_OUT') {
+        enteredPortalUserId.current = null;
         setCurrentUserId(null);
         setPasswordRecoveryState('idle');
         // An expired/revoked session returns to the login route; a deliberate
@@ -301,7 +357,7 @@ export default function App() {
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         void hydrateWorkspace(currentUserId, userRole).catch((error) =>
-          setBackendError(error instanceof Error ? error.message : 'Unable to refresh data.'),
+          setBackendError(mapBackendError(error, 'Unable to refresh data.')),
         );
       }, 250);
     }
@@ -349,14 +405,21 @@ export default function App() {
         name: formData.name,
         phone: formData.phone,
       });
-      if (session && user) {
-        setCurrentUserId(user.id);
-        await hydrateWorkspace(user.id, 'seeker');
+      const outcome = resolveSignUpResult({ user, session });
+      if (outcome.status === 'signed_in') {
+        setCurrentUserId(outcome.userId);
+        await hydrateWorkspace(outcome.userId, 'seeker');
         setScreen('seeker_onboarding_step1');
+      } else if (outcome.status === 'confirmation_required') {
+        // The account exists; Supabase is waiting for the email confirmation.
+        // That is a successful sign-up, so never report it as a failure.
+        setPendingConfirmationEmail({ email: formData.email, role: 'seeker' });
+        setScreen('signup_confirmation');
       } else {
-        throw new Error('Account activation did not complete. Please try signing in or contact support.');
+        throw new Error('Unable to create your account. Please try again.');
       }
     } catch (error) {
+      if (isActionableAuthScreenError(error)) throw error;
       setBackendError(error instanceof Error ? error.message : 'Unable to create seeker account.');
     }
   };
@@ -379,14 +442,19 @@ export default function App() {
         name: formData.contactPerson,
         businessName: formData.businessName,
       });
-      if (session && user) {
-        setCurrentUserId(user.id);
-        await hydrateWorkspace(user.id, 'employer');
+      const outcome = resolveSignUpResult({ user, session });
+      if (outcome.status === 'signed_in') {
+        setCurrentUserId(outcome.userId);
+        await hydrateWorkspace(outcome.userId, 'employer');
         setScreen('employer_onboarding_step1');
+      } else if (outcome.status === 'confirmation_required') {
+        setPendingConfirmationEmail({ email: formData.email, role: 'employer' });
+        setScreen('signup_confirmation');
       } else {
-        throw new Error('Account activation did not complete. Please try signing in or contact support.');
+        throw new Error('Unable to create your account. Please try again.');
       }
     } catch (error) {
+      if (isActionableAuthScreenError(error)) throw error;
       setBackendError(error instanceof Error ? error.message : 'Unable to create employer account.');
     }
   };
@@ -407,6 +475,10 @@ export default function App() {
         throw portalError;
       }
     } catch (error) {
+      // The login screen renders these as cards with the next step in them
+      // (switch portal, reset the password, re-send the confirmation). Swallowing
+      // them here left the user with a sentence and nowhere to go.
+      if (isActionableAuthScreenError(error)) throw error;
       setBackendError(error instanceof Error ? error.message : 'Unable to sign in. Please try again.');
     }
   };
@@ -440,7 +512,7 @@ export default function App() {
         setJobs((prevJobs) =>
           prevJobs.map((item) => (item.id === jobId ? { ...item, isBookmarked: !nextValue } : item)),
         );
-        setBackendError(error instanceof Error ? error.message : 'Unable to update bookmark.');
+        setBackendError(mapBackendError(error, 'Unable to update bookmark.'));
       });
     }
   };
@@ -496,7 +568,7 @@ export default function App() {
       ).catch((error) => {
         setApplications((prev) => prev.filter((application) => application.id !== applicationId));
         setApplicants((prev) => prev.filter((applicant) => applicant.id !== newApplicant.id));
-        setBackendError(error instanceof Error ? error.message : 'Unable to submit application.');
+        setBackendError(mapBackendError(error, 'Unable to submit application.'));
       });
     }
   };
@@ -508,7 +580,7 @@ export default function App() {
         setJobs((prev) => [savedJob, ...prev]);
         return;
       } catch (error) {
-        setBackendError(error instanceof Error ? error.message : 'Unable to submit job for approval.');
+        setBackendError(mapBackendError(error, 'Unable to submit job for approval.'));
         throw error;
       }
     }
@@ -528,7 +600,7 @@ export default function App() {
     );
     if (currentUserId) {
       void updateAlertRead(alertId).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to update alert.'),
+        setBackendError(mapBackendError(error, 'Unable to update alert.')),
       );
     }
   };
@@ -537,7 +609,7 @@ export default function App() {
     setJobAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
     if (currentUserId) {
       void markAllAlertsRead(currentUserId).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to update alerts.'),
+        setBackendError(mapBackendError(error, 'Unable to update alerts.')),
       );
     }
   };
@@ -546,7 +618,7 @@ export default function App() {
     setJobAlerts((prev) => prev.filter((a) => a.id !== alertId));
     if (currentUserId) {
       void deleteAlert(alertId).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to delete alert.'),
+        setBackendError(mapBackendError(error, 'Unable to delete alert.')),
       );
     }
   };
@@ -559,7 +631,7 @@ export default function App() {
     // Also sync Seeker applications if matching
     if (currentUserId) {
       void updateApplicationStatus(applicantId, status).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to update applicant status.'),
+        setBackendError(mapBackendError(error, 'Unable to update applicant status.')),
       );
     }
 
@@ -581,8 +653,87 @@ export default function App() {
     );
   };
 
-  const handleSendMessage = (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => {
-    const newMsg: ChatMessage = {
+  /**
+   * Employer sends an offer. The interview stage is closed first when a
+   * confirmed interview exists, because `send_job_offer` only accepts an
+   * application in the `interview_completed` state.
+   */
+  const handleSendOffer = (
+    applicantId: string,
+    details: { jobRole: string; salary?: string; employmentType?: string; joiningDate?: string; offerNotes?: string },
+    interviewId?: string,
+  ) => {
+    if (!currentUserId) return;
+    void (async () => {
+      try {
+        await completeInterviewStage(applicantId, interviewId);
+        await sendJobOffer(applicantId, {
+          jobRole: details.jobRole,
+          salary: details.salary,
+          employmentType: details.employmentType,
+          joiningDate: details.joiningDate,
+          offerNotes: details.offerNotes,
+        });
+        setApplicants((prev) =>
+          prev.map((a) => (a.id === applicantId ? { ...a, status: 'Offer Extended' } : a)),
+        );
+      } catch (error) {
+        setBackendError(mapBackendError(error, 'Unable to send the offer.'));
+      }
+    })();
+  };
+
+  /** Candidate answers an interview invitation (accept / decline / reschedule). */
+  const handleInterviewResponse = (applicationId: string, action: 'accept' | 'decline' | 'reschedule', reason?: string) => {
+    if (!currentUserId) return;
+    const application = applications.find((app) => app.id === applicationId);
+    setApplications((prev) =>
+      prev.map((app) =>
+        app.id === applicationId
+          ? {
+              ...app,
+              status: action === 'accept' ? 'Interview Scheduled' : 'Under Review',
+              notes:
+                action === 'decline'
+                  ? 'Declined current interview invitation. Awaiting further updates.'
+                  : action === 'reschedule'
+                    ? 'Reschedule requested with the hiring team.'
+                    : 'Interview accepted. Looking forward to meeting you!',
+            }
+          : app,
+      ),
+    );
+    if (!application?.interviewId) return;
+    void respondToInterview(application.interviewId, action, reason).catch((error) =>
+      setBackendError(mapBackendError(error, 'Unable to update the interview.')),
+    );
+  };
+
+  /** Candidate answers a job offer. Hiring is completed by the employer. */
+  const handleOfferResponse = (applicationId: string, action: 'accept' | 'decline', reason?: string) => {
+    if (!currentUserId) return;
+    const application = applications.find((app) => app.id === applicationId);
+    setApplications((prev) =>
+      prev.map((app) =>
+        app.id === applicationId
+          ? {
+              ...app,
+              status: action === 'accept' ? 'Accepted' : 'Declined',
+              notes:
+                action === 'accept'
+                  ? 'Offer accepted. Thank you!'
+                  : `Offer declined. Reason: ${reason || 'None specified'}`,
+            }
+          : app,
+      ),
+    );
+    if (!application?.offerId) return;
+    void respondToJobOffer(application.offerId, action).catch((error) =>
+      setBackendError(mapBackendError(error, 'Unable to update the job offer.')),
+    );
+  };
+
+  const handleSendMessage = (conversationId: string, text: string, attachment?: { name: string; url: string; type: 'image' | 'file' }) => {    const newMsg: ChatMessage = {
       id: currentUserId ? crypto.randomUUID() : `msg-${Date.now()}`,
       conversationId,
       senderRole: userRole,
@@ -613,9 +764,25 @@ export default function App() {
     if (currentUserId) {
       void sendMessageRecord(currentUserId, newMsg).catch((error) => {
         setMessages((prev) => prev.filter((message) => message.id !== newMsg.id));
-        setBackendError(error instanceof Error ? error.message : 'Unable to send message.');
+        setBackendError(mapBackendError(error, 'Unable to send message.'));
       });
     }
+  };
+
+  const handleJobAction = (jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') => {
+    // Moderation and lifecycle changes go through the RPCs, so the server
+    // decides who may do what and what the status becomes.
+    const labels: Record<typeof action, string> = {
+      submit: 'Unable to submit this job for approval.',
+      pause: 'Unable to pause this job.',
+      resume: 'Unable to resume this job.',
+      close: 'Unable to close this position.',
+    };
+    void setJobLifecycleState(jobId, action)
+      .then(async () => {
+        if (currentUserId) await hydrateWorkspace(currentUserId);
+      })
+      .catch((error) => setBackendError(mapBackendError(error, labels[action])));
   };
 
   const handleStartConversation = (jobId: string, targetSeekerName?: string, targetSalonName?: string): string => {
@@ -662,7 +829,7 @@ export default function App() {
         targetSeekerEmail: newConv.seekerEmail,
       }).catch((error) => {
         setConversations((prev) => prev.filter((conversation) => conversation.id !== newConvId));
-        setBackendError(error instanceof Error ? error.message : 'Unable to start conversation.');
+        setBackendError(mapBackendError(error, 'Unable to start conversation.'));
       });
     }
     return newConvId;
@@ -672,7 +839,7 @@ export default function App() {
     setUserProfile(updatedProfile);
     if (currentUserId) {
       void saveProfile(currentUserId, updatedProfile).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to save profile.'),
+        setBackendError(mapBackendError(error, 'Unable to save profile.')),
       );
     }
   };
@@ -682,7 +849,7 @@ export default function App() {
     setUserProfile(updatedProfile);
     if (currentUserId) {
       void saveProfile(currentUserId, updatedProfile).catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to save profile photo.'),
+        setBackendError(mapBackendError(error, 'Unable to save profile photo.')),
       );
     }
   };
@@ -815,6 +982,16 @@ export default function App() {
         />
       )}
 
+      {/* SCREEN 3b: SIGNUP CONFIRMATION (account created, waiting for the email) */}
+      {screen === 'signup_confirmation' && (
+        <ConfirmEmailScreen
+          email={pendingConfirmationEmail?.email || ''}
+          role={pendingConfirmationEmail?.role || 'seeker'}
+          onResend={async (email) => { await authBackend.resendConfirmationEmail(email); }}
+          onBackToLogin={() => setScreen('login')}
+        />
+      )}
+
       {/* SCREEN 4: EMPLOYER SIGNUP */}
       {screen === 'employer_signup' && (
         <EmployerSignupScreen
@@ -831,6 +1008,7 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
           onSocialLogin={handleSocialLogin}
           onSignUp={() => setScreen('role_select')}
+          onResendConfirmation={async (email) => { await authBackend.resendConfirmationEmail(email); }}
           initialEmail={loginEmail}
           onForgotPassword={(email) => {
             const trimmed = (email || '').trim().toLowerCase();
@@ -909,7 +1087,7 @@ export default function App() {
               if (currentUserId) await completeSeekerOnboarding(updatedProfile, selectedRoles);
               setScreen('main_app');
             } catch (error) {
-              setBackendError(error instanceof Error ? error.message : 'Unable to complete onboarding.');
+              setBackendError(mapBackendError(error, 'Unable to complete onboarding.'));
             }
           }}
         />
@@ -926,7 +1104,7 @@ export default function App() {
               handleProfileUpdate({ ...userProfile, businessName: businessData.businessName });
               setScreen('employer_onboarding_step2');
             } catch (error) {
-              setBackendError(error instanceof Error ? error.message : 'Unable to complete business setup.');
+              setBackendError(mapBackendError(error, 'Unable to complete business setup.'));
             }
           }}
         />
@@ -985,9 +1163,11 @@ export default function App() {
               userProfile={userProfile}
               onAddJob={handleAddJob}
               onUpdateApplicantStatus={handleUpdateApplicantStatus}
+              onSendOffer={handleSendOffer}
               onSendMessage={handleSendMessage}
               onStartConversation={handleStartConversation}
               onUpdateAvatar={handleAvatarUpdate}
+              onJobAction={handleJobAction}
               onLogout={handleLogout}
             />
           )}
@@ -1020,6 +1200,7 @@ export default function App() {
               prev.map((app) => (app.id === appId ? { ...app, status, notes } : app))
             );
           }}
+          onInterviewResponse={handleInterviewResponse}
           onBack={() => {
             setSeekerInitialTab('applications');
             setScreen('main_app');
@@ -1042,6 +1223,7 @@ export default function App() {
               prev.map((app) => (app.id === appId ? { ...app, status, notes } : app))
             );
           }}
+          onOfferResponse={handleOfferResponse}
           onBack={() => {
             setSeekerInitialTab('applications');
             setScreen('main_app');

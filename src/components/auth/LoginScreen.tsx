@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { UserRole } from '../../types';
-import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound } from 'lucide-react';
+import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound, Mail } from 'lucide-react';
 import {
   isPasswordSignInBlockedError,
   isPortalRoleMismatchError,
@@ -18,6 +18,11 @@ interface LoginScreenProps {
   onForgotPassword: (email: string) => void;
   /** Email carried over from a previous screen (reset flow, portal switch). */
   initialEmail?: string;
+  /**
+   * Re-sends the sign-up confirmation email. Offered when sign-in fails because
+   * the address was never confirmed — the account exists, only the link is missing.
+   */
+  onResendConfirmation?: (email: string) => Promise<void> | void;
 }
 
 /**
@@ -36,6 +41,7 @@ function readLoginPrefill(): { role: UserRole | null; email: string } {
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onLoginSuccess,
+  onResendConfirmation,
   onSocialLogin,
   onSignUp,
   onForgotPassword,
@@ -50,12 +56,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [roleMismatch, setRoleMismatch] = useState<PortalRoleMismatchError | null>(null);
   const [signInBlocked, setSignInBlocked] = useState<PasswordSignInBlockedError | null>(null);
+  const [confirmResend, setConfirmResend] = useState<{ email: string; state: 'idle' | 'sending' | 'sent' } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setRoleMismatch(null);
     setSignInBlocked(null);
+    setConfirmResend(null);
     setIsLoading(true);
     try {
       await onLoginSuccess(activeRole, email, password);
@@ -76,6 +84,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!onResendConfirmation || !signInBlocked) return;
+    const target = signInBlocked.email || email;
+    setConfirmResend({ email: target, state: 'sending' });
+    try {
+      await onResendConfirmation(target);
+      setConfirmResend({ email: target, state: 'sent' });
+    } catch (resendError) {
+      setConfirmResend(null);
+      setError(resendError instanceof Error ? resendError.message : 'Unable to resend the confirmation email.');
     }
   };
 
@@ -244,6 +265,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             {signInBlocked && (
               <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 flex flex-col gap-2.5">
                 <p className="text-xs font-medium text-amber-900 leading-relaxed">{signInBlocked.message}</p>
+                {signInBlocked.reason === 'unconfirmed' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleResendConfirmation()}
+                      disabled={!onResendConfirmation || confirmResend?.state === 'sending' || confirmResend?.state === 'sent'}
+                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#8e004b] hover:bg-[#b50062] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      {confirmResend?.state === 'sent'
+                        ? 'Confirmation email sent'
+                        : confirmResend?.state === 'sending'
+                          ? 'Sending…'
+                          : `Resend the confirmation email to ${signInBlocked.email || 'my address'}`}
+                    </button>
+                    {confirmResend?.state === 'sent' && (
+                      <p className="text-[11px] font-medium text-emerald-700">
+                        Check {confirmResend.email} and open the newest link — this page is where it returns to.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                <>
                 <button
                   type="button"
                   onClick={handleResetPassword}
@@ -252,7 +296,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   <KeyRound className="w-3.5 h-3.5" />
                   Email a reset link to {signInBlocked.email || 'my address'}
                 </button>
-                {onSocialLogin && (
+                {onSocialLogin && signInBlocked.reason !== 'unconfirmed' && (
                   <>
                     <p className="text-[11px] font-semibold text-amber-800">
                       Created the account with Google or Apple? Use the same button — those accounts have no password.
@@ -275,6 +319,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       </button>
                     </div>
                   </>
+                )}
+                </>
                 )}
               </div>
             )}

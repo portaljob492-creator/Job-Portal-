@@ -69,7 +69,87 @@ Migrations are under `supabase/migrations/`:
 20260808170800_jobs_permanent_portal_roles.sql
 20260808170900_jobs_admin_approval.sql
 20260810090000_jobs_location_sync.sql
+20260913000000_jobs_backend_completion.sql
+20260913000100_jobs_schema_integrity.sql
+20260913000200_jobs_rls_policy_hardening.sql
+20260913000300_jobs_query_performance.sql
+20260913000400_jobs_rpc_automation.sql
+20260913000500_jobs_integration_hardening.sql
 ```
+
+`20260913000500_jobs_integration_hardening.sql` closes the frontend/backend
+gaps the integration audit found. Candidate search gains full-text search: a
+generated `search_vector` column over headline/bio/city/state with a GIN index,
+and `search_job_candidates()` now takes a text query, an experience floor and
+orders by relevance (`websearch_to_tsquery`, so typed input can never raise).
+Storage gains the three legitimate readers that were missing — an administrator
+reviewing an employer verification or a support attachment, and a salon member
+looking at the photo of somebody who applied to their posting — while private
+buckets stay private for everyone else, resumes included. `publish_job()` is
+revoked from clients (it is a deprecated alias of the admin-only `approve_job()`).
+The employer dashboard finally drives moderation through the procedures: each
+job card offers *Submit for approval* (the resubmit path a rejected posting
+needs), *Pause*, *Resume* and *Close*, each mapped to its RPC and followed by a
+workspace refresh. Authorization is no longer assumed to be a client concern:
+`test:db` asserts that every procedure callable by a signed-in user carries a
+server-side guard and that anonymous requests can reach nothing but the three
+policy helpers.
+
+`20260913000400_jobs_rpc_automation.sql` moves the last workflows that the
+browser still assembled from several writes into single transactions:
+`job_save_profile()` writes the profile and the role-specific row together,
+`job_open_conversation()` resolves the participants on the server (a salon member
+must name a candidate who applied; anybody else opens their own inquiry about a
+live posting) instead of the browser reading the membership table and scanning
+the salon's applicant list, and `job_send_message()` checks the sender against
+the conversation inside the same transaction that inserts the message and
+updates the unread counters. Closing a posting now notifies the candidates whose
+applications it closes, and `job_expire_stale_jobs()` automates expiry — schedule
+it (service role, or an administrator) so postings past `expires_at` leave the
+pipeline and both sides are told:
+
+```sql
+select public.job_expire_stale_jobs();   -- returns (expired_jobs, closed_applications)
+```
+
+`20260913000300_jobs_query_performance.sql` makes the hot read paths answer
+"which salons may this user act for?" once per query instead of once per row.
+The membership helpers are `security definer`, so calling them inside a policy
+(`... or job_can_manage_application(id) or ...`) re-ran a four-table lookup for
+every row a scan touched. Measured on a replayed database with 50k postings,
+100k applications, 30k conversations and 300k messages: the employer dashboard
+went from 2565ms to 121ms, the employer application list from 7792ms to 98ms,
+`get_job_applicant_cards()` from 2491ms to 111ms and
+`get_job_conversation_summaries()` from 621ms to 77ms. One index was added (the
+admin approval queue); the four indexes that were tried and measured as unused
+are listed in the migration so they are not added again by guesswork.
+
+`20260913000200_jobs_rls_policy_hardening.sql` closes the tenant-isolation gap
+the policy audit found: `job_conversations_insert_participant` compared two
+columns of the *inner* table with each other (`a.job_id = a.job_id`), so any
+salon member could open a conversation about another salon's job, with a
+candidate who never applied. The policy now binds both columns of the inserted
+row, and the two helpers it needs run as `security definer` — a plain subquery
+on `job_salon_members` is row-filtered by its own policy, which had silently
+made candidate inquiries impossible. The same migration switches the shared
+`notifications` / `push_subscriptions` tables (which shipped with RLS disabled)
+to own-row policies.
+
+`20260913000100_jobs_schema_integrity.sql` completes the relational audit: one
+employment-type vocabulary for posts/offers/saved searches, the application
+history table constrained to the lifecycle vocabulary, closed vocabularies for
+the notification/audit/ticket event columns, a guard so a job with applications
+can never be deleted by accident (JOB_HAS_APPLICATIONS) plus notification
+cleanup on delete, and an index for every remaining foreign key.
+
+`20260913000000_jobs_backend_completion.sql` is the authoritative final state for
+everything the admin-approval model changed: it re-points the application and
+public-location gates at the live `approved` status, keeps one active offer per
+application (a withdrawn or declined offer can be replaced), pins the strict
+`job_register_role`, makes the signup trigger independent of trigger ordering,
+adds the missing foreign-key/hot-path indexes and tightens helper execute
+rights. Earlier migration files are historical records — never edit an applied
+migration, add a new one.
 
 They are recorded in `supabase_migrations.schema_migrations` on staging. For another linked project:
 
@@ -124,16 +204,65 @@ Private documents use stable storage paths; clients should request short-lived s
 ```bash
 npm run lint          # tsc --noEmit
 npm run build         # vite build
+npm run test:contract # frontend/backend contract (offline, no credentials)
+npm run test:db       # replays every migration on a real PostgreSQL (offline)
 npm run test:location # auth + location sync checks (offline, no credentials)
 npm run test:reset    # password policy, recovery-token parsing, reset CLI (offline)
 npm run test:pwa      # build + PWA artifact checks
 ```
 
+`npm run test:db` covers tenant isolation as well as the happy paths: it runs
+every workflow as the `authenticated` role and then tries to break out of it —
+a second salon inserting a conversation on the first salon's job, opening a
+thread with a candidate who never applied, forging salon membership or a
+posting, reading another candidate's applications, and reading the rows of the
+shared user tables as somebody else. It also scans every policy in `pg_policies`
+for a comparison of a column with itself, the mistake that had made one policy
+always true.
+
+`npm run test:db` boots an in-process PostgreSQL (PGlite), applies every file in
+`supabase/migrations` in order on top of a minimal Supabase bootstrap (roles,
+`auth.users`, `auth.uid()`, `storage.objects`, the realtime publication and the
+shared Nexora tables) and then drives the real workflows as the `authenticated`
+role: create job → admin approval → apply → shortlist → interview → offer →
+hire, plus cross-user access attempts, storage buckets/policies and the realtime
+publication. It is the fastest way to prove a backend change before deploying.
+
+`npm run test:db` also pins the query-performance guarantees: the set-returning
+membership helper exists and is callable from inside policies, no policy or
+hot-path RPC falls back to a per-row membership call, the approval-queue index
+is present, and anonymous visitors can still read the approved listings.
+
+The atomic-procedure guarantees are pinned too: both halves of a profile save
+land together, a conversation can only name participants the caller may talk to,
+a stranger cannot post into a thread, and the expiry procedure is idempotent and
+refuses a non-administrator.
+
+`npm run test:contract` proves the app and the SQL still agree: every `.rpc()`
+call the frontend makes must exist in the migrations with matching argument
+names, every table must be RLS-protected, the schema-integrity guarantees are
+present, and no secret may reach the bundle.
+
 `npm run test:location` executes the real modules (`src/lib/supabase.ts`,
-`src/routing.ts`, `src/lib/authErrors.ts`, `src/services/locationSync.ts`) with
-injected fakes and asserts the repository invariants: one Supabase client, one
-auth listener owner, the PKCE storage key, the login route alias, watcher
-throttling/cleanup, and the location migration's RLS posture.
+`src/routing.ts`, `src/lib/authErrors.ts`, `src/lib/signUpOutcome.ts`,
+`src/services/locationSync.ts`) with injected fakes and asserts the repository
+invariants: one Supabase client, one auth listener owner, the PKCE storage key,
+the login route alias, watcher throttling/cleanup, and the location migration's
+RLS posture. The sign-up / sign-in flow is covered there too: an unconfirmed
+sign-up is a success with a next step (never an error), the confirmation link
+returns to this app, a session arriving from that link still opens the portal,
+and the structured sign-in failures keep reaching the screens that render their
+recovery actions.
+
+## Sign-up and sign-in
+
+`signUp` sends `emailRedirectTo` pointing at this app (`?confirmed=1`) because
+the project uses PKCE: the code in the confirmation link can only be exchanged
+by a page that runs the app. When Supabase requires the address to be confirmed,
+sign-up returns a user and no session — that is a success, and the app shows the
+confirmation screen with a re-send button and a countdown. Signing in before
+confirming is reported as its own structured state, so the login screen offers
+the re-send instead of a bare credential error.
 
 An isolated end-to-end database acceptance test is included:
 
@@ -191,6 +320,10 @@ VITE_SUPABASE_STORAGE_KEY=nexora.auth.qwaehqsmodekbgvnaavz
 ```
 
 4. Deploy, then copy the final `https://*.vercel.app` domain into Supabase Auth URL Configuration before testing OAuth or recovery links.
+
+Vite inlines every `VITE_*` variable into the bundle at **build time**, so a deployment that was built before the variables existed keeps running with them missing. After adding or changing `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` you must **redeploy** (Deployments → ⋯ → Redeploy, without build cache) — saving the variables alone does not update an existing deployment. The same applies locally: `cp .env.example .env`, fill in the key, and restart `npm run dev`.
+
+Environment Variables must be enabled for the environment you actually serve. If the variables are scoped to Preview only, the Production deployment logs a console error and renders the "Supabase not configured" banner, because `import.meta.env.VITE_SUPABASE_ANON_KEY` is `undefined` in that build.
 
 ## Auth configuration
 

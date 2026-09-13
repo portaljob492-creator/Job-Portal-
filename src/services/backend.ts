@@ -14,6 +14,7 @@ import type {
 import { requireSupabase } from '../lib/supabase';
 import { clearSessionBeforeSignUp, markUserInitiatedSignOut } from '../lib/authSession';
 import { normalizeEmail } from '../lib/email';
+import { isEmailNotConfirmedError } from '../lib/signUpOutcome';
 import { validateNewPassword } from '../lib/passwordPolicy';
 import type { RecoveryTokenInput } from '../lib/recoveryLink';
 import {
@@ -44,6 +45,12 @@ const one = <T>(value: T | T[] | null | undefined): T | null =>
 
 const appBaseUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin).toString();
 const appCallbackUrl = (query = '') => `${appBaseUrl()}${query}`;
+/**
+ * The sign-up confirmation link returns to this app with `?confirmed=1`, which
+ * is what tells the bootstrap to finish the sign-in (PKCE exchanges the code in
+ * the link automatically) instead of treating the visitor as a new arrival.
+ */
+const confirmationRedirectUrl = () => appCallbackUrl('?confirmed=1');
 const backendRole = (role: UserRole) => role === 'seeker' ? 'job_seeker' : role;
 const frontendRole = (role?: string | null): UserRole => role === 'admin' ? 'admin' : role === 'employer' ? 'employer' : 'seeker';
 const portalLabel = (role: UserRole) => role === 'seeker' ? 'Job Seeker' : role === 'admin' ? 'Admin' : 'Employer';
@@ -247,6 +254,19 @@ function mapApplication(row: any): Application {
   const interviews = arrays<any>(row.interviews).sort(
     (a, b) => new Date(b.scheduled_start).getTime() - new Date(a.scheduled_start).getTime(),
   );
+  // The workflow RPCs are keyed by interview/offer id, so the newest row of each
+  // kind travels with the application (newest first, completed/closed excluded
+  // where the action would no longer be valid).
+  const openInterview = interviews.find((item) =>
+    ['requested', 'confirmed', 'reschedule_requested', 'rescheduled'].includes(String(item.status)),
+  );
+  const offers = arrays<any>(row.offers).sort(
+    (a, b) => new Date(b.sent_at || 0).getTime() - new Date(a.sent_at || 0).getTime(),
+  );
+  const activeOffer = offers.find((item) => ['sent', 'accepted'].includes(String(item.status)));
+  // Prefer an interview that is still actionable; otherwise expose the newest
+  // one so the candidate screens can still show it.
+  const workflowInterview = openInterview ?? interviews[0];
   return {
     id: row.id,
     jobId: row.job_id,
@@ -262,6 +282,8 @@ function mapApplication(row: any): Application {
       : undefined,
     expectedSalary: row.expected_salary == null ? undefined : `₹${Number(row.expected_salary).toLocaleString('en-IN')}`,
     availability: row.available_from || undefined,
+    interviewId: workflowInterview?.id || undefined,
+    offerId: activeOffer?.id || undefined,
   };
 }
 
@@ -393,6 +415,11 @@ export const authBackend = {
       email,
       password: input.password,
       options: {
+        // Where the confirmation link lands. Without this the link follows the
+        // project's dashboard Site URL, which is usually not this deployment —
+        // and because the client uses PKCE the code in the link can only be
+        // exchanged by a page that actually runs this app.
+        emailRedirectTo: confirmationRedirectUrl(),
         data: {
           app_context: 'jobs',
           job_role: requestedBackendRole,
@@ -446,6 +473,16 @@ export const authBackend = {
 
     const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
     if (error) {
+      if (isEmailNotConfirmedError(error)) {
+        // The credentials were right; the address simply was never confirmed.
+        // Surface it as a structured error so the login screen can offer a
+        // re-send instead of a sentence with no action behind it.
+        throw new PasswordSignInBlockedError({
+          email: normalizedEmail,
+          role: requestedRole,
+          reason: 'unconfirmed',
+        });
+      }
       if (isInvalidLoginCredentialsError(error)) {
         // The account exists, so the failure is the credential itself: a typo, a
         // forgotten password, or an account created through Google/Apple that has
@@ -513,6 +550,22 @@ export const authBackend = {
     });
     if (error) throw mapAuthError(error);
     return data;
+  },
+
+  /**
+   * Re-sends the sign-up confirmation email for an account that was created but
+   * never confirmed. Uses the same redirect as sign-up so the link still lands
+   * on this app.
+   */
+  async resendConfirmationEmail(email: string) {
+    const normalized = normalizeEmail(email);
+    const { error } = await requireSupabase().auth.resend({
+      type: 'signup',
+      email: normalized,
+      options: { emailRedirectTo: confirmationRedirectUrl() },
+    });
+    if (error) throw mapAuthError(error);
+    return { email: normalized };
   },
 
   async sendPasswordReset(email: string) {
@@ -660,7 +713,7 @@ export interface WorkspaceData {
 
 export async function loadWorkspace(user: User, role: UserRole): Promise<WorkspaceData> {
   const client = requireSupabase();
-  const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*)`;
+  const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, salon:salons!job_posts_salon_id_fkey(*), location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
 
   const [profileResult, candidateResult, membershipResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicantCardsResult] = await Promise.all([
     client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).single(),
@@ -764,27 +817,18 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   };
 }
 
-export async function saveProfile(userId: string, profile: UserProfile) {
-  const client = requireSupabase();
-  const { error } = await client.from('profiles').update({
-    full_name: profile.name,
-    phone: profile.phone || null,
-    avatar_path: profile.avatarUrl || null,
-  }).eq('id', userId);
+export async function saveProfile(_userId: string, profile: UserProfile) {
+  // One transaction for `profiles` and the role-specific row, so a failure can
+  // never leave the account half-updated.
+  const { error } = await requireSupabase().rpc('job_save_profile', {
+    p_full_name: profile.name,
+    p_phone: profile.phone || null,
+    p_avatar_path: profile.avatarUrl || null,
+    p_headline: profile.role === 'seeker' ? profile.primaryRole || null : null,
+    p_bio: profile.role === 'seeker' ? profile.bio || null : null,
+    p_display_name: profile.role === 'employer' ? profile.contactPerson || profile.name : null,
+  });
   if (error) throw error;
-
-  if (profile.role === 'seeker') {
-    const { error: candidateError } = await client.from('job_seeker_profiles').update({
-      headline: profile.primaryRole || null,
-      bio: profile.bio || null,
-    }).eq('user_id', userId);
-    if (candidateError) throw candidateError;
-  } else {
-    const { error: employerError } = await client.from('job_employer_profiles').update({
-      display_name: profile.contactPerson || profile.name,
-    }).eq('user_id', userId);
-    if (employerError) throw employerError;
-  }
 }
 
 export async function setBookmark(userId: string, jobId: string, bookmarked: boolean) {
@@ -953,6 +997,230 @@ export async function updateApplicationStatus(applicationId: string, status: App
   }
 }
 
+/**
+ * Turns a backend error into something a user can act on. Backend functions
+ * raise stable codes (never stack traces or constraint names); anything that
+ * still looks like raw SQL is replaced with the caller's fallback so internal
+ * details can never reach the screen.
+ */
+const backendErrorMessages: Record<string, string> = {
+  OFFER_ALREADY_ACTIVE: 'There is already an active offer for this candidate. Withdraw it before sending a new one.',
+  OFFER_PENDING: 'The candidate has an open offer. Withdraw the offer before changing the application.',
+  INVALID_APPLICATION_TRANSITION: 'That action is not available at this stage of the application.',
+  INVALID_EMPLOYMENT_TYPE: 'Choose one of the supported employment types and try again.',
+  JOB_HAS_APPLICATIONS: 'This job has applications, so it cannot be deleted. Close the posting instead.',
+  JOB_NOT_PUBLISHED: 'This job is not open for applications yet.',
+  JOB_NOT_FOUND: 'That job is no longer available.',
+  APPLICATION_ALREADY_EXISTS: 'You have already applied to this job.',
+  SALON_ACCESS_DENIED: 'You do not have access to this employer workspace.',
+  PORTAL_ROLE_MISMATCH: 'This account is registered with a different portal role.',
+  ROLE_NOT_ALLOWED: 'This account is not allowed to perform that action.',
+  VALIDATION_ERROR: 'Please check the details you entered and try again.',
+  ACCOUNT_NOT_ACTIVE: 'This account is not active. Contact support if this is unexpected.',
+  CONVERSATION_ACCESS_DENIED: 'You do not have access to this conversation.',
+  CONVERSATION_NOT_FOUND: 'That conversation is no longer available.',
+  CANDIDATE_NOT_FOUND: 'That candidate has not applied to this job.',
+  PROFILE_NOT_FOUND: 'Your profile could not be found. Please sign in again.',
+  JOB_EXPIRED: 'This posting has expired and is no longer accepting applications.',
+  FOREIGN_RESUME: 'Choose a resume that belongs to your profile.',
+};
+
+const looksLikeRawSql = /violates|constraint|relation "|column "|pg_|sqlstate|permission denied for|syntax error/i;
+
+export function mapBackendError(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const token = raw.toUpperCase();
+  for (const [code, message] of Object.entries(backendErrorMessages)) {
+    if (token.includes(code)) return message;
+  }
+  if (!raw.trim() || looksLikeRawSql.test(raw)) return fallback;
+  return raw;
+}
+
+/**
+ * Employer sends an offer. The backend moves the application to `offer_sent`,
+ * which is what the candidate's offer screen reacts to.
+ */
+export interface JobOfferInput {
+  jobRole: string;
+  salary?: string | number | null;
+  employmentType?: string | null;
+  joiningDate?: string | null;
+  offerNotes?: string | null;
+  expiresAt?: string | null;
+}
+
+const numericOrNull = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(String(value).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+/**
+ * The offer form speaks display labels ('full-time', 'Chair Rental'), while the
+ * database enforces the same vocabulary as job posts ('full_time'). Unknown
+ * values are passed through so the backend can refuse them with a stable error
+ * instead of the UI silently storing a second spelling.
+ */
+const offerEmploymentTypes: Record<string, string> = {
+  'full-time': 'full_time',
+  'full time': 'full_time',
+  fulltime: 'full_time',
+  full_time: 'full_time',
+  'part-time': 'part_time',
+  'part time': 'part_time',
+  parttime: 'part_time',
+  part_time: 'part_time',
+  internship: 'internship',
+  intern: 'internship',
+  contract: 'contract',
+  contractual: 'contract',
+  freelance: 'freelance',
+  commission: 'freelance',
+  'chair rental': 'freelance',
+};
+
+const normalizeOfferEmploymentType = (value?: string | null) => {
+  if (!value) return null;
+  return offerEmploymentTypes[value.trim().toLowerCase()] ?? value.trim();
+};
+
+export async function sendJobOffer(applicationId: string, input: JobOfferInput) {
+  const { data, error } = await requireSupabase().rpc('send_job_offer', {
+    target_application_id: applicationId,
+    p_job_role: input.jobRole,
+    p_salary: numericOrNull(input.salary),
+    p_employment_type: normalizeOfferEmploymentType(input.employmentType),
+    p_joining_date: input.joiningDate || null,
+    p_offer_notes: input.offerNotes || null,
+    p_expires_at: input.expiresAt || null,
+  });
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Sending an offer is only allowed once the interview stage is finished. When
+ * the employer has already run a confirmed interview, this closes it out so the
+ * offer step is reachable without the candidate having to press anything else.
+ */
+export async function completeInterviewStage(applicationId: string, interviewId?: string) {
+  const client = requireSupabase();
+  const targetId =
+    interviewId ||
+    (await client
+      .from('job_interview_requests')
+      .select('id,status')
+      .eq('application_id', applicationId)
+      .eq('status', 'confirmed')
+      .order('scheduled_start', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    ).data?.id;
+  if (!targetId) return false;
+  const { error } = await client.rpc('complete_interview', { target_interview_id: targetId });
+  if (error) throw error;
+  return true;
+}
+
+export type InterviewResponse = 'accept' | 'decline' | 'reschedule';
+
+/** Candidate responds to an interview invitation. */
+export async function respondToInterview(
+  interviewId: string,
+  response: InterviewResponse,
+  reason?: string,
+) {
+  const client = requireSupabase();
+  if (response === 'accept') {
+    const { error } = await client.rpc('accept_interview', { target_interview_id: interviewId });
+    if (error) throw error;
+    return;
+  }
+  if (response === 'decline') {
+    const { error } = await client.rpc('decline_interview', {
+      target_interview_id: interviewId,
+      p_reason: reason || null,
+    });
+    if (error) throw error;
+    return;
+  }
+  const { error } = await client.rpc('request_interview_reschedule', {
+    target_interview_id: interviewId,
+    p_reason: reason || 'Candidate requested a new time.',
+  });
+  if (error) throw error;
+}
+
+/** Candidate accepts or declines a job offer. */
+export async function respondToJobOffer(offerId: string, response: 'accept' | 'decline') {
+  const rpcName = response === 'accept' ? 'accept_job_offer' : 'decline_job_offer';
+  const { error } = await requireSupabase().rpc(rpcName, { target_offer_id: offerId });
+  if (error) throw error;
+}
+
+/** Candidate withdraws an application. A pending offer must be declined first. */
+export async function withdrawApplication(applicationId: string, reason?: string) {
+  const { error } = await requireSupabase().rpc('withdraw_application', {
+    target_application_id: applicationId,
+    p_reason: reason || null,
+  });
+  if (error) throw error;
+}
+
+/** Employer submits salon verification documents for admin review. */
+export async function submitEmployerVerification(input: {
+  salonId: string;
+  businessProofPath: string;
+  identityProofPath: string;
+  salonProofPath?: string | null;
+}) {
+  const { data, error } = await requireSupabase().rpc('submit_employer_verification', {
+    target_salon_id: input.salonId,
+    p_business_proof_path: input.businessProofPath,
+    p_identity_proof_path: input.identityProofPath,
+    p_salon_proof_path: input.salonProofPath || null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Opens a support ticket for the signed-in user. */
+export async function createSupportTicket(input: {
+  issueType: string;
+  subject: string;
+  description: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+}) {
+  const { data, error } = await requireSupabase().rpc('create_job_support_ticket', {
+    p_issue_type: input.issueType,
+    p_subject: input.subject,
+    p_description: input.description,
+    p_priority: input.priority || 'normal',
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Employer job-lifecycle actions (approved <-> paused, or closed for good). */
+export async function setJobLifecycleState(jobId: string, action: 'submit' | 'pause' | 'resume' | 'close') {
+  const rpcName = action === 'submit' ? 'submit_job_for_approval'
+    : action === 'pause' ? 'pause_job'
+    : action === 'resume' ? 'resume_job'
+    : 'close_job';
+  const { error } = await requireSupabase().rpc(rpcName, { target_job_id: jobId });
+  if (error) throw error;
+}
+
+/**
+ * Employer sends a draft (or a rejected posting) to the admin queue. Without
+ * this call a new posting stays a draft forever and never reaches moderation,
+ * because `create_job_post` inserts drafts by design.
+ */
+export async function submitJobForApproval(jobId: string) {
+  await setJobLifecycleState(jobId, 'submit');
+}
+
 export async function createConversationRecord(input: {
   id: string;
   userId: string;
@@ -960,42 +1228,25 @@ export async function createConversationRecord(input: {
   jobId: string;
   targetSeekerEmail?: string;
 }) {
-  const client = requireSupabase();
-  const { data: job, error: jobError } = await client.from('job_posts').select('salon_id').eq('id', input.jobId).single();
-  if (jobError) throw jobError;
-
-  let candidateUserId = input.role === 'seeker' ? input.userId : '';
-  let employerUserId = input.role === 'employer' ? input.userId : '';
-  if (!employerUserId) {
-    const { data: member, error } = await client.from('job_salon_members').select('user_id').eq('salon_id', job.salon_id).eq('status', 'active').order('created_at').limit(1).single();
-    if (error) throw error;
-    employerUserId = member.user_id;
-  }
-  if (!candidateUserId && input.targetSeekerEmail) {
-    const { data: cards, error } = await client.rpc('get_job_applicant_cards');
-    if (error) throw error;
-    candidateUserId = arrays<any>(cards).find((card) => card.email === input.targetSeekerEmail)?.candidate_user_id || '';
-  }
-  if (!candidateUserId || !employerUserId) throw new Error('Unable to identify conversation participants.');
-
-  const { error } = await client.from('job_conversations').upsert({
-    id: input.id,
-    job_id: input.jobId,
-    candidate_user_id: candidateUserId,
-    employer_user_id: employerUserId,
-    status: 'inquiry',
-    last_message: 'Conversation started',
-  }, { onConflict: 'job_id,candidate_user_id,employer_user_id' });
+  // Participants are resolved on the server: one call instead of a job lookup,
+  // a membership lookup and a full applicant-card scan, and the row can only
+  // name participants the caller is actually allowed to talk to.
+  const { error } = await requireSupabase().rpc('job_open_conversation', {
+    p_job_id: input.jobId,
+    p_conversation_id: input.id,
+    p_candidate_email: input.targetSeekerEmail || null,
+  });
   if (error) throw error;
 }
 
-export async function sendMessageRecord(userId: string, message: ChatMessage) {
-  const { error } = await requireSupabase().from('job_messages').insert({
-    id: message.id,
-    conversation_id: message.conversationId,
-    sender_user_id: userId,
-    body: message.text,
-    attachment: message.attachment || null,
+export async function sendMessageRecord(_userId: string, message: ChatMessage) {
+  // The sender is taken from the session inside the RPC, so a forged user id in
+  // the payload cannot post as somebody else.
+  const { error } = await requireSupabase().rpc('job_send_message', {
+    p_conversation_id: message.conversationId,
+    p_body: message.text,
+    p_attachment: message.attachment || null,
+    p_message_id: message.id,
   });
   if (error) throw error;
 }

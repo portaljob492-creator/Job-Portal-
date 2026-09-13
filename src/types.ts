@@ -5,6 +5,7 @@ export type ScreenState =
   | 'role_select' 
   | 'seeker_signup' 
   | 'employer_signup' 
+  | 'signup_confirmation'
   | 'login' 
   | 'forgot_password' 
   | 'reset_password' 
@@ -59,6 +60,10 @@ export interface Application {
   interviewDate?: string;
   expectedSalary?: string;
   availability?: string;
+  /** Latest interview row for this application (workflow RPCs need its id). */
+  interviewId?: string;
+  /** Latest active offer row for this application (workflow RPCs need its id). */
+  offerId?: string;
 }
 
 export interface Applicant {
