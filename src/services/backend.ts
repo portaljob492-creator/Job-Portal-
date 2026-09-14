@@ -1033,7 +1033,10 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
       client.from('job_posts').select(employerJobsEmbedSelect).eq('created_by', user.id).order('created_at', { ascending: false }),
     );
     if (!first.error || !isEmbedResolutionError(first.error)) return first;
-    console.warn('[loadWorkspace] employer job embed unresolved — retrying with the plain select:', first.error);
+    {
+      const gap = schemaGapNote(first.error);
+      console.warn('[loadWorkspace] employer job embed unresolved — retrying with the plain select:', first.error, ...(gap ? [gap] : []));
+    }
     const plain = await settle(
       client.from('job_posts').select(employerJobsPlainSelect).eq('created_by', user.id).order('created_at', { ascending: false }),
     );
@@ -1056,7 +1059,10 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
         .order('submitted_at', { ascending: false }),
     );
     if (!first.error || !isEmbedResolutionError(first.error)) return first;
-    console.warn('[loadWorkspace] applications embed unresolved — retrying with the plain select:', first.error);
+    {
+      const gap = schemaGapNote(first.error);
+      console.warn('[loadWorkspace] applications embed unresolved — retrying with the plain select:', first.error, ...(gap ? [gap] : []));
+    }
     const plain = await settle(
       client
         .from('job_applications')
