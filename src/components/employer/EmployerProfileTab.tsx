@@ -237,14 +237,34 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
     if (isSavingProfile) return;
     const trimmedBusinessName = businessName.trim();
     const trimmedContact = contactPerson.trim();
-    if (!trimmedBusinessName) {
-      setSaveError('Business name is required.');
+    if (trimmedBusinessName.length < 2) {
+      setSaveError('Business name must be at least 2 characters.');
       return;
     }
     if (trimmedContact.length < 2) {
       setSaveError('Contact person name must be at least 2 characters.');
       return;
     }
+
+    let trimmedWebsite = website.trim();
+    if (trimmedWebsite && !/^https?:\/\//i.test(trimmedWebsite)) {
+      trimmedWebsite = `https://${trimmedWebsite}`;
+    }
+    if (trimmedWebsite) {
+      try {
+        new URL(trimmedWebsite);
+      } catch {
+        setSaveError('Please enter a valid website URL (e.g. https://example.com).');
+        return;
+      }
+    }
+
+    let cleanInstagram = instagram.trim();
+    if (cleanInstagram.includes('instagram.com/')) {
+      cleanInstagram = cleanInstagram.split('instagram.com/').pop()?.split('/')[0]?.split('?')[0] || '';
+    }
+    cleanInstagram = cleanInstagram.replace(/^@+/, '');
+
     setIsSavingProfile(true);
     setSaveError(null);
     try {
@@ -257,8 +277,8 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
         name: trimmedContact,
         phone: phone.trim(),
         bio: bio.trim(),
-        website: website.trim(),
-        instagram: instagram.trim().replace(/^@+/, ''),
+        website: trimmedWebsite,
+        instagram: cleanInstagram,
       });
       setIsEditOpen(false);
       triggerToast('Profile updated successfully');
