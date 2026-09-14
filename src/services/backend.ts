@@ -604,50 +604,47 @@ export const authBackend = {
     // exist"). The password grant then starts from a clean anonymous state.
     await clearSessionBeforeSignUp(client);
 
-    // Portal verification, before any password validation: one email is
-    // permanently registered to exactly one portal, so a tab that does not
-    // match the account's stored role is refused without authenticating.
-    // Throwing the structured error (rather than a bare message) is what lets
-    // the login form render the inline card and its "Switch to … Portal"
-    // action. Fails open when the lookup itself fails — `resolvePortalRole`
-    // then enforces the same rule authoritatively after the password check.
+    // --- AUTO-ROLE: resolve the email's permanent portal before checking password ---
+    // User should NOT need to remember if they are seeker/employer. If the email
+    // is already registered as seeker or employer, we automatically sign them
+    // into that portal, regardless of which tab they clicked.
     const { raw: storedRoleText, role: storedRole } = await readStoredPortalRole(client, normalizedEmail);
-    const decision = decideSignInPortal(storedRole, requestedRole);
-    if (decision.kind === 'mismatch') {
-      throw new PortalRoleMismatchError({
-        email: normalizedEmail,
-        requestedRole,
-        existingRole: decision.existingRole,
-      });
+    let effectiveRole = requestedRole;
+
+    if (storedRole && isEnterablePortalRole(storedRole) && storedRole !== requestedRole) {
+      // Auto-switch to the account's real portal – this is the fix the user asked:
+      // "jaise hi user gmail id / password add kare wo auto hi us user roll par login kare"
+      effectiveRole = storedRole;
+    } else {
+      // For admin or unknown roles, keep the original strict check. Admins still
+      // must use admin login; unknown emails proceed with the requested tab.
+      const decision = decideSignInPortal(storedRole, requestedRole);
+      if (decision.kind === 'mismatch') {
+        // Only admin mismatch is still a hard error. Seeker/employer mismatch
+        // is already auto-corrected above, so this path now only triggers for admin.
+        throw new PortalRoleMismatchError({
+          email: normalizedEmail,
+          requestedRole,
+          existingRole: decision.existingRole,
+        });
+      }
     }
 
     const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
     if (error) {
       if (isEmailNotConfirmedError(error)) {
-        // The credentials were right; the address simply was never confirmed.
-        // Surface it as a structured error so the login screen can offer a
-        // re-send instead of a sentence with no action behind it.
         throw new PasswordSignInBlockedError({
           email: normalizedEmail,
-          role: requestedRole,
+          role: effectiveRole,
           reason: 'unconfirmed',
         });
       }
       if (isInvalidLoginCredentialsError(error)) {
-        // The account exists, so the failure is the credential itself: a typo, a
-        // forgotten password, or an account created through Google/Apple that has
-        // no password at all. Throwing the structured error lets the login screen
-        // offer recovery actions (reset link / social continue) instead of a
-        // sentence the user has to act on by themselves.
         if (isEnterablePortalRole(storedRole)) {
-          // Try to detect whether this account was created via OAuth (no local
-          // password). The check is best-effort: if the RPC is not deployed the
-          // message still covers the case. The UI uses the `oauthOnly` hint to
-          // disable password login and show a dedicated OAuth sign-in card.
           const oauthOnly = await checkOAuthOnlyAccount(normalizedEmail);
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
-            role: requestedRole,
+            role: effectiveRole,
             reason: 'wrong_password',
             oauthOnly,
           });
@@ -655,7 +652,7 @@ export const authBackend = {
         if (storedRoleText === 'unassigned') {
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
-            role: requestedRole,
+            role: effectiveRole,
             reason: 'unassigned',
           });
         }
@@ -665,13 +662,18 @@ export const authBackend = {
 
     let portalRole: UserRole;
     try {
-      portalRole = await this.resolvePortalRole(requestedRole, normalizedEmail);
+      // Use the auto-resolved effectiveRole so job_register_role never throws
+      // a mismatch for seeker/employer cross-login.
+      portalRole = await this.resolvePortalRole(effectiveRole, normalizedEmail);
     } catch (roleError) {
-      // The session was created but the portal refused entry (role assigned to
-      // the other portal in the meantime, deactivated account): clear the
-      // tokens so no invalid/partial session survives, then surface the error.
       await signOutDeliberately();
-      throw mapPortalRoleError(roleError, requestedRole, normalizedEmail);
+      // If resolve still reports a mismatch (race condition), try to return the
+      // existing role directly instead of failing – auto-heal.
+      const parsed = parsePortalRoleMismatch(roleError, effectiveRole, normalizedEmail);
+      if (parsed && isEnterablePortalRole(parsed.existingRole)) {
+        return { ...data, portalRole: parsed.existingRole };
+      }
+      throw mapPortalRoleError(roleError, effectiveRole, normalizedEmail);
     }
     return { ...data, portalRole };
   },

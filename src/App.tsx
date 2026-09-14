@@ -174,12 +174,23 @@ export default function App() {
       }
     }
 
+    // --- AUTO-ROLE FIX ---
+    // User should not need to remember seeker vs employer.
+    // If the stored role is seeker/employer and the UI requested the other
+    // portal, automatically use the stored role instead of throwing.
+    // Only admin mismatches remain hard errors.
     if (expectedRole && role !== expectedRole) {
-      throw new PortalRoleMismatchError({
-        email: userData.user.email || '',
-        requestedRole: expectedRole,
-        existingRole: role,
-      });
+      const isSeekerEmployerMismatch =
+        (expectedRole === 'seeker' || expectedRole === 'employer') &&
+        (role === 'seeker' || role === 'employer');
+      if (!isSeekerEmployerMismatch) {
+        throw new PortalRoleMismatchError({
+          email: userData.user.email || '',
+          requestedRole: expectedRole,
+          existingRole: role,
+        });
+      }
+      // else: auto-correct – continue with the real role (role)
     }
 
     let workspace;
