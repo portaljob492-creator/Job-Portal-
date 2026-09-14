@@ -114,6 +114,27 @@ workspace refresh. Authorization is no longer assumed to be a client concern:
 server-side guard and that anonymous requests can reach nothing but the three
 policy helpers.
 
+`20260914000002_fix_profile_save_marketplace_schema.sql` is the *"Unable to save
+profile. Please retry."* fix. `job_save_profile()` and
+`job_update_employer_profile()` write the shared, marketplace-owned
+`public.profiles` row, and that table has no `updated_at` column — the previous
+revision set one, so every save aborted with `42703` and the mapper (which
+deliberately hides raw SQL) showed the generic toast. Both RPCs now heal a
+missing profiles row *before* `job_assert_authenticated()` (that guard rejects a
+missing row with `ACCOUNT_INACTIVE`, so ensuring after it was dead code), touch
+only the columns every earlier migration writes, refuse candidate accounts
+saving a business profile, and create a `job_salon_locations` row only when a
+real city/state is known (both columns are NOT NULL). Because the browser can
+never patch the schema, the fix reaches production only once the migration is
+deployed:
+
+```bash
+supabase db push
+```
+
+Failures on this path are also logged with their real Postgres error
+(`logger('profile')`) instead of only the sanitized toast.
+
 `20260913000400_jobs_rpc_automation.sql` moves the last workflows that the
 browser still assembled from several writes into single transactions:
 `job_save_profile()` writes the profile and the role-specific row together,
@@ -255,7 +276,11 @@ is present, and anonymous visitors can still read the approved listings.
 The atomic-procedure guarantees are pinned too: both halves of a profile save
 land together, a conversation can only name participants the caller may talk to,
 a stranger cannot post into a thread, and the expiry procedure is idempotent and
-refuses a non-administrator.
+refuses a non-administrator. The profile-save block runs against the
+marketplace-shaped `profiles` table (no `updated_at`) and covers the accounts
+that used to fail: a missing profiles row, an employer with no salon and no
+location, a candidate attempting a business-profile save, and an unassigned
+cross-app account completing business setup.
 
 `npm run test:contract` proves the app and the SQL still agree: every `.rpc()`
 call the frontend makes must exist in the migrations with matching argument

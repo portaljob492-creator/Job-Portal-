@@ -372,6 +372,47 @@ check('employer profile persistence is one authenticated transaction',
   /create(?: or replace)? function public\.job_update_employer_profile/.test(sql)
   && backendService.includes("rpc('job_update_employer_profile'")
   && /await updateEmployerProfile/.test(appSource));
+
+// "Unable to save profile. Please retry." is the generic fallback the toast
+// shows for any unmapped failure, so the real backend cause must be logged and
+// the employer fallback must not silently discard the business fields.
+check('profile save failures are logged with their backend cause',
+  /logger\('profile'\)\.error\(/.test(appSource)
+  && /profileLog\.error\('job_update_employer_profile failed'/.test(backendService)
+  && /profileLog\.error\('job_save_profile failed'/.test(backendService));
+const profileUpdateBody = /const handleProfileUpdate = async[\s\S]*?\n  \};\n/.exec(appSource)?.[0] ?? '';
+check('the employer profile fallback no longer drops business fields silently',
+  profileUpdateBody.length > 0
+  && /PROFILE_NOT_FOUND/i.test(profileUpdateBody)
+  && !/SALON_ACCESS_DENIED|SALON_NOT_FOUND/i.test(profileUpdateBody));
+check('the employer update payload omits the immutable login email',
+  (() => {
+    const payload = /const payload = \{[\s\S]*?\n  \};/.exec(backendService)?.[0] ?? '';
+    return payload.length > 0 && !/email/i.test(payload);
+  })());
+check('the edit modal keeps the login email read-only',
+  /id="employer-email"[\s\S]{0,300}readOnly[\s\S]{0,300}disabled/.test(
+    read('src/components/employer/EmployerProfileTab.tsx')));
+
+// public.profiles is the marketplace-owned shared table: it has no updated_at
+// column (see the db suite, whose bootstrap models the deployed shape exactly),
+// and a missing row must be healed before job_assert_authenticated, which
+// rejects it with ACCOUNT_INACTIVE.
+const profilesUpsertWrites = ['job_save_profile', 'job_update_employer_profile'].filter((name) =>
+  [...(finalFunctionBody[name] || '').matchAll(/insert into public\.profiles[\s\S]*?;/g)]
+    .some((statement) => /updated_at/.test(statement[0])));
+check('profile save RPCs never write marketplace-only profiles columns',
+  profilesUpsertWrites.length === 0, profilesUpsertWrites.join(', '));
+const ensureBeforeGuard = ['job_save_profile', 'job_update_employer_profile'].every((name) => {
+  const body = finalFunctionBody[name] || '';
+  const ensureAt = body.indexOf('job_ensure_profile_row');
+  const guardAt = body.indexOf('job_assert_authenticated');
+  return ensureAt !== -1 && guardAt !== -1 && ensureAt < guardAt;
+});
+check('profile save RPCs heal the shared profiles row before the auth guard', ensureBeforeGuard);
+check('the employer self-heal never inserts a NOT NULL location row from nulls',
+  !/insert into public\.job_salon_locations[\s\S]{0,200}nullif\(trim\(coalesce\(p_city/.test(
+    finalFunctionBody.job_update_employer_profile || ''));
 check('resume creation and primary selection use atomic RPCs',
   backendService.includes("rpc('job_create_candidate_resume'")
   && backendService.includes("rpc('job_set_primary_resume'")

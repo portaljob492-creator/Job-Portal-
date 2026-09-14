@@ -151,7 +151,9 @@ check('data url decodes to bytes', blob.size === 5 && blob.type === 'image/png')
 check('profile-incomplete maps to the candidate profile gate',
   mapBackendError(new Error('PROFILE_INCOMPLETE')) === 'Please complete your candidate profile before applying.');
 check('interview transition maps friendly', mapBackendError(new Error('INVALID_INTERVIEW_TRANSITION')).includes('no longer'));
-check('salon-not-found maps friendly', mapBackendError(new Error('SALON_NOT_FOUND')).includes('search results'));
+const salonNotFoundCopy = mapBackendError(new Error('SALON_NOT_FOUND'));
+check('salon-not-found maps friendly',
+  salonNotFoundCopy.includes('could not be found') && !salonNotFoundCopy.includes('SALON_NOT_FOUND'));
 check('raw sql still hidden', mapBackendError(new Error('violates check constraint "x" on relation "y"'), 'Fallback.') === 'Fallback.');
 
 /* ------------------------------------------------------------------ */
