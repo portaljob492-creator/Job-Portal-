@@ -525,7 +525,8 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                   <div className="flex gap-2 min-w-max pb-1">
                     <span className="bg-[#ede9fe] text-[#4f46e5] px-4 py-2 rounded-full text-[13px] font-semibold border border-transparent">All Posted ({jobs.length})</span>
                     <span className="bg-emerald-50 text-emerald-800 px-4 py-2 rounded-full text-[13px] font-medium">Published ({jobs.filter((job) => job.approvalStatus === 'approved').length})</span>
-                    <span className="bg-amber-50 text-amber-800 px-4 py-2 rounded-full text-[13px] font-medium">Draft ({jobs.filter((job) => !job.approvalStatus || !['approved', 'closed', 'expired', 'archived'].includes(job.approvalStatus)).length})</span>
+                    <span className="bg-amber-50 text-amber-800 px-4 py-2 rounded-full text-[13px] font-medium">Pending Approval ({jobs.filter((job) => job.approvalStatus === 'pending_approval').length})</span>
+                    <span className="bg-slate-100 text-slate-800 px-4 py-2 rounded-full text-[13px] font-medium">Draft ({jobs.filter((job) => job.approvalStatus === 'draft' || !job.approvalStatus).length})</span>
                     <span className="bg-[#f1f5f9] text-[#475569] px-4 py-2 rounded-full text-[13px] font-medium">Closed ({jobs.filter((job) => ['closed', 'expired', 'archived'].includes(job.approvalStatus || '')).length})</span>
                   </div>
                 </div>
@@ -544,9 +545,24 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
               )}
               <div className="flex flex-col gap-4">
                 {jobs.map((job) => {
+                  const isPending = job.approvalStatus === 'pending_approval';
+                  const isApproved = job.approvalStatus === 'approved';
+                  const isRejected = job.approvalStatus === 'rejected';
+                  const isPaused = job.approvalStatus === 'paused';
                   const closed = ['closed', 'expired', 'archived'].includes(job.approvalStatus || '');
-                  const published = job.approvalStatus === 'approved';
-                  const statusLabel = published ? 'Published' : closed ? 'Closed' : 'Draft';
+
+                  const statusBadge = isApproved
+                    ? { label: 'Status: Published', bg: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' }
+                    : isPending
+                      ? { label: 'Status: Pending Admin Approval', bg: 'bg-amber-50 text-amber-800 border border-amber-200', dot: 'bg-amber-500 animate-pulse' }
+                      : isRejected
+                        ? { label: 'Status: Rejected by Admin', bg: 'bg-rose-50 text-rose-700 border border-rose-200', dot: 'bg-rose-500' }
+                        : isPaused
+                          ? { label: 'Status: Paused', bg: 'bg-orange-50 text-orange-800 border border-orange-200', dot: 'bg-orange-500' }
+                          : closed
+                            ? { label: 'Status: Closed', bg: 'bg-[#f1f5f9] text-[#475569]', dot: 'bg-[#64748b]' }
+                            : { label: 'Status: Draft', bg: 'bg-slate-100 text-slate-700 border border-slate-200', dot: 'bg-slate-400' };
+
                   const jobApplicants = applicants.filter((applicant) => applicant.appliedJobId === job.id);
                   const totalApplications = Math.max(jobApplicants.length, job.activeApplicantsCount || 0);
                   const newApplications = jobApplicants.filter((applicant) => applicant.status === 'New').length;
@@ -560,12 +576,24 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${published ? 'bg-emerald-50 text-emerald-700' : closed ? 'bg-[#f1f5f9] text-[#475569]' : 'bg-amber-50 text-amber-800'}`}>
-                              <span className={`h-2 w-2 rounded-full ${published ? 'bg-emerald-500' : closed ? 'bg-[#64748b]' : 'bg-amber-500'}`} />
-                              Status: {statusLabel}
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${statusBadge.bg}`}>
+                              <span className={`h-2 w-2 rounded-full ${statusBadge.dot}`} />
+                              {statusBadge.label}
                             </span>
                           </div>
                           <h3 className="mt-3 truncate text-lg font-bold text-[#0f172a]">{job.title}</h3>
+                          {isPending && (
+                            <p className="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex items-center gap-1.5 font-medium">
+                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>Pending review by the Nexora admin team before appearing in search results.</span>
+                            </p>
+                          )}
+                          {isRejected && (
+                            <div className="mt-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2.5 space-y-0.5">
+                              <p className="font-bold">Not Approved by Admin</p>
+                              {job.rejectionReason && <p>Feedback: {job.rejectionReason}</p>}
+                            </div>
+                          )}
                         </div>
                         <div className="flex shrink-0 flex-wrap gap-2">
                           <button

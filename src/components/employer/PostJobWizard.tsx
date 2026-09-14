@@ -199,7 +199,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
         openings: Number(openings),
         interviewMode,
         postingStatus,
-        approvalStatus: postingStatus === 'published' ? 'approved' : 'draft',
+        approvalStatus: postingStatus === 'published' ? 'pending_approval' : 'draft',
         postedDate: 'Just now',
         publishedAt: now,
         tags: ['New Listing'],
@@ -437,21 +437,39 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
   );
 
   const renderConfirmation = () => {
-    const published = (savedJob?.postingStatus || postingStatus) === 'published' || savedJob?.approvalStatus === 'approved';
+    const isPending = (savedJob?.approvalStatus || (postingStatus === 'published' ? 'pending_approval' : 'draft')) === 'pending_approval';
+    const isApproved = savedJob?.approvalStatus === 'approved';
+    const isDraft = !isPending && !isApproved;
     const postedDate = new Date(savedJob?.publishedAt || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     return (
       <div className="flex min-h-full flex-1 flex-col items-center justify-center py-10 animate-in zoom-in-95 duration-300">
-        <div className="flex h-24 w-24 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-14 w-14" /></div>
+        <div className={`flex h-24 w-24 items-center justify-center rounded-full ${isPending ? 'bg-amber-50 text-amber-600' : isApproved ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600'}`}>
+          <CheckCircle2 className="h-14 w-14" />
+        </div>
         <div className="mt-6 text-center">
-          <h1 className="text-2xl font-bold text-[#4f46e5]">{initialJob ? 'Your job post has been updated successfully.' : published ? 'Your job post has been published successfully.' : 'Your job post has been saved as a draft.'}</h1>
-          <p className="mt-2 text-sm text-[#475569]">{published ? 'Candidates can now find and apply to this role.' : 'You can publish this job later from My Posted Jobs.'}</p>
+          <h1 className="text-2xl font-bold text-[#4f46e5]">
+            {initialJob
+              ? 'Your job post has been updated successfully.'
+              : isPending
+                ? 'Your job post has been submitted for admin approval.'
+                : isApproved
+                  ? 'Your job post has been published successfully.'
+                  : 'Your job post has been saved as a draft.'}
+          </h1>
+          <p className="mt-2 text-sm text-[#475569]">
+            {isPending
+              ? 'Our admin team reviews new listings promptly. You will be notified once it is live.'
+              : isApproved
+                ? 'Candidates can now find and apply to this role.'
+                : 'You can publish this job later from My Posted Jobs.'}
+          </p>
         </div>
         <dl className="mt-7 w-full rounded-xl border border-[#cbd5e1] bg-white p-5 shadow-sm">
           {[
             ['Job Title', savedJob?.title || title],
             ['Location', savedJob?.location || displayLocation],
             ['Salary', savedJob?.salary || formattedSalary],
-            ['Job Status', published ? 'Published' : 'Draft'],
+            ['Job Status', isPending ? 'Pending Admin Approval' : isApproved ? 'Published' : 'Draft'],
             ['Posted Date', postedDate],
           ].map(([label, value]) => (
             <div key={label} className="flex items-start justify-between gap-4 border-b border-[#f1f5f9] py-3 last:border-0">

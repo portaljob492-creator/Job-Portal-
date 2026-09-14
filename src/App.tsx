@@ -505,6 +505,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'job_messages' }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'job_applications' }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'job_notifications' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'job_posts' }, refresh)
       .subscribe();
 
     return () => {

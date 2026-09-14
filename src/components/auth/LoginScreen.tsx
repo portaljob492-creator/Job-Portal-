@@ -47,8 +47,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [email, setEmail] = useState(initialEmail || prefill.email);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  // activeRole is kept for fallback when email has no stored role yet.
-  // User does NOT need to pick it – it auto-detects from email.
   const [activeRole, setActiveRole] = useState<UserRole>(prefill.role ?? 'seeker');
 
   const [isLoading, setIsLoading] = useState(false);
@@ -58,9 +56,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [confirmResend, setConfirmResend] = useState<{ email: string; state: 'idle' | 'sending' | 'sent' } | null>(null);
   const [resetLink, setResetLink] = useState<{ email: string; state: 'idle' | 'sending' | 'sent' | 'error'; message?: string } | null>(null);
   const [cooldown, setCooldown] = useState(0);
-  // Portal auto-detected from email – this is what makes login role-free
   const [detectedRole, setDetectedRole] = useState<UserRole | null>(null);
-  const [isDetecting, setIsDetecting] = useState(false);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -68,17 +64,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     return () => { if (typeof window !== 'undefined') window.clearInterval(timer); };
   }, [cooldown]);
 
-  // Auto-detect role from email – debounced lookup
+  // Debounced lookup of the email's registered portal
   useEffect(() => {
     if (!onResolvePortalRole) return;
     const candidate = normalizeEmail(email);
     if (!isLikelyEmail(candidate)) {
       setDetectedRole(null);
-      setIsDetecting(false);
       return;
     }
     let cancelled = false;
-    setIsDetecting(true);
     const timer = window.setTimeout(() => {
       void (async () => {
         let resolved: UserRole | null = null;
@@ -88,24 +82,66 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           resolved = null;
         }
         if (cancelled) return;
-        const valid = resolved === 'seeker' || resolved === 'employer' || resolved === 'admin' ? resolved : null;
-        setDetectedRole(valid);
-        setIsDetecting(false);
-        // Auto-switch internal activeRole so submit uses correct portal without user action
-        if (valid && (valid === 'seeker' || valid === 'employer')) {
-          setActiveRole(valid);
-        }
+        setDetectedRole(resolved === 'seeker' || resolved === 'employer' || resolved === 'admin' ? resolved : null);
       })();
-    }, 350);
+    }, 400);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
   }, [email, onResolvePortalRole]);
 
+  // Derived mismatch card: pre-submit detected role mismatch or post-submit server mismatch
+  const detectedMismatch = activeRole && detectedRole && activeRole !== detectedRole
+    ? asPortalRoleMismatch(
+        { code: '42501', message: `PORTAL_ROLE_MISMATCH:${detectedRole}` },
+        activeRole,
+        normalizeEmail(email),
+      )
+    : null;
+
+  const mismatchCard = roleMismatch || detectedMismatch;
+  const isPortalBlocked = Boolean(mismatchCard);
+
+  const handleSwitchPortal = (card: PortalRoleMismatchError | null = mismatchCard) => {
+    if (!card) return;
+    const target = card.existingRole;
+    const prefilledEmail = card.email || email;
+    setRoleMismatch(null);
+    setSignInBlocked(null);
+    setError(null);
+    setDetectedRole(null);
+    if (target === 'admin') {
+      setEmail(prefilledEmail);
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams();
+        if (prefilledEmail.trim()) params.set('email', prefilledEmail.trim());
+        const query = params.toString();
+        window.history.replaceState({}, document.title, `${jobPortalPath('admin')}${query ? `?${query}` : ''}`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }
+      return;
+    }
+    setActiveRole(target);
+    setEmail(prefilledEmail);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams();
+      params.set('role', target);
+      if (prefilledEmail.trim()) params.set('email', prefilledEmail.trim());
+      const query = params.toString();
+      window.history.replaceState({}, document.title, `/login?${query}`);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading || cooldown > 0) return;
+
+    if (isPortalBlocked) {
+      handleSwitchPortal(mismatchCard);
+      return;
+    }
+
     setError(null);
     setRoleMismatch(null);
     setSignInBlocked(null);
@@ -113,53 +149,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setResetLink(null);
     setIsLoading(true);
 
-    // Determine effective role: detected > prefill > activeRole
-    // This is the core of auto-role: user never picks, we pick from email
-    let effectiveRole: UserRole = detectedRole || activeRole;
-    if (!detectedRole && onResolvePortalRole && isLikelyEmail(normalizeEmail(email))) {
-      try {
-        const immediate = await onResolvePortalRole(normalizeEmail(email));
-        if (immediate === 'seeker' || immediate === 'employer' || immediate === 'admin') {
-          effectiveRole = immediate;
-          setDetectedRole(immediate);
-          if (immediate === 'seeker' || immediate === 'employer') setActiveRole(immediate);
-        }
-      } catch {
-        // keep fallback
-      }
-    }
-
     try {
-      // First attempt with auto-detected role – backend will auto-switch again if needed
-      await onLoginSuccess(effectiveRole, email, password);
+      await onLoginSuccess(activeRole, email, password);
     } catch (loginError) {
-      const mismatch = asPortalRoleMismatch(loginError, effectiveRole, email);
+      const mismatch = asPortalRoleMismatch(loginError, activeRole, email);
       if (mismatch) {
-        // Seeker/Employer mismatch: auto-retry immediately with correct role, no second tap
-        if (mismatch.existingRole === 'seeker' || mismatch.existingRole === 'employer') {
-          setDetectedRole(mismatch.existingRole);
-          setActiveRole(mismatch.existingRole);
-          try {
-            // Auto redirect to correct portal without asking user
-            await onLoginSuccess(mismatch.existingRole, email, password);
-            return;
-          } catch (retryError) {
-            const retryMismatch = asPortalRoleMismatch(retryError, mismatch.existingRole, email);
-            if (retryMismatch && retryMismatch.existingRole === 'admin') {
-              setRoleMismatch(retryMismatch);
-            } else if (isPasswordSignInBlockedError(retryError)) {
-              setSignInBlocked(retryError as PasswordSignInBlockedError);
-            } else if (isAuthRateLimitError(retryError)) {
-              setCooldown((retryError as any).retryAfterSeconds);
-              setError((retryError as Error).message);
-            } else {
-              setError(retryError instanceof Error ? retryError.message : 'Unable to sign in. Please try again.');
-            }
-          }
-        } else {
-          // Admin case only – show switch card
-          setRoleMismatch(mismatch);
-        }
+        setRoleMismatch(mismatch);
       } else if (isAuthRateLimitError(loginError)) {
         setCooldown(loginError.retryAfterSeconds);
         setError(loginError.message);
@@ -212,29 +207,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     onForgotPassword(target);
   };
 
-  const handleSwitchPortal = (card: PortalRoleMismatchError | null = roleMismatch) => {
-    if (!card) return;
-    const target = card.existingRole;
-    const prefilledEmail = card.email || email;
-    setRoleMismatch(null);
-    setSignInBlocked(null);
-    setError(null);
-    if (target === 'admin') {
-      setEmail(prefilledEmail);
-      if (typeof window !== 'undefined') {
-        const params = new URLSearchParams();
-        if (prefilledEmail.trim()) params.set('email', prefilledEmail.trim());
-        const query = params.toString();
-        window.history.replaceState({}, document.title, `${jobPortalPath('admin')}${query ? `?${query}` : ''}`);
-        window.dispatchEvent(new PopStateEvent('popstate'));
-      }
-      return;
-    }
-    setActiveRole(target);
-    setDetectedRole(target);
-    setEmail(prefilledEmail);
-  };
-
   return (
     <div className="bg-[#f8fafc] min-h-screen flex flex-col justify-center items-center px-5 py-8 font-sans text-[#0f172a] antialiased">
       <main className="w-full max-w-[400px] flex flex-col gap-6">
@@ -242,46 +214,44 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           <div className="w-16 h-16 rounded-full bg-[#6d28d9] text-white flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(15,23,42,0.08)]">
             <span className="material-symbols-outlined text-3xl filled-icon">spa</span>
           </div>
-          <h1 className="text-2xl font-bold text-[#0f172a] mb-1">Welcome Back</h1>
-          <p className="text-sm text-[#475569]">Just enter your email & password — we’ll open your correct portal automatically.</p>
+          <h1 className="text-2xl font-bold text-[#0f172a]">Welcome Back</h1>
+          <p className="text-sm text-[#475569] mt-1">Sign in to your Nexora Jobs account</p>
         </header>
 
-        {/* Auto-detect badge – replaces manual role tabs, shows instant role */}
-        <div className={`rounded-xl border px-3.5 py-2.5 flex items-center gap-2.5 transition-colors ${detectedRole ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-[#e2e8f0]'}`}>
-          <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${detectedRole ? 'bg-emerald-100' : 'bg-[#eef2ff]'}`}>
-            {isDetecting ? (
-              <span className="w-3.5 h-3.5 border-2 border-[#4f46e5] border-t-transparent rounded-full animate-spin" />
-            ) : detectedRole === 'employer' ? (
-              <Building2 className={`w-3.5 h-3.5 ${detectedRole ? 'text-emerald-700' : 'text-[#4f46e5]'}`} />
-            ) : detectedRole === 'seeker' ? (
-              <UserCheck className={`w-3.5 h-3.5 ${detectedRole ? 'text-emerald-700' : 'text-[#4f46e5]'}`} />
-            ) : (
-              <ShieldCheck className="w-3.5 h-3.5 text-[#94a3b8]" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            {isDetecting ? (
-              <p className="text-[11px] font-medium text-[#475569]">Checking your account type…</p>
-            ) : detectedRole ? (
-              <>
-                <p className="text-[11px] font-bold text-emerald-800">
-                  ✓ {portalRoleLabel(detectedRole)} account detected
-                </p>
-                <p className="text-[10px] font-medium text-emerald-700 leading-tight">
-                  Login pe bina puche {portalRoleLabel(detectedRole)} dashboard pe redirect hoga
-                </p>
-              </>
-            ) : email && isLikelyEmail(normalizeEmail(email)) ? (
-              <p className="text-[11px] font-medium text-[#475569]">New email? First login pe role auto-assign hoga.</p>
-            ) : (
-              <p className="text-[11px] font-medium text-[#475569]">Email daalo — Job Seeker / Employer auto-detect hoga, yaad rakhne ki zarurat nahi.</p>
-            )}
-          </div>
-          {detectedRole && (
-            <div className="text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-600 text-white">
-              AUTO
-            </div>
-          )}
+        {/* Portal Switch Tabs */}
+        <div className="bg-[#e2e8f0]/60 p-1 rounded-xl flex items-center justify-between border border-[#cbd5e1]/50">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveRole('seeker');
+              setRoleMismatch(null);
+              setError(null);
+            }}
+            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeRole === 'seeker'
+                ? 'bg-white text-[#4f46e5] shadow-[0_2px_8px_rgba(15,23,42,0.08)]'
+                : 'text-[#475569] hover:text-[#0f172a]'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+            Job Seeker
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveRole('employer');
+              setRoleMismatch(null);
+              setError(null);
+            }}
+            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeRole === 'employer'
+                ? 'bg-white text-[#4f46e5] shadow-[0_2px_8px_rgba(15,23,42,0.08)]'
+                : 'text-[#475569] hover:text-[#0f172a]'
+            }`}
+          >
+            <Building2 className="w-4 h-4" />
+            Employer
+          </button>
         </div>
 
         <div className="bg-white rounded-2xl shadow-[0_4px_16px_rgba(15,23,42,0.06)] border border-[#cbd5e1]/40 p-5 flex flex-col gap-4">
@@ -294,7 +264,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setRoleMismatch(null);
+                  setError(null);
+                }}
                 placeholder="your@email.com"
                 required
                 className="w-full bg-[#f8fafc] text-[#0f172a] text-sm px-4 py-3 rounded-lg border-0 ring-1 ring-[#cbd5e1] focus:ring-2 focus:ring-[#4f46e5] focus:bg-white transition-all outline-none placeholder:text-[#475569]/50"
@@ -341,22 +315,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               </p>
             )}
 
-            {roleMismatch && (
+            {mismatchCard && (
               <div role="alert" className="rounded-xl border border-[#cbd5e1]/70 bg-[#eef2ff] px-3.5 py-3 flex flex-col gap-2.5">
-                <p className="text-xs font-medium text-[#4f46e5] leading-relaxed">{roleMismatch.message}</p>
+                <p className="text-xs font-medium text-[#4f46e5] leading-relaxed">{mismatchCard.message}</p>
                 <button
                   type="button"
-                  onClick={() => handleSwitchPortal(roleMismatch)}
+                  onClick={() => handleSwitchPortal(mismatchCard)}
                   className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
                 >
-                  {roleMismatch.existingRole === 'employer'
+                  {mismatchCard.existingRole === 'employer'
                     ? <Building2 className="w-3.5 h-3.5" />
-                    : roleMismatch.existingRole === 'admin'
+                    : mismatchCard.existingRole === 'admin'
                       ? <ShieldCheck className="w-3.5 h-3.5" />
                       : <UserCheck className="w-3.5 h-3.5" />}
-                  {roleMismatch.existingRole === 'admin'
+                  {mismatchCard.existingRole === 'admin'
                     ? 'Go to Admin Sign In'
-                    : `Switch to ${portalRoleLabel(roleMismatch.existingRole)} Portal`}
+                    : `Switch to ${portalRoleLabel(mismatchCard.existingRole)} Portal`}
                 </button>
               </div>
             )}
@@ -436,22 +410,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
             <button
               type="submit"
-              disabled={isLoading || cooldown > 0}
-              aria-disabled={isLoading || cooldown > 0}
-              className="w-full bg-[#7c3aed] disabled:opacity-60 text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#6d28d9] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2 disabled:cursor-wait"
+              disabled={isLoading || cooldown > 0 || isPortalBlocked}
+              aria-disabled={isLoading || cooldown > 0 || isPortalBlocked}
+              className="w-full bg-[#7c3aed] disabled:opacity-60 text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#6d28d9] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Signing in as {detectedRole ? portalRoleLabel(detectedRole) : portalRoleLabel(activeRole)}…
+                  Signing in…
                 </span>
               ) : cooldown > 0 ? (
-                <span>Try again in {formatRetryCountdown(cooldown)}</span>
-              ) : detectedRole ? (
-                <span className="flex items-center gap-1.5">
-                  {detectedRole === 'employer' ? <Building2 className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                  Continue to {portalRoleLabel(detectedRole)} Portal
-                </span>
+                <span>{`Try again in ${formatRetryCountdown(cooldown)}`}</span>
               ) : (
                 <span>Login</span>
               )}

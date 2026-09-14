@@ -15,6 +15,7 @@ export const MEDIA_BUCKETS = {
   offers: 'job-offers',
   supportAttachments: 'job-support-attachments',
   messageAttachments: 'job-message-attachments',
+  employerVerification: 'employer-verification',
   salonPublicMedia: 'salon-public-media',
 } as const;
 
@@ -186,6 +187,30 @@ export async function uploadMessageAttachment(
     messageAttachmentStoragePath(userId, conversationId, file.name),
     file,
   );
+}
+
+export async function uploadEmployerVerificationDoc(
+  userId: string,
+  file: File,
+  docType = 'business',
+): Promise<string> {
+  if (file.type === 'application/pdf') {
+    if (file.size > IMAGE_MAX_BYTES) throw new Error('Verification documents must be 10MB or smaller.');
+  } else {
+    assertImageFile(file);
+  }
+  const path = `${userId}/${docType}-${randomId()}-${sanitizeFileName(file.name, 'doc')}`;
+  return uploadObject(MEDIA_BUCKETS.employerVerification, path, file);
+}
+
+export async function uploadEmployerLogo(userId: string, file: Blob): Promise<string> {
+  assertImageFile(file);
+  return uploadObject(MEDIA_BUCKETS.profileMedia, `${userId}/logo-${Date.now()}.${extensionFor(file.type, 'jpg')}`, file);
+}
+
+export async function uploadCoverImage(userId: string, file: Blob): Promise<string> {
+  assertImageFile(file);
+  return uploadObject(MEDIA_BUCKETS.profileMedia, `${userId}/cover-${Date.now()}.${extensionFor(file.type, 'jpg')}`, file);
 }
 
 /** Best-effort delete (old avatar after a re-upload, orphaned objects). */
