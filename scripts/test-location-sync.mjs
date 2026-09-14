@@ -534,7 +534,9 @@ assertCheck(
 );
 assertCheck(
   'the login screen keeps the password and social path for the other reasons',
-  /signInBlocked\.reason !== 'unconfirmed'/.test(loginSource),
+  // The screen branches on the reason: the unconfirmed banner offers a resend,
+  // every other reason keeps the password-reset/social path in the else branch.
+  /signInBlocked\.reason === 'unconfirmed' \?[\s\S]*?\) : \(/.test(loginSource),
 );
 assertCheck(
   'the backend raises the unconfirmed state before the generic mapper',

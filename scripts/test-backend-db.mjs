@@ -1193,6 +1193,97 @@ check('profile save only writes the caller role row',
 const badSave = await caught(seeker, `select public.job_save_profile('  ')`);
 check('profile save rejects an empty name', /VALIDATION_ERROR/.test(badSave.error ?? ''), badSave.error);
 
+// Regression: "Unable to save profile. Please retry."
+// The deployed RPCs must run against the shared *marketplace* profiles table,
+// which has no `updated_at` column (the bootstrap above models it exactly), and
+// they must heal a missing profiles row themselves — the auth guard rejects a
+// missing row with ACCOUNT_INACTIVE, so the healing has to run before it.
+const sharedProfileColumns = (await db.query(`
+  select column_name from information_schema.columns
+   where table_schema='public' and table_name='profiles'`)).rows.map((row) => row.column_name);
+check('shared profiles fixture has no marketplace-unknown updated_at column',
+  !sharedProfileColumns.includes('updated_at'), sharedProfileColumns.join(', '));
+
+const crossAppSeeker = uid(21);
+await db.exec(`insert into auth.users(id,email,raw_user_meta_data)
+  values ('${crossAppSeeker}','cross-app-seeker@example.com','{}');`);
+const healedSeekerSave = await caught(crossAppSeeker,
+  `select public.job_save_profile('Healed Seeker','9000000001','/avatar/healed.png','Senior Stylist','Recovered bio.')`);
+check('profile save heals an account with no shared profiles row',
+  !healedSeekerSave.error, healedSeekerSave.error || 'saved');
+const healedSeekerRow = (await db.query(`
+  select p.full_name, p.phone from public.profiles p where p.id='${crossAppSeeker}'`)).rows[0];
+check('the healed shared profile carries the submitted identity',
+  healedSeekerRow?.full_name === 'Healed Seeker' && healedSeekerRow.phone === '9000000001',
+  JSON.stringify(healedSeekerRow));
+
+// The employer modal path: an employer with a role but no salon must be able to
+// save even without a location. job_salon_locations.city/state are NOT NULL, so
+// the self-heal may not pass nulls through, and it may not invent a placeholder
+// location either.
+const repairEmployer = uid(22);
+await db.exec(`insert into auth.users(id,email,raw_user_meta_data)
+  values ('${repairEmployer}','repair-employer@example.com','{"app_context":"jobs","job_role":"employer"}');`);
+await rpc(repairEmployer, `select public.job_register_role('employer')`);
+const blankLocationSave = await caught(repairEmployer,
+  `select public.job_update_employer_profile('Repair Studio','Repair Owner',null,null,'Boutique studio',null,null,null,null)`);
+check('employer profile save succeeds with no salon and no location',
+  !blankLocationSave.error, blankLocationSave.error || 'saved');
+const healedSalon = (await db.query(`
+  select s.name, s.city, s.state,
+    (select count(*)::int from public.job_salon_locations l where l.salon_id=s.id) as locations,
+    (select count(*)::int from public.job_salon_profiles sp where sp.salon_id=s.id) as brand_rows
+    from public.salons s
+    join public.job_salon_members m on m.salon_id=s.id and m.user_id='${repairEmployer}' and m.status='active'
+   where s.organization_id is not null limit 1`)).rows[0];
+check('employer save self-heals the salon without inventing a blank location row',
+  healedSalon?.name === 'Repair Studio' && healedSalon.locations === 0 && healedSalon.brand_rows === 1,
+  JSON.stringify(healedSalon));
+const locatedSave = await caught(repairEmployer,
+  `select public.job_update_employer_profile('Repair Studio','Repair Owner','9111222333',null,'Boutique studio',
+    'https://repair.example','repairstudio','Pune','Maharashtra')`);
+check('employer profile save succeeds once a location is provided',
+  !locatedSave.error, locatedSave.error || 'saved');
+const locatedSalon = (await db.query(`
+  select s.name, s.city, s.state,
+    (select count(*)::int from public.job_salon_locations l where l.salon_id=s.id and l.is_primary) as primary_locations,
+    (select l.city from public.job_salon_locations l where l.salon_id=s.id and l.is_primary limit 1) as location_city,
+    (select l.state from public.job_salon_locations l where l.salon_id=s.id and l.is_primary limit 1) as location_state,
+    (select sp.website_url from public.job_salon_profiles sp where sp.salon_id=s.id) as website
+    from public.salons s where s.id=(select salon_id from public.job_salon_members
+      where user_id='${repairEmployer}' and status='active' limit 1)`)).rows[0];
+check('the employer save persists salon, primary location and brand links',
+  locatedSalon?.name === 'Repair Studio' && locatedSalon.city === 'Pune'
+    && locatedSalon.location_city === 'Pune' && locatedSalon.location_state === 'Maharashtra'
+    && locatedSalon.primary_locations === 1 && locatedSalon.website === 'https://repair.example',
+  JSON.stringify(locatedSalon));
+
+// The business-profile RPC stays employer-only: a SECURITY DEFINER function
+// cannot lean on RLS, so it must refuse a candidate outright.
+const candidateBusinessSave = await caught(seeker, `select public.job_update_employer_profile(
+  'Sneaky Salon','Seeker Renamed',null,null,null,null,null,'Jaipur','Rajasthan')`);
+check('a candidate account cannot save an employer business profile',
+  /ROLE_NOT_ALLOWED|PORTAL_ROLE_MISMATCH/.test(candidateBusinessSave.error ?? ''),
+  candidateBusinessSave.error || 'allowed');
+const candidateSalonRows = (await db.query(
+  `select count(*)::int as n from public.job_salon_members where user_id='${seeker}'`)).rows[0].n;
+check('the refused candidate business save creates no salon membership',
+  candidateSalonRows === 0, `${candidateSalonRows} rows`);
+
+// Cross-app accounts reach the portal with no role row at all; a business save
+// must converge them to the employer portal instead of dead-ending.
+const unassignedEmployer = uid(23);
+await db.exec(`insert into auth.users(id,email,raw_user_meta_data)
+  values ('${unassignedEmployer}','unassigned-employer@example.com','{}');`);
+const unassignedSave = await caught(unassignedEmployer, `select public.job_update_employer_profile(
+  'Fresh Studio','Fresh Owner',null,null,null,null,null,'Delhi','Delhi')`);
+check('an unassigned portal account can complete business setup through the save RPC',
+  !unassignedSave.error, unassignedSave.error || 'saved');
+const unassignedRole = (await db.query(
+  `select role from public.job_user_roles where user_id='${unassignedEmployer}'`)).rows[0]?.role;
+check('the unassigned account is assigned the employer portal',
+  unassignedRole === 'employer', unassignedRole || 'none');
+
 // The eight-step form submits every candidate relation in one transaction and
 // returns only server-derived confirmation values.
 const candidateSubmit = await rpc(seeker, `select * from public.job_submit_candidate_profile(

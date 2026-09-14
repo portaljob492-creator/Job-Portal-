@@ -57,6 +57,7 @@ import {
 import { MEDIA_BUCKETS, deleteMediaObject, isStoragePath, resolveStorageUrls } from './lib/storageMedia';
 import type { InterviewSchedulePayload } from './lib/interviewSchedule';
 import { formatInterviewDateTime } from './lib/interviewSchedule';
+import { logger } from './lib/logger';
 import { JobsWorkspaceSkeleton } from './components/ui/JobsSkeleton';
 
 type SeekerWorkspaceTab = 'feed' | 'applications' | 'saved' | 'messages' | 'portfolio' | 'profile';
@@ -1141,9 +1142,12 @@ export default function App() {
         try {
           await updateEmployerProfile(updatedProfile);
         } catch (empError) {
-          // If employer RPC fails due to missing salon, fallback to generic saveProfile which now auto-creates salon
-          const sig = (empError as any)?.message || '';
-          if (/SALON_ACCESS_DENIED|SALON_NOT_FOUND|PROFILE_NOT_FOUND/i.test(sig)) {
+          // Only the shared profiles row can be healed by the generic save. A
+          // salon failure must surface instead: falling back here would silently
+          // drop the business name, location, website and Instagram while the
+          // modal still reported "Profile updated successfully".
+          const sig = `${(empError as any)?.code ?? ''} ${(empError as any)?.message ?? ''}`;
+          if (/PROFILE_NOT_FOUND/i.test(sig)) {
             await saveProfile(currentUserId, updatedProfile);
           } else {
             throw empError;
@@ -1154,6 +1158,12 @@ export default function App() {
       }
       setUserProfile(updatedProfile);
     } catch (error) {
+      // The toast is intentionally generic; keep the raw backend failure in the
+      // console so the reason (validation, RLS, missing column, …) is visible.
+      logger('profile').error('profile update failed', error, {
+        role: updatedProfile.role,
+        rpc: updatedProfile.role === 'employer' ? 'job_update_employer_profile' : 'job_save_profile',
+      });
       const message = mapBackendError(error, 'Unable to save profile. Please retry.');
       setBackendError(message);
       throw new Error(message);
@@ -1190,6 +1200,7 @@ export default function App() {
         setUserProfile(updatedProfile);
       }
     } catch (error) {
+      logger('profile').error('avatar update failed', error, { role: updatedProfile.role });
       const message = mapBackendError(error, 'Unable to save profile photo. Please retry.');
       setBackendError(message);
       throw new Error(message);

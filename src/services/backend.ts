@@ -17,7 +17,7 @@ import type {
   UserRole,
 } from '../types';
 import { requireSupabase } from '../lib/supabase';
-import { toSafeMessage } from '../lib/logger';
+import { logger, toSafeMessage } from '../lib/logger';
 import type { InterviewSchedulePayload } from '../lib/interviewSchedule';
 import {
   MEDIA_BUCKETS,
@@ -64,6 +64,14 @@ async function signOutDeliberately() {
 const arrays = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
 const one = <T>(value: T | T[] | null | undefined): T | null =>
   Array.isArray(value) ? value[0] ?? null : value ?? null;
+
+/**
+ * Profile/avatar saves are the workflow behind "Unable to save profile. Please
+ * retry.": the toast is intentionally generic, so the raw backend failure
+ * (Postgres code, message, details, hint) must still be recorded here —
+ * sanitized by the logger — or the cause would be invisible in the console.
+ */
+const profileLog = logger('profile');
 
 const appBaseUrl = () => new URL(import.meta.env.BASE_URL, window.location.origin).toString();
 const appCallbackUrl = (query = '') => `${appBaseUrl()}${query}`;
@@ -1260,8 +1268,9 @@ export async function saveProfile(_userId: string, profile: UserProfile) {
   try {
     await attemptSave();
   } catch (error) {
+    profileLog.error('job_save_profile failed', error, { role: profile.role });
     // Auto-heal: if profile not found or account inactive, try to re-ensure role then retry once
-    const msg = (error as any)?.message || '';
+    const msg = `${(error as any)?.code ?? ''} ${(error as any)?.message ?? ''}`;
     if (/PROFILE_NOT_FOUND|ACCOUNT_INACTIVE|ACCOUNT_NOT_ACTIVE|PGRST116/i.test(msg)) {
       try {
         // Best-effort re-register role to ensure profiles row exists
@@ -1273,6 +1282,7 @@ export async function saveProfile(_userId: string, profile: UserProfile) {
         await attemptSave();
         return;
       } catch (retryError) {
+        profileLog.error('job_save_profile retry failed', retryError, { role: profile.role });
         // If retry also fails, throw original error for mapping
         throw error;
       }
@@ -1369,34 +1379,73 @@ export async function updateEmployerProfile(profile: UserProfile): Promise<void>
   const location = profile.location?.trim() || '';
   const [city = '', ...stateParts] = location.split(',').map((part) => part.trim()).filter(Boolean);
   const state = stateParts.join(', ').trim();
+  const resolvedCity = city || profile.city || '';
+  const resolvedState = state || profile.state || '';
+
+  const payload = {
+    p_business_name: trimmedBusiness,
+    p_contact_name: trimmedContact,
+    p_phone: profile.phone?.trim() || null,
+    p_avatar_path: profile.avatarPath || profile.avatarUrl || null,
+    p_description: profile.bio?.trim() || null,
+    p_website_url: profile.website?.trim() || null,
+    p_instagram_url: profile.instagram?.trim().replace(/^@+/, '') || null,
+    p_city: resolvedCity || null,
+    p_state: resolvedState || null,
+  };
 
   const attempt = async () => {
-    const { error } = await requireSupabase().rpc('job_update_employer_profile', {
-      p_business_name: trimmedBusiness,
-      p_contact_name: trimmedContact,
-      p_phone: profile.phone?.trim() || null,
-      p_avatar_path: profile.avatarPath || profile.avatarUrl || null,
-      p_description: profile.bio?.trim() || null,
-      p_website_url: profile.website?.trim() || null,
-      p_instagram_url: profile.instagram?.trim().replace(/^@+/, '') || null,
-      p_city: city || profile.city || null,
-      p_state: state || profile.state || null,
-    });
+    const { error } = await requireSupabase().rpc('job_update_employer_profile', payload);
     if (error) throw error;
   };
 
   try {
     await attempt();
   } catch (error) {
-    const msg = (error as any)?.message || '';
-    // If salon not found or access denied, try to heal by ensuring role then retry – new RPC auto-creates salon
-    if (/SALON_ACCESS_DENIED|SALON_NOT_FOUND|PROFILE_NOT_FOUND|ACCOUNT_INACTIVE/i.test(msg)) {
+    // The toast stays generic (see mapBackendError); record the real cause so a
+    // failed save can be traced without guessing which column or policy broke.
+    profileLog.error('job_update_employer_profile failed', error, {
+      hasLocation: Boolean(resolvedCity || resolvedState),
+    });
+    const msg = `${(error as any)?.code ?? ''} ${(error as any)?.message ?? ''}`;
+    // If salon not found or access denied, try to heal by ensuring the role then
+    // retry once. The server-side RPC also self-heals a missing profile/salon,
+    // so the retry covers deployments where only the role row was missing.
+    if (/SALON_ACCESS_DENIED|SALON_NOT_FOUND|PROFILE_NOT_FOUND|ACCOUNT_INACTIVE|ROLE_NOT_ALLOWED/i.test(msg)) {
       try {
         await requireSupabase().rpc('job_register_role', { requested_role: 'employer' });
         await attempt();
         return;
-      } catch {
-        // Fall through to original error
+      } catch (retryError) {
+        profileLog.error('job_update_employer_profile retry failed', retryError, {
+          hasLocation: Boolean(resolvedCity || resolvedState),
+        });
+        // Legacy deployments: the profile RPC cannot create a missing business
+        // workspace yet. The onboarding RPC can, so use it as a targeted heal
+        // when the submitted data is complete enough for it, then save again.
+        if (/SALON_ACCESS_DENIED|SALON_NOT_FOUND/i.test(msg) && resolvedCity && resolvedState) {
+          try {
+            await requireSupabase().rpc('complete_job_employer_onboarding', {
+              p_business_name: trimmedBusiness,
+              p_contact_name: trimmedContact,
+              p_address: location || trimmedBusiness,
+              p_city: resolvedCity,
+              p_state: resolvedState,
+              p_postal_code: null,
+              p_business_type: 'salon',
+              p_website_url: payload.p_website_url,
+              p_instagram_url: payload.p_instagram_url,
+            });
+            await attempt();
+            return;
+          } catch (healError) {
+            profileLog.error('employer workspace self-heal failed', healError, {
+              business: trimmedBusiness,
+            });
+          }
+        }
+        // Surface the original failure: the caller maps it to the user copy.
+        throw error;
       }
     }
     throw error;
