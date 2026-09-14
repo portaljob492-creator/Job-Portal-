@@ -132,7 +132,7 @@ const bucketRows = Object.values(Object.fromEntries(
   [...sql.matchAll(/\('([a-z-]+)',\s*'[a-z-]+',\s*(true|false),/g)]
     .map((m) => [m[1], { id: m[1], public: m[2] }]),
 ));
-check('storage buckets declared', bucketRows.length === 7, bucketRows.map((b) => b.id).join(', '));
+check('storage buckets declared', bucketRows.length === 8, bucketRows.map((b) => b.id).join(', '));
 const publicBuckets = bucketRows.filter((b) => b.public === 'true').map((b) => b.id);
 check('only salon-public-media is a public bucket',
   publicBuckets.length === 1 && publicBuckets[0] === 'salon-public-media', publicBuckets.join(', '));
