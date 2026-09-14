@@ -38,6 +38,8 @@ import { validateNewPassword } from '../lib/passwordPolicy';
 import type { RecoveryTokenInput } from '../lib/recoveryLink';
 import {
   AuthRateLimitError,
+  errorSignalText,
+  extractErrorMessage,
   formatRetryCountdown,
   isRecoveryLinkRejectedError,
   isSessionInvalidError,
@@ -76,11 +78,7 @@ const frontendRole = (role?: string | null): UserRole => role === 'admin' ? 'adm
 const portalLabel = (role: UserRole) => role === 'seeker' ? 'Job Seeker' : role === 'admin' ? 'Admin' : 'Employer';
 
 function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error
-    ? error.message
-    : typeof error === 'object' && error && 'message' in error
-      ? String((error as { message: unknown }).message)
-      : String(error || fallback);
+  return extractErrorMessage(error, fallback);
 }
 
 /**
@@ -829,9 +827,36 @@ export async function applyPendingOAuthRole(_userId: string): Promise<UserRole |
 }
 
 export async function getUserRole(user: User): Promise<UserRole> {
-  const { data, error } = await requireSupabase().from('job_user_roles').select('role').eq('user_id', user.id).maybeSingle();
-  if (error) throw error;
-  if (!data?.role) throw new Error('No Jobs portal role is assigned to this account. Please sign in through the correct portal.');
+  const client = requireSupabase();
+  const { data, error } = await client.from('job_user_roles').select('role').eq('user_id', user.id).maybeSingle();
+  if (error) {
+    const msg = extractErrorMessage(error, 'Unable to validate your portal access.');
+    throw new Error(msg);
+  }
+  if (!data?.role) {
+    // Auto-heal: if the account has no portal role row (e.g. created by another
+    // Nexora app, or the signup trigger hit a FK guard), try to assign one
+    // from the user's metadata. This prevents a hard "Unable to validate your
+    // portal access" dead-end on a valid session.
+    const metaRoleRaw =
+      (user.user_metadata?.role as string | undefined) ||
+      (user.user_metadata?.job_role as string | undefined) ||
+      '';
+    const metaRole = metaRoleRaw.toLowerCase();
+    const inferred: UserRole | null =
+      metaRole === 'employer' ? 'employer' : metaRole === 'seeker' || metaRole === 'job_seeker' ? 'seeker' : null;
+
+    if (inferred) {
+      try {
+        const resolved = await authBackend.resolvePortalRole(inferred, user.email || '');
+        return resolved;
+      } catch {
+        // Fall through to the explicit unassigned error below – the caller
+        // (App bootstrap) will then offer a portal switch / re-login.
+      }
+    }
+    throw new Error('No Jobs portal role is assigned to this account. Please sign in through the correct portal.');
+  }
   return frontendRole(data.role);
 }
 
@@ -841,7 +866,10 @@ export async function isPortalOnboardingComplete(userId: string): Promise<boolea
     .select('onboarding_completed')
     .eq('user_id', userId)
     .single();
-  if (error) throw error;
+  if (error) {
+    const msg = extractErrorMessage(error, 'Unable to validate your portal access.');
+    throw new Error(msg);
+  }
   return Boolean(data.onboarding_completed);
 }
 
@@ -917,7 +945,9 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     .eq('status', 'active')
     .limit(1)
     .maybeSingle();
-  if (membershipResult.error) throw membershipResult.error;
+  if (membershipResult.error) {
+    throw new Error(extractErrorMessage(membershipResult.error, 'Unable to load employer membership.'));
+  }
   const membership: any = membershipResult.data;
 
   const employerJobsQuery = client
@@ -954,7 +984,12 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const error = [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult, salonProfilesResult]
     .map((result: any) => result.error)
     .find(Boolean);
-  if (error) throw error;
+  if (error) {
+    // Wrap Supabase PostgREST errors (plain objects) into Error instances so
+    // the UI's generic fallback ("Unable to validate your portal access") is
+    // never shown for a known failure – the real message surfaces instead.
+    throw new Error(extractErrorMessage(error, 'Unable to load your workspace.'));
+  }
 
   const salonMap = new Map<string, any>((salonProfilesResult.data || []).map((s: any) => [s.id, s]));
 
@@ -974,7 +1009,9 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const candidateDetailError = [skillsResult, portfolioResult, experienceResult, educationResult, certificationsResult, preferencesResult, preferredRolesResult, employmentTypesResult]
     .map((result: any) => result.error)
     .find(Boolean);
-  if (candidateDetailError) throw candidateDetailError;
+  if (candidateDetailError) {
+    throw new Error(extractErrorMessage(candidateDetailError, 'Unable to load candidate details.'));
+  }
 
   const profileRow: any = profileResult.data ?? {};
   // --- Sprint 1 media: legacy base64 -> Storage, then path -> signed URL. --
@@ -1575,7 +1612,7 @@ export function mapBackendError(error: unknown, fallback = 'Something went wrong
   // invalidated); this only fixes the copy on the toast the user sees first.
   // Keep this copy identical to the forced-logout message in App/authSession.
   if (isSessionInvalidError(error)) return 'Your session expired. Please sign in again.';
-  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const raw = errorSignalText(error) || extractErrorMessage(error, '');
   const token = raw.toUpperCase();
   for (const [code, message] of Object.entries(backendErrorMessages)) {
     if (token.includes(code)) return message;

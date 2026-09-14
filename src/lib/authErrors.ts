@@ -266,6 +266,30 @@ export function asPortalRoleMismatch(
 const UNASSIGNED_PORTAL_ROLE_PATTERN = /no jobs portal role is assigned/i;
 
 /**
+ * Extracts a human-readable message from any error shape (Error instance,
+ * Supabase PostgREST error object, AuthApiError, plain string, etc.).
+ * Always returns a non-empty string, falling back to `fallback`.
+ */
+export function extractErrorMessage(error: unknown, fallback: string): string {
+  if (!error) return fallback;
+  if (typeof error === 'string') {
+    const trimmed = error.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  }
+  if (error instanceof Error && typeof error.message === 'string' && error.message.trim()) {
+    return error.message.trim();
+  }
+  const signals = collectSignals(error);
+  if (signals.text && signals.text.trim()) {
+    // Prefer the first meaningful segment before any pipe separator.
+    const first = signals.text.split('|')[0]?.trim();
+    if (first) return first;
+    return signals.text.trim();
+  }
+  return fallback;
+}
+
+/**
  * True when the account has a valid session but no portal role row yet (e.g. it
  * was created by another Nexora app). Such a session must be cleared before the
  * user is invited to sign in through a Jobs portal, which assigns the role.
