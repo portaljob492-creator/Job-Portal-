@@ -56,10 +56,14 @@ const LEVEL_ORDER: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, erro
 
 function readEnv(name: string): string {
   try {
-    const viteEnv =
-      typeof import.meta !== 'undefined'
-        ? ((import.meta as unknown as { env?: Record<string, unknown> }).env ?? {})
-        : {};
+    // Only ever reference `import.meta.env` as a unit — never a bare
+    // `import.meta`. Vite statically replaces the whole `import.meta.env`
+    // expression (in the app build AND in the service-worker build), but a
+    // bare `import.meta` survives bundling, and the built service worker is
+    // registered as a CLASSIC script, where `import.meta` is a parse-time
+    // SyntaxError that fails SW evaluation for every user ("ServiceWorker
+    // script evaluation failed"). Keep this invariant if you touch this file.
+    const viteEnv = (import.meta as { env?: Record<string, unknown> }).env ?? {};
     const fromVite = viteEnv[name] ?? viteEnv[name.replace(/^LOG_/, 'VITE_LOG_')];
     if (typeof fromVite === 'string' && fromVite) return fromVite;
   } catch {

@@ -90,6 +90,25 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 /**
+ * PostgREST answers HTTP 404 with PGRST202 (missing function) / PGRST205
+ * (missing relation) when the live Supabase project is behind the app build's
+ * migrations — the exact shape of the production "job_applications / user_location
+ * 404 + applicantCards empty fallback" triad. Annotate those failures with the
+ * cause and the repair path. This never swallows or downgrades the error; it
+ * only makes the console record self-diagnosing.
+ */
+function schemaGapNote(error: unknown): string | undefined {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  if (code !== 'PGRST202' && code !== 'PGRST205') return undefined;
+  return (
+    `[schema gap] PostgREST 404 (${code}): ${code === 'PGRST202' ? 'function' : 'relation'} is not exposed by the live Supabase project — ` +
+    'its migrations are behind this app build. Run "npm run check:supabase" for the exact missing objects, then apply them ' +
+    '("supabase db push", or paste the named migration files into the SQL editor). No frontend redeploy is required; ' +
+    'PostgREST reloads its schema cache on migration.'
+  );
+}
+
+/**
  * Converts a role-rejection signal from `job_register_role` into a structured
  * `PortalRoleMismatchError` (so the UI can offer a portal switch + prefill),
  * or falls back to the raw error. `PORTAL_ROLE_MISMATCH:unassigned` means the
@@ -1014,7 +1033,12 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   ];
   for (const { name, result } of nonCritical) {
     if ((result as any)?.error) {
-      console.warn(`[loadWorkspace] non-critical ${name} failed, using empty fallback:`, (result as any).error);
+      const gapNote = schemaGapNote((result as any).error);
+      console.warn(
+        `[loadWorkspace] non-critical ${name} failed, using empty fallback:`,
+        (result as any).error,
+        ...(gapNote ? [gapNote] : []),
+      );
       // Patch result to empty so downstream mapping doesn't crash
       (result as any).data = [];
       (result as any).error = null;
@@ -1049,7 +1073,12 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   ];
   for (const { name, result } of candidateDetailResults) {
     if ((result as any)?.error) {
-      console.warn(`[loadWorkspace] non-critical candidate detail ${name} failed, using empty fallback:`, (result as any).error);
+      const gapNote = schemaGapNote((result as any).error);
+      console.warn(
+        `[loadWorkspace] non-critical candidate detail ${name} failed, using empty fallback:`,
+        (result as any).error,
+        ...(gapNote ? [gapNote] : []),
+      );
       (result as any).data = name === 'preferences' ? null : [];
       (result as any).error = null;
     }

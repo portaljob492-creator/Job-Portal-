@@ -374,6 +374,24 @@ assertCheck(
   clientFactories.map((source) => source.file).join(','),
 );
 
+// …and inside that factory, exactly ONE `createClient(...)` call site. Diagnostics
+// used to build a throwaway second client "to prove initialization", which makes
+// supabase-js log "Multiple GoTrueClient instances detected … under the same
+// storage key" on every page load (a second GoTrueClient under the same key
+// increments the instance counter and races the persisted PKCE session).
+{
+  const supaSrc = fs
+    .readFileSync(path.join(root, 'src/lib/supabase.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '') // strip block comments
+    .replace(/^\s*\/\/.*$/gm, ''); // strip line comments
+  const callSites = supaSrc.match(/(?<![.\w])createClient\s*\(/g) ?? [];
+  assertCheck(
+    'single GoTrueClient instance: one createClient call site in src/lib/supabase.ts',
+    callSites.length === 1,
+    `found ${callSites.length}`,
+  );
+}
+
 const authListeners = sources.filter((source) => /onAuthStateChange\s*\(/.test(source.text));
 assertCheck(
   'exactly one auth listener owner',

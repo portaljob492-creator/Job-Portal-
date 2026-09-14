@@ -173,6 +173,127 @@ if (client) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 5b. Live schema coverage — every Supabase object the frontend references must
+// exist in the project's EXPOSED schema. PostgREST answers a bare 404 (browser
+// console: "Failed to load resource: 404" + "[loadWorkspace] … empty fallback")
+// with PGRST202 (missing function) / PGRST205 (missing relation) when the live
+// project is behind the deployed app's migrations. That triad (job_applications,
+// user_location, applicantCards) is exactly this class of failure, so verify it
+// precisely instead of guessing.
+// ---------------------------------------------------------------------------
+console.log('\n' + '-'.repeat(65));
+console.log('  LIVE SCHEMA COVERAGE (404 triage)  ');
+console.log('-'.repeat(65));
+
+const srcDir = path.resolve(process.cwd(), 'src');
+const migrationsDir = path.resolve(process.cwd(), 'supabase', 'migrations');
+
+function walkTs(dir, files = []) {
+  if (!fs.existsSync(dir)) return files;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walkTs(full, files);
+    else if (/\.(ts|tsx)$/.test(entry.name)) files.push(full);
+  }
+  return files;
+}
+
+// Objects the production console flagged. Kept explicit so they are checked even
+// if call sites are refactored behind constants.
+const PRODUCTION_REPORTED = {
+  tables: ['job_applications'],
+  functions: [
+    'get_employer_job_applications', // applicantCards rpc (PGRST202 ⇒ 404)
+    'get_my_job_application_listings',
+    'sync_user_location', // location engine rpc (the "user_location" 404)
+    'clear_user_location',
+  ],
+};
+
+const referencedTables = new Set(PRODUCTION_REPORTED.tables);
+const referencedFunctions = new Set(PRODUCTION_REPORTED.functions);
+for (const file of walkTs(srcDir)) {
+  const text = fs.readFileSync(file, 'utf8');
+  for (const match of text.matchAll(/\.from\(\s*'([a-z0-9_]+)'/g)) referencedTables.add(match[1]);
+  for (const match of text.matchAll(/\.rpc\(\s*'([a-z0-9_]+)'/g)) referencedFunctions.add(match[1]);
+}
+// The location engine invokes its rpcs through constants, not string literals.
+for (const match of walkTs(path.join(srcDir, 'services'))
+  .map((f) => fs.readFileSync(f, 'utf8'))
+  .join('\n')
+  .matchAll(/_RPC = '([a-z0-9_]+)'/g)) {
+  referencedFunctions.add(match[1]);
+}
+
+// Which migration creates each object (for actionable output).
+const definingFile = new Map();
+if (fs.existsSync(migrationsDir)) {
+  for (const file of fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort()) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    for (const match of sql.matchAll(
+      /create\s+(?:or\s+replace\s+)?(?:table|view|materialized\s+view|function)(?:\s+if\s+not\s+exists)?\s+(?:public|auth)\.([a-z0-9_]+)/gi,
+    )) {
+      if (!definingFile.has(match[1])) definingFile.set(match[1], file);
+    }
+  }
+}
+
+const specUrl = `${supabaseUrl}/rest/v1/`;
+let exposedPaths = null;
+if (supabaseAnonKey && !isPlaceholder) {
+  try {
+    const specRes = await fetch(specUrl, {
+      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
+    });
+    if (specRes.ok) {
+      const spec = await specRes.json();
+      exposedPaths = new Set(Object.keys(spec.paths || {}));
+    } else {
+      console.log(`  [NOTE] Could not fetch the PostgREST OpenAPI spec (${specRes.status}) — schema coverage skipped.`);
+    }
+  } catch (e) {
+    console.log(`  [NOTE] Could not reach ${specUrl} (${e.message}) — schema coverage skipped.`);
+  }
+} else {
+  console.log('  [NOTE] No usable anon key — schema coverage skipped (checks need the publishable/anon key).');
+}
+
+if (exposedPaths) {
+  const missing = [];
+  for (const table of [...referencedTables].sort()) {
+    // Shared-platform tables like `profiles` legitimately come from another
+    // Nexora app's migrations; still flag if the live project lacks them.
+    if (!exposedPaths.has(`/${table}`)) missing.push({ kind: 'relation', name: table });
+  }
+  for (const fn of [...referencedFunctions].sort()) {
+    if (!exposedPaths.has(`/rpc/${fn}`)) missing.push({ kind: 'function', name: fn });
+  }
+  if (missing.length === 0) {
+    recordCheck(
+      'Live schema coverage (all app-referenced relations/rpcs exposed)',
+      true,
+      `${referencedTables.size} relations + ${referencedFunctions.size} functions verified against the OpenAPI spec`,
+    );
+  } else {
+    for (const item of missing) {
+      const mig = definingFile.get(item.name);
+      console.log(
+        `       -> missing ${item.kind} "${item.name}"${
+          mig
+            ? ` — created by ${path.join('supabase', 'migrations', mig)}; apply it (supabase db push or the SQL editor), then re-run this check`
+            : ` — no migration in this repo defines it (shared Nexora platform table? verify it exists in this project)`
+        }`,
+      );
+    }
+    recordCheck(
+      'Live schema coverage (all app-referenced relations/rpcs exposed)',
+      false,
+      `${missing.length} object(s) 404 in the live project — this is what shows in the browser console as "Failed to load resource: 404" for job_applications/user_location and as the applicantCards workspace fallback`,
+    );
+  }
+}
+
 // 6. Production Build Environment Verification
 console.log('\n' + '-'.repeat(65));
 console.log('  PRODUCTION BUILD BUNDLE VERIFICATION  ');

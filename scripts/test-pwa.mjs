@@ -40,6 +40,28 @@ const serviceWorker = read(swFile);
 assertCheck('safe public jobs runtime cache', serviceWorker.includes('public_job_listings') && serviceWorker.includes('nexora-public-jobs-v1'));
 assertCheck('no private workflow runtime cache', !serviceWorker.includes('job_applications') && !serviceWorker.includes('job_offers'));
 
+// The real production failure this guards against: vite-plugin-pwa registers the
+// worker with `type: 'classic'`, and any bare `import.meta` token (e.g. from a
+// shared module reading `import.meta.env` through a `typeof import.meta` guard)
+// survives the build and makes Chrome throw a parse-time SyntaxError —
+// "ServiceWorker script evaluation failed". Parsing the file as a classic
+// script body reproduces exactly what the browser does on registration.
+assertCheck(
+  'no bare import.meta tokens in the service worker bundle',
+  !/import\.meta/.test(serviceWorker),
+  'a bare import.meta is a SyntaxError in classic scripts; use `import.meta.env` directly so Vite can replace it',
+);
+let swClassicParse = true;
+let swClassicParseError = '';
+try {
+  // eslint-disable-next-line no-new-func
+  new Function(serviceWorker);
+} catch (error) {
+  swClassicParse = false;
+  swClassicParseError = error instanceof Error ? error.message : String(error);
+}
+assertCheck('service worker parses as a classic script (browser evaluation)', swClassicParse, swClassicParseError);
+
 const vercel = JSON.parse(read('vercel.json'));
 const serviceWorkerHeaders = vercel.headers?.find((entry) => entry.source === '/service-worker.js');
 assertCheck('service worker no-cache header', serviceWorkerHeaders?.headers?.some((header) => header.key === 'Cache-Control' && header.value.includes('must-revalidate')));
