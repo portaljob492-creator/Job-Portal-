@@ -262,8 +262,9 @@ export const EmployerProfileTab: React.FC<EmployerProfileTabProps> = ({
       });
       setIsEditOpen(false);
       triggerToast('Profile updated successfully');
-    } catch (error) {
-      setSaveError(mapBackendError(error, 'Unable to save the employer profile. Please retry.'));
+    } catch (err) {
+      console.error('PROFILE_SAVE_FAILED:', err);
+      setSaveError(mapBackendError(err, 'Unable to save the employer profile. Please retry.'));
     } finally {
       setIsSavingProfile(false);
     }

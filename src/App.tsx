@@ -1139,6 +1139,14 @@ export default function App() {
     }
 
     try {
+      // Refresh the cached Supabase session before the profile RPC so an
+      // expired/stale access token or user metadata cannot make a valid save
+      // look like a generic profile failure.
+      if (supabase) {
+        const { error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) throw refreshError;
+      }
+
       if (updatedProfile.role === 'employer') {
         try {
           await updateEmployerProfile(updatedProfile);
@@ -1167,7 +1175,10 @@ export default function App() {
       });
       const message = mapBackendError(error, 'Unable to save profile. Please retry.');
       setBackendError(message);
-      throw new Error(message);
+      // Preserve the original exception for the profile editor's temporary
+      // PROFILE_SAVE_FAILED diagnostic; the caller still maps it to a safe,
+      // generic message for the user-facing toast.
+      throw error;
     }
   };
 
