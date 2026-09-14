@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, Bell, Apple, Building2 } from 'lucide-react';
+import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowLeft, Bell, Building2 } from 'lucide-react';
 import type { UserRole } from '../../types';
 import {
   formatRetryCountdown,
@@ -314,40 +314,6 @@ export const JobSeekerSignupScreen: React.FC<JobSeekerSignupScreenProps> = ({
           </button>
         </form>
 
-        {/* Separator */}
-        <div className="my-6 flex items-center justify-center">
-          <div className="h-px bg-[#cbd5e1] flex-1" />
-          <span className="px-4 text-xs font-semibold text-[#475569] uppercase tracking-wider">Or</span>
-          <div className="h-px bg-[#cbd5e1] flex-1" />
-        </div>
-
-        {/* Social Buttons */}
-        <div className="flex flex-col gap-3">
-          <button
-            type="button"
-            disabled={isSubmitting || !onSocialSignup}
-            onClick={() => handleSocialSignup('google')}
-            className="w-full py-3 bg-white border border-[#cbd5e1] rounded-full flex items-center justify-center gap-3 text-[#0f172a] text-sm font-medium hover:bg-[#f8fafc] transition-colors active:scale-95 cursor-pointer"
-          >
-            <img
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRbDCIKGSzKAwLwg9STfs20v54KkKGSB9qroIJqrchZBktxb-HOmv1SuO6rSCuxXmdhd3ISGwjmykxVjNRKlFd5INc_5LQEJFQNv976AxWpCLvCXXbtZW3baq1OG4TOXhoRWd1yHx1yFYUMVuzis66Q8SK7Jehg5A4zWyxgu84lNRYX_LWUaXcjGOdPcjG4UD7dlMfnlGJnDg-zh7wkhbv2RegItvEiRVSvosJ2PWzKhZZYQlIbgbN"
-              alt="Google"
-              className="w-5 h-5 object-contain"
-              referrerPolicy="no-referrer"
-            />
-            <span>Continue with Google</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={isSubmitting || !onSocialSignup}
-            onClick={() => handleSocialSignup('apple')}
-            className="w-full py-3 bg-[#0f172a] text-white rounded-full flex items-center justify-center gap-3 text-sm font-medium hover:bg-[#1e293b] transition-colors active:scale-95 cursor-pointer"
-          >
-            <Apple className="w-5 h-5" />
-            <span>Continue with Apple</span>
-          </button>
-        </div>
 
         {/* Footer Link */}
         <div className="mt-8 text-center">

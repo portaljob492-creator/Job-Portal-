@@ -153,13 +153,11 @@ export class PasswordSignInBlockedError extends Error {
 
   constructor(details: { email: string; role: UserRole; reason: PasswordSignInBlockedReason; oauthOnly?: boolean }) {
     super(
-      details.oauthOnly
-        ? `This account was created via Google or Apple and has no password set. Please sign in using OAuth — you can set a password later from your account settings.`
-        : details.reason === 'unconfirmed'
-          ? 'Your account exists but its email address was never confirmed. Open the confirmation email we sent, or send a fresh one below.'
-          : details.reason === 'unassigned'
-            ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Use the same password or social sign-in method you used when creating it, then select the correct Jobs portal.'
-            : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Reset the password, or continue with Google/Apple if that is how the account was created.`,
+      details.reason === 'unconfirmed'
+        ? 'Your account exists but its email address was never confirmed. Open the confirmation email we sent, or send a fresh one below.'
+        : details.reason === 'unassigned'
+          ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Sign in with your password through the correct portal to link it.'
+          : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Please check your password or reset it using the link below.`,
     );
     this.name = 'PasswordSignInBlockedError';
     this.email = details.email;

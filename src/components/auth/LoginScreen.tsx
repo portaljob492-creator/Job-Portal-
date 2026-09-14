@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { UserRole } from '../../types';
-import { Eye, EyeOff, Sparkles, UserCheck, Building2, Apple, KeyRound, Mail, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, UserCheck, Building2, KeyRound, Mail, ShieldCheck } from 'lucide-react';
 import {
   asPortalRoleMismatch,
   formatRetryCountdown,
@@ -429,15 +429,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               </div>
             )}
 
-            {signInBlocked && (
-              <div role="alert" className={`rounded-xl border px-3.5 py-3 flex flex-col gap-2.5 ${
-                signInBlocked.oauthOnly
-                  ? 'border-indigo-200 bg-indigo-50'
-                  : 'border-amber-200 bg-amber-50'
-              }`}>
-                <p className={`text-xs font-medium leading-relaxed ${
-                  signInBlocked.oauthOnly ? 'text-indigo-900' : 'text-amber-900'
-                }`}>{signInBlocked.message}</p>
+                        {signInBlocked && (
+              <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 flex flex-col gap-2.5">
+                <p className="text-xs font-medium leading-relaxed text-amber-900">{signInBlocked.message}</p>
                 {signInBlocked.reason === 'unconfirmed' ? (
                   <>
                     <button
@@ -459,98 +453,51 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       </p>
                     )}
                   </>
-                ) : signInBlocked.oauthOnly ? (
-                <>
-                {/* OAuth-only: the server confirmed no password identity exists. */}
-                <p className="text-[11px] font-semibold text-indigo-800">
-                  This account was created via Google or Apple and has no password set.
-                  Please sign in using OAuth — you can set a password later from your account settings.
-                </p>
-                {onSocialLogin && (
-                  <div className="flex flex-col gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleSocialLogin('google')}
-                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-900 text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
-                    >
-                      Continue with Google
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSocialLogin('apple')}
-                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-900 text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
-                    >
-                      <Apple className="w-3.5 h-3.5" />
-                      Continue with Apple
-                    </button>
-                  </div>
-                )}
-                </>
                 ) : (
-                <>
-                {/* Inline password-reset: sends the email without navigating away. */}
-                {resetLink?.state === 'sent' ? (
-                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2.5 flex flex-col gap-1">
-                    <p className="text-[11px] font-bold text-emerald-800">
-                      ✓ Password reset link sent to {resetLink.email}
-                    </p>
-                    <p className="text-[11px] font-medium text-emerald-700">
-                      Check your inbox and spam folder. The link expires after 60 minutes.
-                    </p>
-                  </div>
-                ) : resetLink?.state === 'error' ? (
-                  <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 flex flex-col gap-1.5">
-                    <p className="text-[11px] font-bold text-rose-800">
-                      {resetLink.message || 'Unable to send the reset link.'}
-                    </p>
+                  <>
+                    {resetLink?.state === 'sent' ? (
+                      <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2.5 flex flex-col gap-1">
+                        <p className="text-[11px] font-bold text-emerald-800">
+                          ✓ Password reset link sent to {resetLink.email}
+                        </p>
+                        <p className="text-[11px] font-medium text-emerald-700">
+                          Check your inbox and spam folder. The link expires after 60 minutes.
+                        </p>
+                      </div>
+                    ) : resetLink?.state === 'error' ? (
+                      <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 flex flex-col gap-1.5">
+                        <p className="text-[11px] font-bold text-rose-800">
+                          {resetLink.message || 'Unable to send the reset link.'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleInlineReset}
+                          className="text-[11px] font-bold text-[#4f46e5] hover:text-[#7c3aed] transition-colors cursor-pointer underline underline-offset-2 self-start"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleInlineReset()}
+                        disabled={resetLink?.state === 'sending'}
+                        className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        {resetLink?.state === 'sending'
+                          ? 'Sending reset link…'
+                          : `Email a reset link to ${signInBlocked.email || 'my address'}`}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={handleInlineReset}
+                      onClick={handleResetPassword}
                       className="text-[11px] font-bold text-[#4f46e5] hover:text-[#7c3aed] transition-colors cursor-pointer underline underline-offset-2 self-start"
                     >
-                      Try again
+                      Go to Forgot Password page
                     </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void handleInlineReset()}
-                    disabled={resetLink?.state === 'sending'}
-                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-[#4f46e5] hover:bg-[#6d28d9] text-white text-xs font-bold py-2 px-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    <KeyRound className="w-3.5 h-3.5" />
-                    {resetLink?.state === 'sending'
-                      ? 'Sending reset link…'
-                      : `Email a reset link to ${signInBlocked.email || 'my address'}`}
-                  </button>
-                )}
-                {onSocialLogin && signInBlocked.reason !== 'unconfirmed' && (
-                  <>
-                    <p className="text-[11px] font-semibold text-amber-800">
-                      {signInBlocked.reason === 'wrong_password'
-                        ? 'This account may have been created via Google or Apple — those accounts have no password. Use the buttons below to sign in without one.'
-                        : 'Created the account with Google or Apple? Use the same button — those accounts have no password.'}
-                    </p>
-                    <div className="flex flex-col gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleSocialLogin('google')}
-                        className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
-                      >
-                        Continue with Google
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSocialLogin('apple')}
-                        className="w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold py-2 px-3 transition-colors cursor-pointer"
-                      >
-                        <Apple className="w-3.5 h-3.5" />
-                        Continue with Apple
-                      </button>
-                    </div>
                   </>
-                )}
-                </>
                 )}
               </div>
             )}
@@ -570,44 +517,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           </form>
         </div>
 
-        {/* Social Separator */}
-        <div className="flex items-center gap-3 px-2">
-          <div className="h-px bg-[#cbd5e1] flex-1" />
-          <span className="text-[11px] font-semibold text-[#475569] uppercase tracking-wider">
-            Or continue with
-          </span>
-          <div className="h-px bg-[#cbd5e1] flex-1" />
-        </div>
 
-        {/* Social Buttons */}
-        <div className="flex flex-col gap-2.5">
-          <button
-            type="button"
-            disabled={isLoading || !onSocialLogin}
-            onClick={() => handleSocialLogin('google')}
-            className="w-full bg-white disabled:opacity-50 text-[#0f172a] text-sm font-medium py-2.5 px-4 rounded-full border border-[#cbd5e1] hover:bg-[#f8fafc] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
-          >
-            <img
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRbDCIKGSzKAwLwg9STfs20v54KkKGSB9qroIJqrchZBktxb-HOmv1SuO6rSCuxXmdhd3ISGwjmykxVjNRKlFd5INc_5LQEJFQNv976AxWpCLvCXXbtZW3baq1OG4TOXhoRWd1yHx1yFYUMVuzis66Q8SK7Jehg5A4zWyxgu84lNRYX_LWUaXcjGOdPcjG4UD7dlMfnlGJnDg-zh7wkhbv2RegItvEiRVSvosJ2PWzKhZZYQlIbgbN"
-              alt="Google"
-              className="w-4 h-4 object-contain"
-              referrerPolicy="no-referrer"
-            />
-            <span>Continue with Google</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={isLoading || !onSocialLogin}
-            onClick={() => handleSocialLogin('apple')}
-            className="w-full bg-white disabled:opacity-50 text-[#0f172a] text-sm font-medium py-2.5 px-4 rounded-full border border-[#cbd5e1] hover:bg-[#f8fafc] transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer"
-          >
-            <Apple className="w-4 h-4" />
-            <span>Continue with Apple</span>
-          </button>
-        </div>
-
-        {/* Footer Link */}
+                {/* Footer Link */}
         <footer className="text-center mt-2">
           <p className="text-sm text-[#475569]">
             Don't have an account?{' '}
