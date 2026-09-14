@@ -6,6 +6,7 @@ import { PortfolioGallery } from '../profile/PortfolioGallery';
 import { BeautyNews } from './BeautyNews';
 import { SeekerProfileTab } from './SeekerProfileTab';
 import { ServicesGrid } from './ServicesGrid';
+import { mapBackendError } from '../../services/backend';
 import {
   Search,
   MapPin,
@@ -536,7 +537,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
         setShowApplyModal(false);
       }, 1800);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Unable to submit application. Please retry.');
+      showToast(mapBackendError(error, 'Unable to submit application. Please retry.'));
     } finally {
       setIsApplySubmitting(false);
     }
@@ -571,7 +572,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
         appliedDate: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to submit your application. Please retry.';
+      const message = mapBackendError(error, 'Unable to submit your application. Please retry.');
       if (/complete your.*profile|profile.*incomplete|PROFILE_INCOMPLETE/i.test(message)) {
         setProfileGateMessage('Please complete your candidate profile before applying.');
         setSelectedJob(null);
@@ -596,7 +597,7 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
       await onWithdrawApplication(application.id);
       showToast('Application withdrawn successfully.');
     } catch (error) {
-      setApplicationActionError(error instanceof Error ? error.message : 'Unable to withdraw this application. Please retry.');
+      setApplicationActionError(mapBackendError(error, 'Unable to withdraw this application. Please retry.'));
     } finally {
       setWithdrawingApplicationId(null);
     }
