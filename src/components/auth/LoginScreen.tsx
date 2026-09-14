@@ -114,7 +114,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setIsLoading(true);
 
     // Determine effective role: detected > prefill > activeRole
-    // If still unknown, try one immediate lookup for auto-login
+    // This is the core of auto-role: user never picks, we pick from email
     let effectiveRole: UserRole = detectedRole || activeRole;
     if (!detectedRole && onResolvePortalRole && isLikelyEmail(normalizeEmail(email))) {
       try {
@@ -130,19 +130,36 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
 
     try {
+      // First attempt with auto-detected role – backend will auto-switch again if needed
       await onLoginSuccess(effectiveRole, email, password);
     } catch (loginError) {
       const mismatch = asPortalRoleMismatch(loginError, effectiveRole, email);
       if (mismatch) {
-        // Backend still says different portal (admin case or race) – auto-correct UI
+        // Seeker/Employer mismatch: auto-retry immediately with correct role, no second tap
         if (mismatch.existingRole === 'seeker' || mismatch.existingRole === 'employer') {
           setDetectedRole(mismatch.existingRole);
           setActiveRole(mismatch.existingRole);
-          setError(`Auto-switching to ${portalRoleLabel(mismatch.existingRole)} portal. Please tap Login again.`);
+          try {
+            // Auto redirect to correct portal without asking user
+            await onLoginSuccess(mismatch.existingRole, email, password);
+            return;
+          } catch (retryError) {
+            const retryMismatch = asPortalRoleMismatch(retryError, mismatch.existingRole, email);
+            if (retryMismatch && retryMismatch.existingRole === 'admin') {
+              setRoleMismatch(retryMismatch);
+            } else if (isPasswordSignInBlockedError(retryError)) {
+              setSignInBlocked(retryError as PasswordSignInBlockedError);
+            } else if (isAuthRateLimitError(retryError)) {
+              setCooldown((retryError as any).retryAfterSeconds);
+              setError((retryError as Error).message);
+            } else {
+              setError(retryError instanceof Error ? retryError.message : 'Unable to sign in. Please try again.');
+            }
+          }
         } else {
+          // Admin case only – show switch card
           setRoleMismatch(mismatch);
         }
-        setError(null);
       } else if (isAuthRateLimitError(loginError)) {
         setCooldown(loginError.retryAfterSeconds);
         setError(loginError.message);
@@ -229,32 +246,42 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           <p className="text-sm text-[#475569]">Just enter your email & password — we’ll open your correct portal automatically.</p>
         </header>
 
-        {/* Auto-detect badge – replaces manual role tabs */}
-        <div className="bg-white rounded-xl border border-[#e2e8f0] px-3.5 py-2.5 flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-full bg-[#eef2ff] flex items-center justify-center flex-shrink-0">
+        {/* Auto-detect badge – replaces manual role tabs, shows instant role */}
+        <div className={`rounded-xl border px-3.5 py-2.5 flex items-center gap-2.5 transition-colors ${detectedRole ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-[#e2e8f0]'}`}>
+          <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${detectedRole ? 'bg-emerald-100' : 'bg-[#eef2ff]'}`}>
             {isDetecting ? (
               <span className="w-3.5 h-3.5 border-2 border-[#4f46e5] border-t-transparent rounded-full animate-spin" />
             ) : detectedRole === 'employer' ? (
-              <Building2 className="w-3.5 h-3.5 text-[#4f46e5]" />
+              <Building2 className={`w-3.5 h-3.5 ${detectedRole ? 'text-emerald-700' : 'text-[#4f46e5]'}`} />
             ) : detectedRole === 'seeker' ? (
-              <UserCheck className="w-3.5 h-3.5 text-[#4f46e5]" />
+              <UserCheck className={`w-3.5 h-3.5 ${detectedRole ? 'text-emerald-700' : 'text-[#4f46e5]'}`} />
             ) : (
               <ShieldCheck className="w-3.5 h-3.5 text-[#94a3b8]" />
             )}
           </div>
           <div className="flex-1 min-w-0">
             {isDetecting ? (
-              <p className="text-[11px] font-medium text-[#475569]">Checking your account…</p>
+              <p className="text-[11px] font-medium text-[#475569]">Checking your account type…</p>
             ) : detectedRole ? (
-              <p className="text-[11px] font-semibold text-[#0f172a]">
-                Detected: <span className="text-[#4f46e5]">{portalRoleLabel(detectedRole)}</span> account — auto login enabled
-              </p>
+              <>
+                <p className="text-[11px] font-bold text-emerald-800">
+                  ✓ {portalRoleLabel(detectedRole)} account detected
+                </p>
+                <p className="text-[10px] font-medium text-emerald-700 leading-tight">
+                  Login pe bina puche {portalRoleLabel(detectedRole)} dashboard pe redirect hoga
+                </p>
+              </>
             ) : email && isLikelyEmail(normalizeEmail(email)) ? (
-              <p className="text-[11px] font-medium text-[#475569]">New email? We’ll create your session in the right portal after signup.</p>
+              <p className="text-[11px] font-medium text-[#475569]">New email? First login pe role auto-assign hoga.</p>
             ) : (
-              <p className="text-[11px] font-medium text-[#475569]">No need to remember Job Seeker / Employer — we detect it from your email.</p>
+              <p className="text-[11px] font-medium text-[#475569]">Email daalo — Job Seeker / Employer auto-detect hoga, yaad rakhne ki zarurat nahi.</p>
             )}
           </div>
+          {detectedRole && (
+            <div className="text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-600 text-white">
+              AUTO
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-2xl shadow-[0_4px_16px_rgba(15,23,42,0.06)] border border-[#cbd5e1]/40 p-5 flex flex-col gap-4">
@@ -413,7 +440,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               aria-disabled={isLoading || cooldown > 0}
               className="w-full bg-[#7c3aed] disabled:opacity-60 text-white font-semibold text-base py-3 px-6 rounded-full mt-1 hover:bg-[#6d28d9] active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2 disabled:cursor-wait"
             >
-              <span>{isLoading ? 'Signing in…' : cooldown > 0 ? `Try again in ${formatRetryCountdown(cooldown)}` : 'Login'}</span>
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Signing in as {detectedRole ? portalRoleLabel(detectedRole) : portalRoleLabel(activeRole)}…
+                </span>
+              ) : cooldown > 0 ? (
+                <span>Try again in {formatRetryCountdown(cooldown)}</span>
+              ) : detectedRole ? (
+                <span className="flex items-center gap-1.5">
+                  {detectedRole === 'employer' ? <Building2 className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                  Continue to {portalRoleLabel(detectedRole)} Portal
+                </span>
+              ) : (
+                <span>Login</span>
+              )}
             </button>
           </form>
         </div>
