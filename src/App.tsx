@@ -3,6 +3,7 @@ import { ScreenState, UserRole, JobPosting, Application, Applicant, UserProfile,
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import {
   PortalRoleMismatchError,
+  extractErrorMessage,
   isActionableAuthScreenError,
   isPortalRoleMismatchError,
   isSessionInvalidError,
@@ -136,18 +137,83 @@ export default function App() {
   const hydrateWorkspace = useCallback(async (userId: string, expectedRole?: UserRole) => {
     if (!supabase) throw new Error('Supabase is not configured.');
     const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError) throw userError;
+    if (userError) {
+      throw new Error(extractErrorMessage(userError, 'Your session is no longer valid. Please sign in again.'));
+    }
     if (!userData.user || userData.user.id !== userId) throw new Error('Your session is no longer valid.');
 
-    const role = await getUserRole(userData.user);
-    if (expectedRole && role !== expectedRole) {
-      throw new PortalRoleMismatchError({
-        email: userData.user.email || '',
-        requestedRole: expectedRole,
-        existingRole: role,
-      });
+    let role: UserRole;
+    try {
+      role = await getUserRole(userData.user);
+    } catch (roleError) {
+      // Auto-heal missing role: if the account has no portal role row yet
+      // (e.g. created by another Nexora app, or signup trigger FK guard),
+      // try to assign the expected role (or the role from user_metadata, or
+      // seeker as last resort) via job_register_role which also ensures the
+      // shared profiles row. This turns a hard "Unable to validate your portal
+      // access" into a successful entry.
+      if (isUnassignedPortalRoleError(roleError)) {
+        const metaRole = (userData.user.user_metadata?.role as UserRole | undefined)
+          || (userData.user.user_metadata?.job_role === 'job_seeker' ? 'seeker' as UserRole : undefined)
+          || (userData.user.user_metadata?.job_role as UserRole | undefined);
+        const candidateRole = expectedRole || metaRole || 'seeker';
+        try {
+          const resolved = await authBackend.resolvePortalRole(candidateRole, userData.user.email || '');
+          role = resolved;
+        } catch {
+          // If auto-heal fails, surface the original unassigned error so the
+          // bootstrap can show the proper "No Jobs portal role" message and
+          // redirect to login with prefill.
+          throw roleError;
+        }
+      } else {
+        // Wrap raw Supabase PostgREST errors (plain objects) so the UI never
+        // falls back to the generic "Unable to validate your portal access."
+        const msg = extractErrorMessage(roleError, 'Unable to validate your portal access.');
+        throw new Error(msg);
+      }
     }
-    const workspace = await loadWorkspace(userData.user, role);
+
+    // --- AUTO-ROLE FIX ---
+    // User should not need to remember seeker vs employer.
+    // If the stored role is seeker/employer and the UI requested the other
+    // portal, automatically use the stored role instead of throwing.
+    // Only admin mismatches remain hard errors.
+    if (expectedRole && role !== expectedRole) {
+      const isSeekerEmployerMismatch =
+        (expectedRole === 'seeker' || expectedRole === 'employer') &&
+        (role === 'seeker' || role === 'employer');
+      if (!isSeekerEmployerMismatch) {
+        throw new PortalRoleMismatchError({
+          email: userData.user.email || '',
+          requestedRole: expectedRole,
+          existingRole: role,
+        });
+      }
+      // else: auto-correct – continue with the real role (role)
+    }
+
+    let workspace;
+    try {
+      workspace = await loadWorkspace(userData.user, role);
+    } catch (wsError) {
+      // Ensure workspace load failures also surface a real message, not the
+      // generic fallback, and handle ACCOUNT_INACTIVE by trying a profile heal.
+      const msg = mapBackendError(wsError, 'Unable to load your workspace. Please try again.');
+      // If the backend says the profile is missing/inactive, a single
+      // resolvePortalRole call heals it (see migration 20260913000900).
+      if (/ACCOUNT_INACTIVE|PROFILE_NOT_FOUND/i.test(extractErrorMessage(wsError, ''))) {
+        try {
+          await authBackend.resolvePortalRole(role, userData.user.email || '');
+          workspace = await loadWorkspace(userData.user, role);
+        } catch {
+          throw new Error(msg);
+        }
+      } else {
+        throw new Error(msg);
+      }
+    }
+
     setCurrentUserId(userId);
     setUserRole(role);
     setUserProfile(workspace.profile);
@@ -197,11 +263,15 @@ export default function App() {
 
     let active = true;
     let sessionEmail = '';
+    let bootstrapSession: import('@supabase/supabase-js').Session | null | undefined;
+    let bootstrapUser: import('@supabase/supabase-js').User | null | undefined;
     const bootstrap = async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
         if (!active) return;
+        bootstrapSession = data.session;
+        bootstrapUser = data.session?.user;
         sessionEmail = data.session?.user?.email ?? '';
 
         const queryParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -216,7 +286,7 @@ export default function App() {
           // means the link was already used or opened where the exchange could
           // not happen (another browser/device): send the user to sign in with
           // an explanation instead of a bare login form.
-          if (!data.session?.user) {
+          if (!bootstrapSession?.user) {
             setScreen('login');
             setBackendError(
               recoveryError
@@ -232,18 +302,18 @@ export default function App() {
           if (recoveryError) {
             setPasswordRecoveryState('invalid');
             setBackendError(decodeURIComponent(recoveryError.replace(/\+/g, ' ')));
-          } else if (data.session?.user) {
+          } else if (bootstrapSession?.user) {
             setPasswordRecoveryState('valid');
           } else {
             setPasswordRecoveryState('invalid');
           }
-        } else if (data.session?.user) {
-          const pendingRole = await applyPendingOAuthRole(data.session.user.id);
+        } else if (bootstrapSession?.user) {
+          const pendingRole = await applyPendingOAuthRole(bootstrapSession.user.id);
           // A role just resolved for a returning provider sign-in wins over the
           // role recorded in user metadata: it is what the backend granted.
           await enterAuthenticatedPortal(
-            data.session.user.id,
-            pendingRole ?? (data.session.user.user_metadata?.role as UserRole | undefined),
+            bootstrapSession.user.id,
+            pendingRole ?? (bootstrapSession.user.user_metadata?.role as UserRole | undefined),
           );
           if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
@@ -262,6 +332,7 @@ export default function App() {
         // An account with a valid session but no portal role row (e.g. created
         // by another Nexora app) must re-authenticate here to get one assigned.
         const unassignedRole = !roleMismatch && isUnassignedPortalRoleError(error);
+        const friendlyMessage = extractErrorMessage(error, 'Unable to validate your portal access.');
         if (sessionInvalid) {
           // Invalid/expired session: clear the unusable tokens once and route to login.
           reportSessionError(error);
@@ -270,6 +341,23 @@ export default function App() {
           // this device's tokens. Any other bootstrap failure (transient network
           // or RPC error) leaves the persisted session untouched so a retry can
           // still succeed, and an offline launch never destroys it.
+          // For unassigned roles, try one auto-heal using the pending route's
+          // required role before destroying the session – this fixes the case
+          // where a valid session exists but the role row was never created.
+          if (unassignedRole && bootstrapUser) {
+            const attemptedRole = pendingProtectedRoute.current?.requiredRole
+              || (bootstrapUser.user_metadata?.role as UserRole | undefined)
+              || 'seeker';
+            try {
+              await authBackend.resolvePortalRole(attemptedRole, bootstrapUser.email || sessionEmail);
+              if (active) {
+                await enterAuthenticatedPortal(bootstrapUser.id, attemptedRole);
+                return;
+              }
+            } catch {
+              // Heal failed – fall through to the sign-out path below.
+            }
+          }
           markUserInitiatedSignOut();
           await supabase.auth.signOut({ scope: 'local' });
         }
@@ -288,7 +376,7 @@ export default function App() {
               );
             }
             setScreen('login');
-            setBackendError(error instanceof Error ? error.message : 'Unable to validate your portal access.');
+            setBackendError(friendlyMessage);
           } else {
             setScreen(sessionInvalid ? 'login' : 'welcome');
             setBackendError(
@@ -296,7 +384,7 @@ export default function App() {
                 ? 'You are offline. The app shell and previously cached public content remain available; reconnect before making changes.'
                 : sessionInvalid
                   ? 'Your session expired. Please sign in again.'
-                  : (error instanceof Error ? error.message : 'Unable to validate your portal access.'),
+                  : friendlyMessage,
             );
           }
         }
@@ -471,7 +559,7 @@ export default function App() {
       }
     } catch (error) {
       if (isActionableAuthScreenError(error)) throw error;
-      setBackendError(error instanceof Error ? error.message : 'Unable to create seeker account.');
+      setBackendError(extractErrorMessage(error, 'Unable to create seeker account.'));
     }
   };
 
@@ -508,7 +596,7 @@ export default function App() {
       }
     } catch (error) {
       if (isActionableAuthScreenError(error)) throw error;
-      setBackendError(error instanceof Error ? error.message : 'Unable to create employer account.');
+      setBackendError(extractErrorMessage(error, 'Unable to create employer account.'));
     }
   };
 
@@ -536,7 +624,7 @@ export default function App() {
       // (switch portal, reset the password, re-send the confirmation). Swallowing
       // them here left the user with a sentence and nowhere to go.
       if (isActionableAuthScreenError(error)) throw error;
-      setBackendError(error instanceof Error ? error.message : 'Unable to sign in. Please try again.');
+      setBackendError(extractErrorMessage(error, 'Unable to sign in. Please try again.'));
     }
   };
 
@@ -1026,14 +1114,44 @@ export default function App() {
   const handleProfileUpdate = async (updatedProfile: UserProfile): Promise<void> => {
     if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
     setBackendError(null);
+    // Client-side validation to avoid server VALIDATION_ERROR
+    const trimmedName = updatedProfile.name?.trim() || '';
+    if (trimmedName.length < 2) {
+      const msg = 'Name must be at least 2 characters';
+      setBackendError(msg);
+      throw new Error(msg);
+    }
+    if (updatedProfile.role === 'employer') {
+      const biz = updatedProfile.businessName?.trim() || '';
+      const contact = (updatedProfile.contactPerson || updatedProfile.name || '').trim();
+      if (biz.length < 2) {
+        const msg = 'Business name must be at least 2 characters';
+        setBackendError(msg);
+        throw new Error(msg);
+      }
+      if (contact.length < 2) {
+        const msg = 'Contact person must be at least 2 characters';
+        setBackendError(msg);
+        throw new Error(msg);
+      }
+    }
+
     try {
       if (updatedProfile.role === 'employer') {
-        await updateEmployerProfile(updatedProfile);
+        try {
+          await updateEmployerProfile(updatedProfile);
+        } catch (empError) {
+          // If employer RPC fails due to missing salon, fallback to generic saveProfile which now auto-creates salon
+          const sig = (empError as any)?.message || '';
+          if (/SALON_ACCESS_DENIED|SALON_NOT_FOUND|PROFILE_NOT_FOUND/i.test(sig)) {
+            await saveProfile(currentUserId, updatedProfile);
+          } else {
+            throw empError;
+          }
+        }
       } else {
         await saveProfile(currentUserId, updatedProfile);
       }
-      // State follows the authoritative write; callers may show success or move
-      // to another screen only after this promise resolves.
       setUserProfile(updatedProfile);
     } catch (error) {
       const message = mapBackendError(error, 'Unable to save profile. Please retry.');
@@ -1051,8 +1169,20 @@ export default function App() {
       avatarPath: path,
     };
     try {
-      if (updatedProfile.role === 'employer') await updateEmployerProfile(updatedProfile);
-      else await saveProfile(currentUserId, updatedProfile);
+      if (updatedProfile.role === 'employer') {
+        try {
+          await updateEmployerProfile(updatedProfile);
+        } catch (e) {
+          const sig = (e as any)?.message || '';
+          if (/SALON_ACCESS_DENIED|SALON_NOT_FOUND|PROFILE_NOT_FOUND/i.test(sig)) {
+            await saveProfile(currentUserId, updatedProfile);
+          } else {
+            throw e;
+          }
+        }
+      } else {
+        await saveProfile(currentUserId, updatedProfile);
+      }
       if (path) {
         const resolved = await resolveStorageUrls(MEDIA_BUCKETS.profileMedia, [path]);
         setUserProfile({ ...updatedProfile, avatarUrl: resolved.get(path), avatarPath: path });
@@ -1126,7 +1256,7 @@ export default function App() {
     setIsLogoutModalOpen(false);
     if (currentUserId) {
       void authBackend.signOut().catch((error) =>
-        setBackendError(error instanceof Error ? error.message : 'Unable to sign out.'),
+        setBackendError(extractErrorMessage(error, 'Unable to sign out.')),
       );
     } else {
       setScreen('welcome');

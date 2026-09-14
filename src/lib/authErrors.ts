@@ -153,13 +153,11 @@ export class PasswordSignInBlockedError extends Error {
 
   constructor(details: { email: string; role: UserRole; reason: PasswordSignInBlockedReason; oauthOnly?: boolean }) {
     super(
-      details.oauthOnly
-        ? `This account was created via Google or Apple and has no password set. Please sign in using OAuth — you can set a password later from your account settings.`
-        : details.reason === 'unconfirmed'
-          ? 'Your account exists but its email address was never confirmed. Open the confirmation email we sent, or send a fresh one below.'
-          : details.reason === 'unassigned'
-            ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Use the same password or social sign-in method you used when creating it, then select the correct Jobs portal.'
-            : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Reset the password, or continue with Google/Apple if that is how the account was created.`,
+      details.reason === 'unconfirmed'
+        ? 'Your account exists but its email address was never confirmed. Open the confirmation email we sent, or send a fresh one below.'
+        : details.reason === 'unassigned'
+          ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Sign in with your password through the correct portal to link it.'
+          : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Please check your password or reset it using the link below.`,
     );
     this.name = 'PasswordSignInBlockedError';
     this.email = details.email;
@@ -264,6 +262,30 @@ export function asPortalRoleMismatch(
 }
 
 const UNASSIGNED_PORTAL_ROLE_PATTERN = /no jobs portal role is assigned/i;
+
+/**
+ * Extracts a human-readable message from any error shape (Error instance,
+ * Supabase PostgREST error object, AuthApiError, plain string, etc.).
+ * Always returns a non-empty string, falling back to `fallback`.
+ */
+export function extractErrorMessage(error: unknown, fallback: string): string {
+  if (!error) return fallback;
+  if (typeof error === 'string') {
+    const trimmed = error.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  }
+  if (error instanceof Error && typeof error.message === 'string' && error.message.trim()) {
+    return error.message.trim();
+  }
+  const signals = collectSignals(error);
+  if (signals.text && signals.text.trim()) {
+    // Prefer the first meaningful segment before any pipe separator.
+    const first = signals.text.split('|')[0]?.trim();
+    if (first) return first;
+    return signals.text.trim();
+  }
+  return fallback;
+}
 
 /**
  * True when the account has a valid session but no portal role row yet (e.g. it

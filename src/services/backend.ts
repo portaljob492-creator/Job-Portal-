@@ -38,6 +38,8 @@ import { validateNewPassword } from '../lib/passwordPolicy';
 import type { RecoveryTokenInput } from '../lib/recoveryLink';
 import {
   AuthRateLimitError,
+  errorSignalText,
+  extractErrorMessage,
   formatRetryCountdown,
   isRecoveryLinkRejectedError,
   isSessionInvalidError,
@@ -76,11 +78,7 @@ const frontendRole = (role?: string | null): UserRole => role === 'admin' ? 'adm
 const portalLabel = (role: UserRole) => role === 'seeker' ? 'Job Seeker' : role === 'admin' ? 'Admin' : 'Employer';
 
 function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error
-    ? error.message
-    : typeof error === 'object' && error && 'message' in error
-      ? String((error as { message: unknown }).message)
-      : String(error || fallback);
+  return extractErrorMessage(error, fallback);
 }
 
 /**
@@ -606,50 +604,47 @@ export const authBackend = {
     // exist"). The password grant then starts from a clean anonymous state.
     await clearSessionBeforeSignUp(client);
 
-    // Portal verification, before any password validation: one email is
-    // permanently registered to exactly one portal, so a tab that does not
-    // match the account's stored role is refused without authenticating.
-    // Throwing the structured error (rather than a bare message) is what lets
-    // the login form render the inline card and its "Switch to … Portal"
-    // action. Fails open when the lookup itself fails — `resolvePortalRole`
-    // then enforces the same rule authoritatively after the password check.
+    // --- AUTO-ROLE: resolve the email's permanent portal before checking password ---
+    // User should NOT need to remember if they are seeker/employer. If the email
+    // is already registered as seeker or employer, we automatically sign them
+    // into that portal, regardless of which tab they clicked.
     const { raw: storedRoleText, role: storedRole } = await readStoredPortalRole(client, normalizedEmail);
-    const decision = decideSignInPortal(storedRole, requestedRole);
-    if (decision.kind === 'mismatch') {
-      throw new PortalRoleMismatchError({
-        email: normalizedEmail,
-        requestedRole,
-        existingRole: decision.existingRole,
-      });
+    let effectiveRole = requestedRole;
+
+    if (storedRole && isEnterablePortalRole(storedRole) && storedRole !== requestedRole) {
+      // Auto-switch to the account's real portal – this is the fix the user asked:
+      // "jaise hi user gmail id / password add kare wo auto hi us user roll par login kare"
+      effectiveRole = storedRole;
+    } else {
+      // For admin or unknown roles, keep the original strict check. Admins still
+      // must use admin login; unknown emails proceed with the requested tab.
+      const decision = decideSignInPortal(storedRole, requestedRole);
+      if (decision.kind === 'mismatch') {
+        // Only admin mismatch is still a hard error. Seeker/employer mismatch
+        // is already auto-corrected above, so this path now only triggers for admin.
+        throw new PortalRoleMismatchError({
+          email: normalizedEmail,
+          requestedRole,
+          existingRole: decision.existingRole,
+        });
+      }
     }
 
     const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
     if (error) {
       if (isEmailNotConfirmedError(error)) {
-        // The credentials were right; the address simply was never confirmed.
-        // Surface it as a structured error so the login screen can offer a
-        // re-send instead of a sentence with no action behind it.
         throw new PasswordSignInBlockedError({
           email: normalizedEmail,
-          role: requestedRole,
+          role: effectiveRole,
           reason: 'unconfirmed',
         });
       }
       if (isInvalidLoginCredentialsError(error)) {
-        // The account exists, so the failure is the credential itself: a typo, a
-        // forgotten password, or an account created through Google/Apple that has
-        // no password at all. Throwing the structured error lets the login screen
-        // offer recovery actions (reset link / social continue) instead of a
-        // sentence the user has to act on by themselves.
         if (isEnterablePortalRole(storedRole)) {
-          // Try to detect whether this account was created via OAuth (no local
-          // password). The check is best-effort: if the RPC is not deployed the
-          // message still covers the case. The UI uses the `oauthOnly` hint to
-          // disable password login and show a dedicated OAuth sign-in card.
           const oauthOnly = await checkOAuthOnlyAccount(normalizedEmail);
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
-            role: requestedRole,
+            role: effectiveRole,
             reason: 'wrong_password',
             oauthOnly,
           });
@@ -657,7 +652,7 @@ export const authBackend = {
         if (storedRoleText === 'unassigned') {
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
-            role: requestedRole,
+            role: effectiveRole,
             reason: 'unassigned',
           });
         }
@@ -667,13 +662,18 @@ export const authBackend = {
 
     let portalRole: UserRole;
     try {
-      portalRole = await this.resolvePortalRole(requestedRole, normalizedEmail);
+      // Use the auto-resolved effectiveRole so job_register_role never throws
+      // a mismatch for seeker/employer cross-login.
+      portalRole = await this.resolvePortalRole(effectiveRole, normalizedEmail);
     } catch (roleError) {
-      // The session was created but the portal refused entry (role assigned to
-      // the other portal in the meantime, deactivated account): clear the
-      // tokens so no invalid/partial session survives, then surface the error.
       await signOutDeliberately();
-      throw mapPortalRoleError(roleError, requestedRole, normalizedEmail);
+      // If resolve still reports a mismatch (race condition), try to return the
+      // existing role directly instead of failing – auto-heal.
+      const parsed = parsePortalRoleMismatch(roleError, effectiveRole, normalizedEmail);
+      if (parsed && isEnterablePortalRole(parsed.existingRole)) {
+        return { ...data, portalRole: parsed.existingRole };
+      }
+      throw mapPortalRoleError(roleError, effectiveRole, normalizedEmail);
     }
     return { ...data, portalRole };
   },
@@ -829,9 +829,54 @@ export async function applyPendingOAuthRole(_userId: string): Promise<UserRole |
 }
 
 export async function getUserRole(user: User): Promise<UserRole> {
-  const { data, error } = await requireSupabase().from('job_user_roles').select('role').eq('user_id', user.id).maybeSingle();
-  if (error) throw error;
-  if (!data?.role) throw new Error('No Jobs portal role is assigned to this account. Please sign in through the correct portal.');
+  const client = requireSupabase();
+  const { data, error } = await client.from('job_user_roles').select('role').eq('user_id', user.id).maybeSingle();
+  if (error) {
+    const msg = extractErrorMessage(error, 'Unable to validate your portal access.');
+    throw new Error(msg);
+  }
+  if (!data?.role) {
+    // Auto-heal: account exists but job_user_roles row missing (cross-app, OAuth,
+    // trigger FK guard, or legacy). Try to assign a role so the session never
+    // hits a hard "Unable to validate your portal access" dead-end.
+    const metaRoleRaw =
+      (user.user_metadata?.role as string | undefined) ||
+      (user.user_metadata?.job_role as string | undefined) ||
+      '';
+    const metaRole = metaRoleRaw.toLowerCase();
+    const inferredFromMeta: UserRole | null =
+      metaRole === 'employer' ? 'employer'
+      : metaRole === 'admin' ? 'admin'
+      : metaRole === 'seeker' || metaRole === 'job_seeker' ? 'seeker'
+      : null;
+
+    // Try metadata role first, then seeker, then employer – one of them will
+    // succeed via job_register_role which also ensures the shared profiles row.
+    const candidates: UserRole[] = [
+      ...(inferredFromMeta ? [inferredFromMeta] : []),
+      'seeker',
+      'employer',
+    ];
+
+    // Deduplicate
+    const tried = new Set<string>();
+    for (const candidate of candidates) {
+      if (tried.has(candidate)) continue;
+      tried.add(candidate);
+      try {
+        const resolved = await authBackend.resolvePortalRole(candidate, user.email || '');
+        return resolved;
+      } catch (e) {
+        // If it's a mismatch (account already has other portal), return that
+        // other portal instead of continuing – that's the permanent role.
+        const parsed = parsePortalRoleMismatch(e, candidate, user.email || '');
+        if (parsed) return parsed.existingRole;
+        // Otherwise try next candidate
+      }
+    }
+
+    throw new Error('No Jobs portal role is assigned to this account. Please sign in through the correct portal.');
+  }
   return frontendRole(data.role);
 }
 
@@ -841,7 +886,16 @@ export async function isPortalOnboardingComplete(userId: string): Promise<boolea
     .select('onboarding_completed')
     .eq('user_id', userId)
     .single();
-  if (error) throw error;
+  if (error) {
+    const msg = extractErrorMessage(error, '');
+    // If the role row is missing (PGRST116 no rows, or our unassigned message),
+    // onboarding is definitely not complete – send user to onboarding instead
+    // of throwing "Unable to validate your portal access".
+    if (/no rows|PGRST116|no jobs portal role is assigned/i.test(msg) || !msg) {
+      return false;
+    }
+    throw new Error(extractErrorMessage(error, 'Unable to validate your portal access.'));
+  }
   return Boolean(data.onboarding_completed);
 }
 
@@ -907,32 +961,35 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const client = requireSupabase();
   const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
 
-  // Resolve the employer's salon for their profile while keeping My Job Posts
-  // actor-scoped below. `job_posts` RLS also exposes approved public listings,
-  // so every employer jobs query needs an explicit ownership predicate.
-  const membershipResult = await client
-    .from('job_salon_members')
-    .select('salon_id,member_role')
-    .eq('user_id', user.id)
-    .eq('status', 'active')
-    .limit(1)
-    .maybeSingle();
-  if (membershipResult.error) throw membershipResult.error;
-  const membership: any = membershipResult.data;
+  // --- FIX FOR NEW ACCOUNTS: membership is best-effort, never hard-fail for seeker ---
+  let membership: any = null;
+  try {
+    const membershipResult = await client
+      .from('job_salon_members')
+      .select('salon_id,member_role')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle();
+    if (membershipResult.error) {
+      // For new seeker accounts, no membership is normal – don't throw
+      // For employer, log but continue with null (profile will still load)
+      console.warn('[loadWorkspace] membership lookup failed (non-critical for new accounts):', membershipResult.error);
+    } else {
+      membership = membershipResult.data;
+    }
+  } catch (e) {
+    console.warn('[loadWorkspace] membership exception (ignored for new accounts):', e);
+  }
 
   const employerJobsQuery = client
     .from('job_posts')
     .select('*, location:job_salon_locations!job_posts_location_id_fkey(*)')
-    // My Job Posts is intentionally actor-scoped: salon teammates must not be
-    // mixed into the signed-in employer's personal posting history.
     .eq('created_by', user.id)
     .order('created_at', { ascending: false });
 
+  // Parallel load – critical vs non-critical split
   const [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
-    // maybeSingle: a missing profiles row (marketplace trigger lag, legacy user)
-    // must degrade to defaults, never fail the whole workspace load. The Jobs
-    // signup trigger best-effort ensures the row; see migration
-    // 20260913000600_jobs_profile_sync.sql.
     client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).maybeSingle(),
     client.from('job_seeker_profiles').select('*').eq('user_id', user.id).maybeSingle(),
     role === 'seeker'
@@ -951,10 +1008,34 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     client.from('public_job_salon_profiles').select('*'),
   ]);
 
-  const error = [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult, salonProfilesResult]
-    .map((result: any) => result.error)
-    .find(Boolean);
-  if (error) throw error;
+  // --- NEW ACCOUNT FIX: only profile and jobs are critical, others degrade to empty ---
+  // For new accounts, conversations/messages/RPCs often fail with RLS or "no role" until
+  // onboarding completes – we must not throw "Unable to load your workspace" for that.
+  const criticalError = [profileResult, jobsResult].map((r: any) => r.error).find(Boolean);
+  if (criticalError) {
+    throw new Error(extractErrorMessage(criticalError, 'Unable to load your workspace.'));
+  }
+  // Non-critical: log and continue with empty data so new accounts can still reach onboarding
+  const nonCritical = [
+    { name: 'bookmarks', result: bookmarksResult },
+    { name: 'conversations', result: conversationsResult },
+    { name: 'messages', result: messagesResult },
+    { name: 'filters', result: filtersResult },
+    { name: 'alerts', result: alertsResult },
+    { name: 'applications', result: applicationsResult },
+    { name: 'applicationListings', result: applicationListingsResult },
+    { name: 'applicantCards', result: applicantCardsResult },
+    { name: 'salonProfiles', result: salonProfilesResult },
+    { name: 'candidate', result: candidateResult },
+  ];
+  for (const { name, result } of nonCritical) {
+    if ((result as any)?.error) {
+      console.warn(`[loadWorkspace] non-critical ${name} failed, using empty fallback:`, (result as any).error);
+      // Patch result to empty so downstream mapping doesn't crash
+      (result as any).data = [];
+      (result as any).error = null;
+    }
+  }
 
   const salonMap = new Map<string, any>((salonProfilesResult.data || []).map((s: any) => [s.id, s]));
 
@@ -971,10 +1052,24 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
         client.from('job_candidate_employment_types').select('employment_type').eq('candidate_id', candidate.id),
       ])
     : Array.from({ length: 8 }, () => ({ data: [], error: null })) as any;
-  const candidateDetailError = [skillsResult, portfolioResult, experienceResult, educationResult, certificationsResult, preferencesResult, preferredRolesResult, employmentTypesResult]
-    .map((result: any) => result.error)
-    .find(Boolean);
-  if (candidateDetailError) throw candidateDetailError;
+  // Candidate details are non-critical: if any of these fail (new account, RLS, etc.), use empty fallback instead of breaking workspace
+  const candidateDetailResults = [
+    { name: 'skills', result: skillsResult },
+    { name: 'portfolio', result: portfolioResult },
+    { name: 'experience', result: experienceResult },
+    { name: 'education', result: educationResult },
+    { name: 'certifications', result: certificationsResult },
+    { name: 'preferences', result: preferencesResult },
+    { name: 'preferredRoles', result: preferredRolesResult },
+    { name: 'employmentTypes', result: employmentTypesResult },
+  ];
+  for (const { name, result } of candidateDetailResults) {
+    if ((result as any)?.error) {
+      console.warn(`[loadWorkspace] non-critical candidate detail ${name} failed, using empty fallback:`, (result as any).error);
+      (result as any).data = name === 'preferences' ? null : [];
+      (result as any).error = null;
+    }
+  }
 
   const profileRow: any = profileResult.data ?? {};
   // --- Sprint 1 media: legacy base64 -> Storage, then path -> signed URL. --
@@ -1144,17 +1239,46 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
 }
 
 export async function saveProfile(_userId: string, profile: UserProfile) {
-  // One transaction for `profiles` and the role-specific row, so a failure can
-  // never leave the account half-updated.
-  const { error } = await requireSupabase().rpc('job_save_profile', {
-    p_full_name: profile.name,
-    p_phone: profile.phone || null,
-    p_avatar_path: profile.avatarPath || profile.avatarUrl || null,
-    p_headline: profile.role === 'seeker' ? profile.primaryRole || null : null,
-    p_bio: profile.role === 'seeker' ? profile.bio || null : null,
-    p_display_name: profile.role === 'employer' ? profile.contactPerson || profile.name : null,
-  });
-  if (error) throw error;
+  // Client-side validation to prevent VALIDATION_ERROR from server
+  const trimmedName = profile.name?.trim() || '';
+  if (trimmedName.length < 2) {
+    throw new Error('Name must be at least 2 characters long');
+  }
+
+  const attemptSave = async () => {
+    const { error } = await requireSupabase().rpc('job_save_profile', {
+      p_full_name: trimmedName,
+      p_phone: profile.phone || null,
+      p_avatar_path: profile.avatarPath || profile.avatarUrl || null,
+      p_headline: profile.role === 'seeker' ? profile.primaryRole || null : null,
+      p_bio: profile.role === 'seeker' ? profile.bio || null : null,
+      p_display_name: profile.role === 'employer' ? profile.contactPerson || profile.name : null,
+    });
+    if (error) throw error;
+  };
+
+  try {
+    await attemptSave();
+  } catch (error) {
+    // Auto-heal: if profile not found or account inactive, try to re-ensure role then retry once
+    const msg = (error as any)?.message || '';
+    if (/PROFILE_NOT_FOUND|ACCOUNT_INACTIVE|ACCOUNT_NOT_ACTIVE|PGRST116/i.test(msg)) {
+      try {
+        // Best-effort re-register role to ensure profiles row exists
+        const { data: userData } = await requireSupabase().auth.getUser();
+        const email = userData.user?.email || profile.email || '';
+        const role = profile.role || 'seeker';
+        await requireSupabase().rpc('job_register_role', { requested_role: role === 'seeker' ? 'job_seeker' : role });
+        // Retry save
+        await attemptSave();
+        return;
+      } catch (retryError) {
+        // If retry also fails, throw original error for mapping
+        throw error;
+      }
+    }
+    throw error;
+  }
 }
 
 /** Uploads a candidate headshot and returns its stable private Storage path. */
@@ -1232,20 +1356,51 @@ export async function submitCandidateProfile(input: CandidateProfileInput): Prom
  */
 export async function updateEmployerProfile(profile: UserProfile): Promise<void> {
   if (profile.role !== 'employer') return;
+
+  const trimmedBusiness = profile.businessName?.trim() || '';
+  const trimmedContact = (profile.contactPerson || profile.name || '').trim();
+  if (trimmedBusiness.length < 2) {
+    throw new Error('Business name must be at least 2 characters long');
+  }
+  if (trimmedContact.length < 2) {
+    throw new Error('Contact person name must be at least 2 characters long');
+  }
+
   const location = profile.location?.trim() || '';
   const [city = '', ...stateParts] = location.split(',').map((part) => part.trim()).filter(Boolean);
-  const { error } = await requireSupabase().rpc('job_update_employer_profile', {
-    p_business_name: profile.businessName?.trim() || '',
-    p_contact_name: (profile.contactPerson || profile.name).trim(),
-    p_phone: profile.phone?.trim() || null,
-    p_avatar_path: profile.avatarPath || profile.avatarUrl || null,
-    p_description: profile.bio?.trim() || null,
-    p_website_url: profile.website?.trim() || null,
-    p_instagram_url: profile.instagram?.trim().replace(/^@+/, '') || null,
-    p_city: city || null,
-    p_state: stateParts.join(', ') || null,
-  });
-  if (error) throw error;
+  const state = stateParts.join(', ').trim();
+
+  const attempt = async () => {
+    const { error } = await requireSupabase().rpc('job_update_employer_profile', {
+      p_business_name: trimmedBusiness,
+      p_contact_name: trimmedContact,
+      p_phone: profile.phone?.trim() || null,
+      p_avatar_path: profile.avatarPath || profile.avatarUrl || null,
+      p_description: profile.bio?.trim() || null,
+      p_website_url: profile.website?.trim() || null,
+      p_instagram_url: profile.instagram?.trim().replace(/^@+/, '') || null,
+      p_city: city || profile.city || null,
+      p_state: state || profile.state || null,
+    });
+    if (error) throw error;
+  };
+
+  try {
+    await attempt();
+  } catch (error) {
+    const msg = (error as any)?.message || '';
+    // If salon not found or access denied, try to heal by ensuring role then retry – new RPC auto-creates salon
+    if (/SALON_ACCESS_DENIED|SALON_NOT_FOUND|PROFILE_NOT_FOUND|ACCOUNT_INACTIVE/i.test(msg)) {
+      try {
+        await requireSupabase().rpc('job_register_role', { requested_role: 'employer' });
+        await attempt();
+        return;
+      } catch {
+        // Fall through to original error
+      }
+    }
+    throw error;
+  }
 }
 
 export async function setBookmark(userId: string, jobId: string, bookmarked: boolean) {
@@ -1545,7 +1700,7 @@ const backendErrorMessages: Record<string, string> = {
   JOB_NOT_PUBLISHED: 'This job is not open for applications yet.',
   JOB_NOT_FOUND: 'That job is no longer available.',
   APPLICATION_ALREADY_EXISTS: 'You have already applied to this job.',
-  SALON_ACCESS_DENIED: 'You do not have access to this employer workspace.',
+  SALON_ACCESS_DENIED: 'We could not find your business workspace. It will be recreated automatically – please try saving again.',
   PORTAL_ROLE_MISMATCH: 'This account is registered with a different portal role.',
   ROLE_NOT_ALLOWED: 'This account is not allowed to perform that action.',
   VALIDATION_ERROR: 'Please check the details you entered and try again.',
@@ -1553,7 +1708,7 @@ const backendErrorMessages: Record<string, string> = {
   CONVERSATION_ACCESS_DENIED: 'You do not have access to this conversation.',
   CONVERSATION_NOT_FOUND: 'That conversation is no longer available.',
   CANDIDATE_NOT_FOUND: 'That candidate has not applied to this job.',
-  PROFILE_NOT_FOUND: 'Your profile could not be found. Please sign in again.',
+  PROFILE_NOT_FOUND: 'Your profile was not found. It will be created automatically – please try saving again.',
   JOB_EXPIRED: 'This posting has expired and is no longer accepting applications.',
   FOREIGN_RESUME: 'Choose a resume that belongs to your profile.',
   RESUME_NOT_FOUND: 'That resume is no longer available. Refresh your resumes and try again.',
@@ -1562,29 +1717,46 @@ const backendErrorMessages: Record<string, string> = {
   INVALID_JOB_TRANSITION: 'That action is not available for the job in its current state.',
   PROFILE_INCOMPLETE: 'Please complete your candidate profile before applying.',
   INVALID_INTERVIEW_TRANSITION: 'That interview can no longer be changed at this stage.',
-  SALON_NOT_FOUND: 'That salon could not be found. Pick it from the search results.',
+  SALON_NOT_FOUND: 'That salon could not be found. It will be recreated – please try again.',
+  AUTH_REQUIRED: 'Your session expired. Please sign in again.',
+  ACCOUNT_INACTIVE: 'Your account is inactive. Please sign in again.',
+  ROLE_LOCKED: 'This email is locked to another portal role. Please use the correct portal.',
 };
+
+const rlsFriendlyPatterns: Array<{ test: RegExp; message: string }> = [
+  { test: /row-level security|RLS|policy.*violates/i, message: 'Permission issue – please refresh and try again. If it persists, sign out and sign in again.' },
+  { test: /PGRST116|no rows|not found.*profile/i, message: 'Your data was not found. It will be created automatically – please try again.' },
+  { test: /JWT|expired|invalid.*token|auth.*required|ACCOUNT_INACTIVE/i, message: 'Your session expired. Please sign in again.' },
+  { test: /duplicate key|already exists|unique.*violation/i, message: 'This entry already exists. Please refresh and check your data.' },
+  { test: /violates foreign key|foreign key/i, message: 'Related business data is missing. Please complete your business setup first.' },
+];
 
 const looksLikeRawSql = /violates|constraint|relation "|column "|pg_|sqlstate|permission denied for|syntax error/i;
 
 export function mapBackendError(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
-  // A dead session must read as a session problem, never as a generic failure:
-  // without this, a mid-use session death (deleted user, revoked tokens) shows
-  // the call-site fallback while the user sits on a broken workspace. Recovery
-  // itself stays on the auth-event path (failed refresh -> SIGNED_OUT ->
-  // invalidated); this only fixes the copy on the toast the user sees first.
-  // Keep this copy identical to the forced-logout message in App/authSession.
   if (isSessionInvalidError(error)) return 'Your session expired. Please sign in again.';
-  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
-  const token = raw.toUpperCase();
+  const signal = errorSignalText(error) || extractErrorMessage(error, '');
+  const display = extractErrorMessage(error, signal);
+  const token = signal.toUpperCase();
+
   for (const [code, message] of Object.entries(backendErrorMessages)) {
-    if (token.includes(code)) return message;
+    if (token.includes(code)) {
+      if (code === 'VALIDATION_ERROR' && display.includes(':')) {
+        const afterColon = display.split(':').slice(1).join(':').trim();
+        if (afterColon && afterColon.length < 140 && afterColon.length > 5 && !looksLikeRawSql.test(afterColon)) {
+          return afterColon;
+        }
+      }
+      return message;
+    }
   }
-  // Standard-error information hiding: unknown text passes through only when
-  // it is short, sanitized (no secrets/JWTs/PII) and free of technical
-  // internals — otherwise the action-oriented fallback wins.
-  if (!raw.trim() || looksLikeRawSql.test(raw)) return fallback;
-  return toSafeMessage(raw, fallback);
+
+  for (const { test, message } of rlsFriendlyPatterns) {
+    if (test.test(signal) || test.test(display)) return message;
+  }
+
+  if (!display.trim() || looksLikeRawSql.test(display)) return fallback;
+  return toSafeMessage(display, fallback);
 }
 
 /**

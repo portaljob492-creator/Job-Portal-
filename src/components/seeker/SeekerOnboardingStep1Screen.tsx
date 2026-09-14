@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Camera, Edit2, FileText, Upload } from 'lucide-react';
 import { assertImageFile, assertResumeFile } from '../../lib/storageMedia';
+import { mapBackendError } from '../../services/backend';
 
 export interface SeekerOnboardingPersonalData {
   fullName: string;
@@ -80,20 +81,37 @@ export const SeekerOnboardingStep1Screen: React.FC<SeekerOnboardingStep1ScreenPr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
+    const trimmedName = fullName.trim();
+    if (trimmedName.length < 2) {
+      setSaveError('Full name must be at least 2 characters');
+      return;
+    }
+    if (mobile.trim().length < 8) {
+      setSaveError('Please enter a valid mobile number');
+      return;
+    }
+    if (city.trim().length < 2) {
+      setSaveError('City must be at least 2 characters');
+      return;
+    }
+    if (state.trim().length < 2) {
+      setSaveError('State must be at least 2 characters');
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
       await onNext({
-        fullName,
+        fullName: trimmedName,
         email,
-        mobile,
-        city,
-        state,
+        mobile: mobile.trim(),
+        city: city.trim(),
+        state: state.trim(),
         avatarFile,
         resumeFile,
       });
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Unable to save these details. Please retry.');
+      setSaveError(mapBackendError(error, 'Unable to save these details. Please retry.'));
     } finally {
       setIsSaving(false);
     }

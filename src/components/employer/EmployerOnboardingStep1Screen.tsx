@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, ImagePlus, ChevronDown, MapPin, Globe } from 'lucide-react';
+import { mapBackendError } from '../../services/backend';
 
 export interface EmployerBusinessSetupData {
   businessName: string;
@@ -39,23 +40,53 @@ export const EmployerOnboardingStep1Screen: React.FC<EmployerOnboardingStep1Scre
 
   const handleContinue = async () => {
     if (isSaving) return;
+    // Client-side validation before hitting backend – prevents VALIDATION_ERROR
+    const trimmedBusiness = businessName.trim();
+    const trimmedContact = contactName.trim();
+    const trimmedAddress = address.trim();
+    const trimmedCity = city.trim();
+    const trimmedState = state.trim();
+    if (trimmedBusiness.length < 2) {
+      setSaveError('Business name must be at least 2 characters');
+      return;
+    }
+    if (trimmedContact.length < 2) {
+      setSaveError('Contact name must be at least 2 characters');
+      return;
+    }
+    if (trimmedAddress.length < 5) {
+      setSaveError('Please enter a full street address (at least 5 characters)');
+      return;
+    }
+    if (trimmedCity.length < 2) {
+      setSaveError('City must be at least 2 characters');
+      return;
+    }
+    if (trimmedState.length < 2) {
+      setSaveError('State must be at least 2 characters');
+      return;
+    }
+    if (!businessType) {
+      setSaveError('Please select a business type from the 12 services');
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
       await onContinue({
-        businessName,
-        contactName,
-        address,
-        city,
-        state,
-        postalCode: zip,
+        businessName: trimmedBusiness,
+        contactName: trimmedContact,
+        address: trimmedAddress,
+        city: trimmedCity,
+        state: trimmedState,
+        postalCode: zip.trim(),
         businessType,
-        description,
-        website,
-        instagram,
+        description: description.trim(),
+        website: website.trim(),
+        instagram: instagram.trim().replace(/^@+/, ''),
       });
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Unable to save the business details. Please retry.');
+      setSaveError(mapBackendError(error, 'Unable to save the business details. Please retry.'));
     } finally {
       setIsSaving(false);
     }
@@ -130,14 +161,22 @@ export const EmployerOnboardingStep1Screen: React.FC<EmployerOnboardingStep1Scre
                   className="bg-white border border-[#e2e8f0] focus:border-[#7c3aed] focus:ring-1 focus:ring-[#7c3aed] rounded-lg py-3 px-4 text-base w-full transition-all outline-none appearance-none cursor-pointer pr-10"
                 >
                   <option disabled value="">Select a business type</option>
-                  <option value="salon">Hair Salon</option>
-                  <option value="spa">Day Spa</option>
-                  <option value="barbershop">Barbershop</option>
+                  <option value="hair_cut">Hair Cut</option>
+                  <option value="barber">Barber</option>
+                  <option value="unisex">Unisex</option>
+                  <option value="salon">Salon</option>
+                  <option value="beauty">Beauty</option>
                   <option value="nail_studio">Nail Studio</option>
-                  <option value="aesthetic">Aesthetics Clinic</option>
+                  <option value="hair_spa">Hair Spa</option>
+                  <option value="facial">Facial</option>
+                  <option value="makeup">Makeup</option>
+                  <option value="massage">Massage</option>
+                  <option value="hair_coloring">Hair Coloring</option>
+                  <option value="bridal_makeup">Bridal Makeup</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-[#475569] w-5 h-5 pointer-events-none" />
               </div>
+              <p className="text-[11px] text-[#64748b]">12 services available — choose your primary service</p>
             </div>
             <div className="flex flex-col space-y-2">
               <label className="text-[13px] font-semibold text-[#0f172a]">Business Description</label>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { mapBackendError } from '../../services/backend';
 
 interface SeekerOnboardingStep2ScreenProps {
   initialRoles?: string[];
@@ -42,12 +43,16 @@ export const SeekerOnboardingStep2Screen: React.FC<SeekerOnboardingStep2ScreenPr
 
   const handleContinue = async () => {
     if (isSaving || selectedRoles.length === 0) return;
+    if (selectedRoles.length === 0) {
+      setSaveError('Please select at least one role');
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
       await onNext(selectedRoles);
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Unable to save your roles. Please retry.');
+      setSaveError(mapBackendError(error, 'Unable to save your roles. Please retry.'));
     } finally {
       setIsSaving(false);
     }

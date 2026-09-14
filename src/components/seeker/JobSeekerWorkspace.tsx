@@ -5,6 +5,7 @@ import { MessagingCenter } from '../messaging/MessagingCenter';
 import { PortfolioGallery } from '../profile/PortfolioGallery';
 import { BeautyNews } from './BeautyNews';
 import { SeekerProfileTab } from './SeekerProfileTab';
+import { ServicesGrid } from './ServicesGrid';
 import {
   Search,
   MapPin,
@@ -843,6 +844,13 @@ export const JobSeekerWorkspace: React.FC<JobSeekerWorkspaceProps> = ({
         {activeTab === 'feed' && (
           <div className="flex flex-col gap-6">
             <BeautyNews />
+            {/* 12 Services Cards – requested by user */}
+            <ServicesGrid
+              onSelectService={(title) => {
+                setSearchQuery(title);
+                showToast(`Filtered by service: ${title}`);
+              }}
+            />
             {/* Real-Time Job Match Push Alert Banner */}
             {unreadAlertsCount > 0 && (
               <div className="bg-gradient-to-r from-[#4f46e5] via-[#5b21b6] to-[#7c3aed] text-white rounded-2xl p-4 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-white/20">
