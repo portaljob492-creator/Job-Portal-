@@ -1612,16 +1612,19 @@ export function mapBackendError(error: unknown, fallback = 'Something went wrong
   // invalidated); this only fixes the copy on the toast the user sees first.
   // Keep this copy identical to the forced-logout message in App/authSession.
   if (isSessionInvalidError(error)) return 'Your session expired. Please sign in again.';
-  const raw = errorSignalText(error) || extractErrorMessage(error, '');
-  const token = raw.toUpperCase();
+  // Full signal for code detection (includes all fields joined by ' | '), clean
+  // message for user-facing display (first segment, no pipe noise).
+  const signal = errorSignalText(error) || extractErrorMessage(error, '');
+  const display = extractErrorMessage(error, signal);
+  const token = signal.toUpperCase();
   for (const [code, message] of Object.entries(backendErrorMessages)) {
     if (token.includes(code)) return message;
   }
   // Standard-error information hiding: unknown text passes through only when
   // it is short, sanitized (no secrets/JWTs/PII) and free of technical
   // internals — otherwise the action-oriented fallback wins.
-  if (!raw.trim() || looksLikeRawSql.test(raw)) return fallback;
-  return toSafeMessage(raw, fallback);
+  if (!display.trim() || looksLikeRawSql.test(display)) return fallback;
+  return toSafeMessage(display, fallback);
 }
 
 /**
