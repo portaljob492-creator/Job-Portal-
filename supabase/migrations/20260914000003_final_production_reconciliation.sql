@@ -1100,45 +1100,186 @@ do $$ begin
   end if;
 end $$;
 
-do $$
+create or replace function public.job_update_employer_profile(
+  p_business_name text,
+  p_contact_name text,
+  p_phone text default null,
+  p_avatar_path text default null,
+  p_description text default null,
+  p_website_url text default null,
+  p_instagram_url text default null,
+  p_city text default null,
+  p_state text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+declare
+  actor uuid := (select auth.uid());
+  salon_uuid uuid;
+  org_uuid uuid;
+  existing_owner uuid;
+  ensured_role text;
+  ensured_business text := trim(coalesce(p_business_name, ''));
+  ensured_contact text := trim(coalesce(p_contact_name, ''));
+  ensured_city text := nullif(trim(coalesce(p_city, '')), '');
+  ensured_state text := nullif(trim(coalesce(p_state, '')), '');
+  ensured_website text := nullif(trim(coalesce(p_website_url, '')), '');
+  ensured_instagram text := nullif(trim(coalesce(p_instagram_url, '')), '');
+  salon_slug text;
 begin
-  if to_regprocedure('public.job_update_employer_profile(text,text,text,text,text,text,text,text,text)') is null then
-    execute $ddl$
-      create function public.job_update_employer_profile(
-        p_business_name text, p_contact_name text, p_phone text default null,
-        p_avatar_path text default null, p_description text default null,
-        p_website_url text default null, p_instagram_url text default null,
-        p_city text default null, p_state text default null)
-      returns void language plpgsql security definer set search_path = '' as $fn$
-      declare actor uuid := public.job_assert_authenticated(); salon_uuid uuid;
-      begin
-        if public.job_current_role() <> 'employer'
-          or char_length(trim(coalesce(p_business_name, ''))) < 2
-          or char_length(trim(coalesce(p_contact_name, ''))) < 2 then
-          raise exception using errcode = '22023', message = 'VALIDATION_ERROR';
-        end if;
-        select m.salon_id into salon_uuid from public.job_salon_members m
-        where m.user_id = actor and m.status = 'active'
-        order by case m.member_role when 'owner' then 0 when 'manager' then 1 else 2 end, m.created_at limit 1;
-        if salon_uuid is null then raise exception using errcode = '42501', message = 'SALON_ACCESS_DENIED'; end if;
-        update public.profiles set full_name = trim(p_contact_name), phone = nullif(trim(coalesce(p_phone, '')), ''),
-          avatar_path = nullif(trim(coalesce(p_avatar_path, '')), '') where id = actor;
-        update public.job_employer_profiles set display_name = trim(p_contact_name), updated_at = now() where user_id = actor;
-        if public.job_is_admin() or exists (select 1 from public.job_salon_members m where m.salon_id = salon_uuid
-          and m.user_id = actor and m.status = 'active' and m.member_role in ('owner', 'manager')) then
-          update public.salons set name = trim(p_business_name), description = nullif(trim(coalesce(p_description, '')), ''),
-            city = coalesce(nullif(trim(coalesce(p_city, '')), ''), city),
-            state = coalesce(nullif(trim(coalesce(p_state, '')), ''), state) where id = salon_uuid;
-          update public.job_salon_profiles set website_url = nullif(trim(coalesce(p_website_url, '')), ''),
-            instagram_url = nullif(trim(coalesce(p_instagram_url, '')), ''), updated_at = now() where salon_id = salon_uuid;
-          update public.job_salon_locations set city = coalesce(nullif(trim(coalesce(p_city, '')), ''), city),
-            state = coalesce(nullif(trim(coalesce(p_state, '')), ''), state), updated_at = now()
-            where salon_id = salon_uuid and is_primary = true;
-        end if;
-      end $fn$
-    $ddl$;
+  if actor is null then
+    raise exception using errcode='28000', message='AUTH_REQUIRED';
+  end if;
+  if char_length(ensured_business) < 2 then
+    raise exception using errcode='P0001', message='VALIDATION_ERROR: Business name must be at least 2 characters';
+  end if;
+  if char_length(ensured_contact) < 2 then
+    raise exception using errcode='P0001', message='VALIDATION_ERROR: Contact name must be at least 2 characters';
   end if;
 
+  -- Ensure before the guard: the guard rejects a missing profiles row with
+  -- ACCOUNT_INACTIVE, which would make this ensure unreachable and would leave
+  -- cross-app accounts unable to save at all.
+  perform public.job_ensure_profile_row(actor);
+  actor := public.job_assert_authenticated();
+
+  -- Only the employer portal owns a business profile. A candidate account is
+  -- refused here (a SECURITY DEFINER function cannot rely on RLS for this).
+  ensured_role := public.job_current_role();
+  if ensured_role is null then
+    -- Unassigned portal account: assign the employer portal exactly the way
+    -- portal entry does, then re-read the role.
+    perform public.job_register_role('employer');
+    ensured_role := public.job_current_role();
+  end if;
+  if ensured_role not in ('employer', 'admin') then
+    raise exception using errcode='42501', message='ROLE_NOT_ALLOWED';
+  end if;
+
+  -- Shared profiles row (marketplace columns only — no updated_at).
+  insert into public.profiles(id, full_name, phone, avatar_path, is_active)
+  values (
+    actor,
+    ensured_contact,
+    nullif(trim(coalesce(p_phone, '')), ''),
+    nullif(trim(coalesce(p_avatar_path, '')), ''),
+    true
+  )
+  on conflict (id) do update set
+    full_name = excluded.full_name,
+    phone = excluded.phone,
+    avatar_path = excluded.avatar_path,
+    is_active = true;
+
+  insert into public.job_employer_profiles(user_id, display_name)
+  values (actor, ensured_contact)
+  on conflict (user_id) do update set
+    display_name = excluded.display_name,
+    updated_at = now();
+
+  -- Resolve the caller's own salon (owner first, then manager, then team).
+  select m.salon_id into salon_uuid
+  from public.job_salon_members m
+  where m.user_id = actor and m.status = 'active'
+  order by case m.member_role when 'owner' then 0 when 'manager' then 1 else 2 end, m.created_at
+  limit 1;
+
+  if salon_uuid is null then
+    -- Self-heal: this account never got a salon (onboarding skipped, legacy or
+    -- cross-app signup). Create the minimum rows the portal needs.
+    insert into public.organizations(display_name, legal_name, business_category, status, created_by)
+    values (ensured_business, ensured_business, 'salon', 'active', actor)
+    returning id into org_uuid;
+
+    insert into public.organization_members(organization_id, user_id, role, status, joined_at)
+    values (org_uuid, actor, 'owner', 'active', now())
+    on conflict (organization_id, user_id) do update set role = 'owner', status = 'active';
+
+    salon_slug := trim(both '-' from regexp_replace(lower(ensured_business), '[^a-z0-9]+', '-', 'g'))
+      || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+
+    insert into public.salons(
+      organization_id, slug, name, description, business_category, city, state, is_active
+    ) values (
+      org_uuid, salon_slug, ensured_business,
+      nullif(trim(coalesce(p_description, '')), ''), 'salon',
+      ensured_city, ensured_state, true
+    ) returning id into salon_uuid;
+
+    insert into public.job_salon_members(salon_id, user_id, member_role, status)
+    values (salon_uuid, actor, 'owner', 'active')
+    on conflict (salon_id, user_id) do nothing;
+
+    insert into public.job_salon_profiles(salon_id, owner_user_id, website_url, instagram_url, business_type)
+    values (salon_uuid, actor, ensured_website, ensured_instagram, 'salon')
+    on conflict (salon_id) do update set
+      website_url = excluded.website_url,
+      instagram_url = excluded.instagram_url,
+      updated_at = now();
+
+    -- job_salon_locations.city and .state are NOT NULL in the shared schema, so
+    -- the primary row is only created once there is a real place to record.
+    -- Saving a profile must never fail just because the location is blank.
+    if ensured_city is not null or ensured_state is not null then
+      insert into public.job_salon_locations(salon_id, label, address_line1, city, state, is_primary)
+      values (
+        salon_uuid, 'Primary', ensured_business,
+        coalesce(ensured_city, ''), coalesce(ensured_state, ''), true
+      )
+      on conflict do nothing;
+    end if;
+  else
+    -- Existing salon: owner/manager (or admin) may edit the business identity.
+    if public.job_is_admin() or exists (
+      select 1 from public.job_salon_members m
+      where m.salon_id = salon_uuid and m.user_id = actor and m.status = 'active'
+        and m.member_role in ('owner', 'manager')
+    ) then
+      update public.salons set
+        name = ensured_business,
+        description = nullif(trim(coalesce(p_description, '')), ''),
+        city = coalesce(ensured_city, city),
+        state = coalesce(ensured_state, state)
+      where id = salon_uuid;
+
+      -- Upsert, not update: a salon created before job_salon_profiles/brand
+      -- links existed would otherwise silently drop the website and Instagram.
+      select sp.owner_user_id into existing_owner
+      from public.job_salon_profiles sp where sp.salon_id = salon_uuid;
+
+      insert into public.job_salon_profiles(salon_id, owner_user_id, website_url, instagram_url, business_type)
+      values (salon_uuid, coalesce(existing_owner, actor), ensured_website, ensured_instagram, 'salon')
+      on conflict (salon_id) do update set
+        website_url = excluded.website_url,
+        instagram_url = excluded.instagram_url,
+        updated_at = now();
+
+      update public.job_salon_locations set
+        city = coalesce(ensured_city, city),
+        state = coalesce(ensured_state, state),
+        updated_at = now()
+      where salon_id = salon_uuid and is_primary = true;
+
+      -- Same NOT NULL-safe rule as the insert path when the primary row is
+      -- missing on an existing salon.
+      if not found and (ensured_city is not null or ensured_state is not null) then
+        insert into public.job_salon_locations(salon_id, label, address_line1, city, state, is_primary)
+        values (
+          salon_uuid, 'Primary', ensured_business,
+          coalesce(ensured_city, ''), coalesce(ensured_state, ''), true
+        )
+        on conflict do nothing;
+      end if;
+    end if;
+  end if;
+end
+$fn$;
+
+do $$
+begin
   if to_regprocedure('public.job_create_candidate_resume(text,text,text,bigint,boolean)') is null then
     execute $ddl$
       create function public.job_create_candidate_resume(
