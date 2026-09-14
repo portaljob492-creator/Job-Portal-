@@ -71,6 +71,11 @@ begin
   actor := public.job_assert_authenticated();
   role := public.job_current_role();
 
+  if role is null then
+    perform public.job_register_role(case when p_display_name is not null and p_headline is null then 'employer' else 'job_seeker' end);
+    role := public.job_current_role();
+  end if;
+
   -- Shared profiles upsert. Only the marketplace columns every earlier
   -- migration already writes are touched — no updated_at, no platform_role.
   insert into public.profiles(id, full_name, phone, avatar_path, is_active)
