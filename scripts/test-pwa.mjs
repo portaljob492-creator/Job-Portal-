@@ -37,7 +37,9 @@ assertCheck('apple install metadata', indexHtml.includes('apple-mobile-web-app-c
 assertCheck('early native prompt capture', appBundles.includes('beforeinstallprompt') && appBundles.includes('Preparing install'));
 
 const serviceWorker = read(swFile);
-assertCheck('safe public jobs runtime cache', serviceWorker.includes('public_job_listings') && serviceWorker.includes('nexora-public-jobs-v1'));
+const swSource = read('src/service-worker.ts');
+assertCheck('safe public jobs runtime cache', serviceWorker.includes('public_job_listings') && serviceWorker.includes('nexora-public-jobs-'));
+assertCheck('runtime cache versioned (v2 busts stale v1)', swSource.includes("CACHE_VERSION = 'v2'") && serviceWorker.includes('"v2"') && serviceWorker.includes('nexora-public-images-') && serviceWorker.includes('nexora-google-fonts-'));
 assertCheck('no private workflow runtime cache', !serviceWorker.includes('job_applications') && !serviceWorker.includes('job_offers'));
 
 // The real production failure this guards against: vite-plugin-pwa registers the
@@ -144,5 +146,22 @@ const vercel = JSON.parse(read('vercel.json'));
 const serviceWorkerHeaders = vercel.headers?.find((entry) => entry.source === '/service-worker.js');
 assertCheck('service worker no-cache header', serviceWorkerHeaders?.headers?.some((header) => header.key === 'Cache-Control' && header.value.includes('must-revalidate')));
 assertCheck('service worker root scope header', serviceWorkerHeaders?.headers?.some((header) => header.key === 'Service-Worker-Allowed' && header.value === '/'));
+assertCheck('assets immutable cache header', vercel.headers?.some((entry) => entry.source === '/assets/:path*' && entry.headers?.some((h) => h.key === 'Cache-Control' && h.value.includes('immutable'))));
+
+// New v2 worker must be able to replace a broken v1 worker without manual
+// clearing: it calls skipWaiting on install and purges old runtime caches.
+assertCheck('service worker claims clients and skips waiting (replaces broken v1)', serviceWorker.includes('skipWaiting') && serviceWorker.includes('clients.claim'));
+assertCheck('service worker purges stale runtime caches on activate', swSource.includes("CACHE_VERSION = 'v2'") && serviceWorker.includes('caches.keys') && serviceWorker.includes('caches.delete'));
+
+// vite-plugin-pwa injectManifest must not generate a second competing worker.
+// With strategies:'injectManifest' the only SW is our src/service-worker.ts
+// bundled to dist/service-worker.js (not sw.js, not a generateSW fallback).
+assertCheck('single service worker output (no competing sw.js)', !fs.existsSync(path.join(dist, 'sw.js')) || fs.readFileSync(path.join(dist, 'sw.js'), 'utf8') === serviceWorker);
+assertCheck('vite config uses injectManifest (custom SW, not generateSW)', read('vite.config.ts').includes("strategies: 'injectManifest'") && !read('vite.config.ts').includes('generateSW'));
+
+// Registration must be classic (not module) — the built SW is a classic script
+// and a module-type registration would fail with "evaluation failed" on the
+// same file. The built main bundle proves the registration type.
+assertCheck('service worker registered as classic (not module)', appBundles.includes('type:\"classic\"') || appBundles.includes("type: 'classic'") || appBundles.includes('type:\"classic\"'));
 
 console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));
