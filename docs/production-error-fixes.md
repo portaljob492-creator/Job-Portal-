@@ -89,3 +89,66 @@ this error class, next to the untouched raw error object.
   integration, admin screens, posting or applications logic removed.
 - `AUDIT.md` P0s (fake resume upload, fake delete-account, etc.) remain tracked there —
   they are feature gaps, not the console errors triaged in this document.
+
+## Reconciliation migration pass (same day, follow-up)
+
+Five hardening items completed on top of the triage above:
+
+1. **GoTrue singleton** — already enforced by the fix in §1; `npm run test:gotrue`
+   now proves it behaviorally (import + repeated diagnostics emit no duplicate-client
+   warning, with a positive control proving the detector works).
+
+2. **Service-worker scope audit** — the SW module graph (`src/service-worker.ts`,
+   `src/lib/logger.ts`) was swept for `window`/`document` (none present) and for bare
+   `location` globals. The one occurrence (`isCacheableImage`) now reads
+   `self.location` through a typed accessor with a safe fallback. `npm run test:pwa`
+   enforces all of it statically (tokens in SW-graph sources) **and** by evaluating the
+   built bundle inside a window-less `ServiceWorkerGlobalScope` stub, then asserting
+   the lifecycle handlers actually register.
+
+3. **`supabase/migrations/20260914120000_jobs_applications_access.sql`** — idempotently
+   re-asserts the CURRENT grant posture for `job_applications` (schema usage; SELECT/
+   INSERT/DELETE + column-scoped `UPDATE (status, employer_notes)` for `authenticated`,
+   matching 20260913001500 exactly; no writes for anon — RLS and the
+   ownership-spoofing trigger stay authoritative), repairs BOTH FK constraint names the
+   workspace embeds resolve by name (`job_applications_job_id_fkey`,
+   `job_posts_location_id_fkey` — rename if drifted, recreate with core DDL semantics
+   if absent), and re-asserts `supabase_realtime` membership for the app's realtime
+   subscription.
+
+4. **`supabase/migrations/20260914120001_jobs_workspace_rpc_reconcile.sql`** re-declares
+   `get_employer_job_applications(uuid)` and `get_my_job_application_listings()`
+   (create-or-replace + grants) so a live project that skipped or partially applied the
+   2026-09-13 numbered migrations converges in one push.
+   **`supabase/migrations/20260914120002_jobs_user_location_ensure.sql`** replays the
+   entire location-sync schema (table, RLS, trigger, `sync_user_location`,
+   `clear_user_location`, `job_current_user_location`, distance helper, grants) through
+   its own idempotent guards — a no-op on current projects, a full repair otherwise.
+   The frontend (`locationSync.ts`) classifies every missing-endpoint shape —
+   `PGRST202`, `PGRST205`, HTTP 404, "does not exist"/"schema cache" messages, and
+   transport-level rejections — as a clean `unsupported` state that releases the
+   geolocation watch and never retry-storms.
+
+5. **`loadWorkspace`** now settles every parallel and candidate-detail query
+   (`settle()` converts rejections into structured `{ data, error }`); the employer
+   jobs and seeker applications queries degrade to their plain selects when PostgREST
+   cannot resolve an embed (`isEmbedResolutionError`); the non-critical fallback loop
+   normalizes every failure to empty sections with the `[schema gap]` annotation. A
+   single drifted object can no longer reject the workspace load or surface as an
+   unhandled exception.
+
+`npm run test:db` grew coverage for this pass: rerun-safety of all three migrations,
+the FK renamed AND missing repair paths, RPC exposure after replay, and the exact
+grant posture. Applying to the live project still runs through the standard pipeline:
+
+```bash
+npm run check:supabase          # lists live-404 objects vs this repo's migrations
+supabase link --project-ref qwaehqsmodekbgvnaavz
+supabase db push                # applies 20260914120000-2 alongside other pending files
+```
+
+Sandbox note: this agent environment has no network egress and no Supabase
+credentials, so the migrations were applied and proven against the full-migration
+PGlite replay (the repo's executable stand-in for the live database) and are staged
+for the push above. Every file is idempotent by design, so re-applying to an
+already-current project is a no-op, not a risk.

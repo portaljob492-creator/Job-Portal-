@@ -66,6 +66,40 @@ const one = <T>(value: T | T[] | null | undefined): T | null =>
   Array.isArray(value) ? value[0] ?? null : value ?? null;
 
 /**
+ * Structured settling for a Supabase query/rpc promise. PostgREST failures
+ * already resolve as `{ data, error }`; this additionally converts any promise
+ * that REJECTS (client-side aborts, serialization bugs) into the same shape,
+ * so a single broken workspace section can never turn into an unhandled
+ * rejection or blow up the whole `Promise.all` — every failure instead flows
+ * through the per-section fallback below with a real error attached.
+ */
+const settle = <T>(
+  query: PromiseLike<{ data: T | null; error: unknown }>,
+): Promise<{ data: T | null; error: any }> =>
+  Promise.resolve(query).then(
+    (result) => (result ? { data: (result.data ?? null) as T | null, error: result.error ?? null } : { data: null, error: null }),
+    (error: unknown) => ({
+      data: null,
+      error: error instanceof Error ? error : new Error(String(error)),
+    }),
+  );
+
+/**
+ * PostgREST answers "Could not find the relationship/relation" (PGRST200/201)
+ * and "relation … not in the schema cache" (PGRST205) when embedded resources
+ * cannot be resolved — live projects whose FK constraint names or newest
+ * migrations drifted from the app build (the production `job_applications`
+ * 404 triage). Those callers retry against the plain (unembedded) table;
+ * other codes (missing table, RLS) are surfaced unchanged for the fallback log.
+ */
+function isEmbedResolutionError(error: unknown): boolean {
+  const code = String((error as { code?: unknown } | null)?.code ?? '');
+  if (/^PGRST20[015]$/.test(code)) return true;
+  const message = String((error as { message?: unknown } | null)?.message ?? '');
+  return /could not find (the )?(relationship|embedded resource|table|view|relation)|schema cache/i.test(message);
+}
+
+/**
  * Profile/avatar saves are the workflow behind "Unable to save profile. Please
  * retry.": the toast is intentionally generic, so the raw backend failure
  * (Postgres code, message, details, hint) must still be recorded here —
@@ -985,30 +1019,72 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     console.warn('[loadWorkspace] membership exception (ignored for new accounts):', e);
   }
 
-  const employerJobsQuery = client
-    .from('job_posts')
-    .select('*, location:job_salon_locations!job_posts_location_id_fkey(*)')
-    .eq('created_by', user.id)
-    .order('created_at', { ascending: false });
+  const employerJobsEmbedSelect = '*, location:job_salon_locations!job_posts_location_id_fkey(*)';
+  const employerJobsPlainSelect = '*';
 
-  // Parallel load – critical vs non-critical split
+  /**
+   * Employer "My Posts": a live project with drifted FK names 400s/404s the
+   * LOCATION embed. Degrade to the plain select (mapJob already falls back to
+   * salon/city fields) instead of hard-failing the whole workspace, while any
+   * other error is surfaced unchanged through the critical-error path.
+   */
+  const employerJobsQuery = async () => {
+    const first = await settle(
+      client.from('job_posts').select(employerJobsEmbedSelect).eq('created_by', user.id).order('created_at', { ascending: false }),
+    );
+    if (!first.error || !isEmbedResolutionError(first.error)) return first;
+    console.warn('[loadWorkspace] employer job embed unresolved — retrying with the plain select:', first.error);
+    const plain = await settle(
+      client.from('job_posts').select(employerJobsPlainSelect).eq('created_by', user.id).order('created_at', { ascending: false }),
+    );
+    return plain.error ? first : plain;
+  };
+
+  /**
+   * Seeker "My Applications": same embed-degradation strategy for the
+   * `job:job_posts!…`/`interviews`/`offers` embeds; the unembedded rows stay
+   * real data because the listing snapshot backfills through
+   * get_my_job_application_listings (ownedListing in mapApplication).
+   */
+  const seekerApplicationsQuery = async () => {
+    if (role !== 'seeker') return { data: [], error: null };
+    const first = await settle(
+      client
+        .from('job_applications')
+        .select(applicationSelect)
+        .eq('candidate_user_id', user.id)
+        .order('submitted_at', { ascending: false }),
+    );
+    if (!first.error || !isEmbedResolutionError(first.error)) return first;
+    console.warn('[loadWorkspace] applications embed unresolved — retrying with the plain select:', first.error);
+    const plain = await settle(
+      client
+        .from('job_applications')
+        .select('*')
+        .eq('candidate_user_id', user.id)
+        .order('submitted_at', { ascending: false }),
+    );
+    return plain.error ? first : plain;
+  };
+
+  // Parallel load – critical vs non-critical split. Everything is settled, so
+  // neither a PostgREST error nor an unexpected rejection can reject the whole
+  // Promise.all; failures are normalized to { data, error } and handled below.
   const [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
-    client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).maybeSingle(),
-    client.from('job_seeker_profiles').select('*').eq('user_id', user.id).maybeSingle(),
+    settle(client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).maybeSingle()),
+    settle(client.from('job_seeker_profiles').select('*').eq('user_id', user.id).maybeSingle()),
     role === 'seeker'
-      ? client.from('public_job_listings').select('*').order('published_at', { ascending: false })
-      : employerJobsQuery,
-    client.from('job_saved_jobs').select('job_id').eq('user_id', user.id),
-    client.rpc('get_job_conversation_summaries'),
-    client.from('job_messages').select('*').order('created_at', { ascending: true }),
-    client.from('job_saved_searches').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-    client.from('job_notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-    role === 'seeker'
-      ? client.from('job_applications').select(applicationSelect).eq('candidate_user_id', user.id).order('submitted_at', { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
-    role === 'seeker' ? client.rpc('get_my_job_application_listings') : Promise.resolve({ data: [], error: null }),
-    role === 'employer' ? client.rpc('get_employer_job_applications', { target_job_id: null }) : Promise.resolve({ data: [], error: null }),
-    client.from('public_job_salon_profiles').select('*'),
+      ? settle(client.from('public_job_listings').select('*').order('published_at', { ascending: false }))
+      : employerJobsQuery(),
+    settle(client.from('job_saved_jobs').select('job_id').eq('user_id', user.id)),
+    settle(client.rpc('get_job_conversation_summaries')),
+    settle(client.from('job_messages').select('*').order('created_at', { ascending: true })),
+    settle(client.from('job_saved_searches').select('*').eq('user_id', user.id).order('created_at', { ascending: false })),
+    settle(client.from('job_notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false })),
+    seekerApplicationsQuery(),
+    role === 'seeker' ? settle(client.rpc('get_my_job_application_listings')) : Promise.resolve({ data: [], error: null }),
+    role === 'employer' ? settle(client.rpc('get_employer_job_applications', { target_job_id: null })) : Promise.resolve({ data: [], error: null }),
+    settle(client.from('public_job_salon_profiles').select('*')),
   ]);
 
   // --- NEW ACCOUNT FIX: only profile and jobs are critical, others degrade to empty ---
@@ -1050,14 +1126,14 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const candidate: any = candidateResult.data;
   const [skillsResult, portfolioResult, experienceResult, educationResult, certificationsResult, preferencesResult, preferredRolesResult, employmentTypesResult] = candidate
     ? await Promise.all([
-        client.from('job_candidate_skills').select('skill:job_skills(name)').eq('candidate_id', candidate.id),
-        client.from('job_portfolio_items').select('*').eq('candidate_id', candidate.id).order('sort_order'),
-        client.from('job_candidate_experience').select('*').eq('candidate_id', candidate.id).order('sort_order'),
-        client.from('job_candidate_education').select('*').eq('candidate_id', candidate.id).order('completion_year', { ascending: false }),
-        client.from('job_candidate_certifications').select('*').eq('candidate_id', candidate.id).order('completion_year', { ascending: false }),
-        client.from('job_candidate_preferences').select('*').eq('candidate_id', candidate.id).maybeSingle(),
-        client.from('job_candidate_preferred_roles').select('role_name').eq('candidate_id', candidate.id),
-        client.from('job_candidate_employment_types').select('employment_type').eq('candidate_id', candidate.id),
+        settle(client.from('job_candidate_skills').select('skill:job_skills(name)').eq('candidate_id', candidate.id)),
+        settle(client.from('job_portfolio_items').select('*').eq('candidate_id', candidate.id).order('sort_order')),
+        settle(client.from('job_candidate_experience').select('*').eq('candidate_id', candidate.id).order('sort_order')),
+        settle(client.from('job_candidate_education').select('*').eq('candidate_id', candidate.id).order('completion_year', { ascending: false })),
+        settle(client.from('job_candidate_certifications').select('*').eq('candidate_id', candidate.id).order('completion_year', { ascending: false })),
+        settle(client.from('job_candidate_preferences').select('*').eq('candidate_id', candidate.id).maybeSingle()),
+        settle(client.from('job_candidate_preferred_roles').select('role_name').eq('candidate_id', candidate.id)),
+        settle(client.from('job_candidate_employment_types').select('employment_type').eq('candidate_id', candidate.id)),
       ])
     : Array.from({ length: 8 }, () => ({ data: [], error: null })) as any;
   // Candidate details are non-critical: if any of these fail (new account, RLS, etc.), use empty fallback instead of breaking workspace

@@ -6,6 +6,25 @@ import { logger } from './lib/logger';
 
 const swLog = logger('sw');
 
+/**
+ * This file runs inside `ServiceWorkerGlobalScope` and is registered as a
+ * CLASSIC script (`type:'classic'` via vite-plugin-pwa). Two hard rules follow
+ * from that, enforced by `npm run test:pwa`:
+ *
+ *  1. No bare `import.meta` may survive into the built bundle (parse-time
+ *     SyntaxError in classic scripts — the exact cause of the production
+ *     "ServiceWorker script evaluation failed"). Shared modules imported here
+ *     must reference `import.meta.env` as a whole unit so Vite replaces it.
+ *  2. `window`/`document` do not exist in worker scopes. Never reference them
+ *     (guarded or not — `typeof window` alone is fine but pointless here);
+ *     worker-scoped globals are reached through `self`, and `location` — which
+ *     does exist on `ServiceWorkerGlobalScope` but NOT on a plain
+ *     `WorkerGlobalScope` — is read through `self.location` with a fallback so
+ *     the module graph stays valid even under a stripped-down evaluation
+ *     context (tests, exotic hosts) instead of throwing a runtime
+ *     ReferenceError.
+ */
+
 /** Minimal shape of the worker global this file actually touches. */
 interface BackgroundSyncEvent {
   readonly tag: string;
@@ -19,9 +38,21 @@ interface WorkerFetchEvent {
 
 declare const self: {
   readonly __WB_MANIFEST: Array<string | { url: string; revision?: string | null }>;
+  readonly location?: { readonly origin?: string; readonly href?: string };
   addEventListener(type: 'sync', listener: (event: BackgroundSyncEvent) => void): void;
   addEventListener(type: 'fetch', listener: (event: WorkerFetchEvent) => void): void;
 };
+
+/** Same-origin check without touching a bare `location` global (see rules above). */
+function selfOrigin(): string {
+  const viaHref = typeof self.location?.href === 'string' ? self.location.href : '';
+  if (typeof self.location?.origin === 'string' && self.location.origin) return self.location.origin;
+  try {
+    return new URL(viaHref || 'https://localhost/').origin;
+  } catch {
+    return 'https://localhost';
+  }
+}
 
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
@@ -69,7 +100,7 @@ function isPublicJobListings(request: Request, url: URL): boolean {
 }
 
 function isCacheableImage(request: Request, url: URL): boolean {
-  return request.method === 'GET' && request.destination === 'image' && url.origin !== location.origin;
+  return request.method === 'GET' && request.destination === 'image' && url.origin !== selfOrigin();
 }
 
 function isGoogleFont(url: URL): boolean {

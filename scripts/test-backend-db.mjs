@@ -171,6 +171,103 @@ try {
   process.exit(1);
 }
 
+// The 20260914120* reconciliation migrations (production 404 triage) exist to
+// be replayed over drifted catalogs, so the harness verifies that promise:
+// rerun all three, break the embed FK the client relies on, and check that a
+// further rerun of the access migration repairs it — renamed AND missing.
+try {
+  const accessFile = '20260914120000_jobs_applications_access.sql';
+  for (const file of [
+    accessFile,
+    '20260914120001_jobs_workspace_rpc_reconcile.sql',
+    '20260914120002_jobs_user_location_ensure.sql',
+  ]) {
+    await db.exec(fs.readFileSync(path.join(MIGRATION_DIR, file), 'utf8'));
+  }
+  check('20260914120* reconciliation migrations rerun cleanly', true);
+
+  await db.exec(`alter table public.job_applications rename constraint job_applications_job_id_fkey to legacy_generated_name`);
+  await db.exec(`alter table public.job_posts rename constraint job_posts_location_id_fkey to other_generated_name`);
+  await db.exec(fs.readFileSync(path.join(MIGRATION_DIR, accessFile), 'utf8'));
+  const renamedBack = await db.query(`
+    select con.conname
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    join pg_attribute at on at.attrelid = con.conrelid and at.attnum = con.conkey[1]
+    where rel.relname = 'job_applications' and con.contype = 'f' and at.attname = 'job_id'
+  `);
+  check(
+    'access migration repairs a renamed embed FK (client embed path restored)',
+    renamedBack.rows[0]?.conname === 'job_applications_job_id_fkey',
+    JSON.stringify(renamedBack.rows),
+  );
+  const nestedRenamedBack = await db.query(`
+    select con.conname
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    where rel.relname = 'job_posts' and con.contype = 'f'
+      and con.conname = 'job_posts_location_id_fkey'
+  `);
+  check(
+    'access migration repairs the nested job_salon_locations embed FK too',
+    nestedRenamedBack.rows.length === 1,
+    JSON.stringify(nestedRenamedBack.rows),
+  );
+
+  await db.exec(`alter table public.job_applications drop constraint job_applications_job_id_fkey`);
+  await db.exec(fs.readFileSync(path.join(MIGRATION_DIR, accessFile), 'utf8'));
+  const recreated = await db.query(`
+    select con.conname, con.confdeltype
+    from pg_constraint con join pg_class rel on rel.oid = con.conrelid
+    where rel.relname = 'job_applications' and con.conname = 'job_applications_job_id_fkey'
+  `);
+  check(
+    'access migration recreates a missing embed FK with core semantics (on delete restrict)',
+    recreated.rows.length === 1 && recreated.rows[0].confdeltype === 'r',
+    JSON.stringify(recreated.rows),
+  );
+
+  const rpcs = await db.query(`
+    select p.proname
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'get_employer_job_applications','get_my_job_application_listings',
+        'sync_user_location','clear_user_location','job_current_user_location'
+      )
+  `);
+  check(
+    'workspace + location RPCs exposed after reconciliation re-run',
+    rpcs.rows.length === 5,
+    rpcs.rows.map((r) => r.proname).join(','),
+  );
+
+  // Posture per 20260913001500 (the CURRENT contract): authenticated gets
+  // SELECT/INSERT/DELETE + UPDATE restricted to (status, employer_notes);
+  // ownership columns are NOT updatable and anon gets no writes — the
+  // reconciliation migration must restore exactly this, nothing wider.
+  const posture = (await db.query(`
+    select
+      has_table_privilege('authenticated','public.job_applications','select') as sel,
+      has_table_privilege('authenticated','public.job_applications','insert') as ins,
+      has_table_privilege('authenticated','public.job_applications','delete') as del,
+      has_column_privilege('authenticated','public.job_applications','status','update') as status_upd,
+      has_column_privilege('authenticated','public.job_applications','employer_notes','update') as notes_upd,
+      has_column_privilege('authenticated','public.job_applications','candidate_user_id','update') as identity_upd,
+      has_column_privilege('authenticated','public.job_applications','job_id','update') as job_upd,
+      has_table_privilege('anon','public.job_applications','insert') as anon_ins,
+      has_table_privilege('anon','public.job_applications','update') as anon_upd
+  `)).rows[0];
+  check(
+    'job_applications grant posture restored exactly (RLS/trigger layers stay authoritative)',
+    posture.sel && posture.ins && posture.del && posture.status_upd && posture.notes_upd
+      && !posture.identity_upd && !posture.job_upd && !posture.anon_ins && !posture.anon_upd,
+    JSON.stringify(posture),
+  );
+} catch (error) {
+  check('20260914120* reconciliation migrations rerun cleanly', false, error.message);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers for behavioural tests
 // ---------------------------------------------------------------------------

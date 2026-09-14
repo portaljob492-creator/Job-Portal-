@@ -62,6 +62,84 @@ try {
 }
 assertCheck('service worker parses as a classic script (browser evaluation)', swClassicParse, swClassicParseError);
 
+// Audit of the ServiceWorkerGlobalScope contract: window/document never exist
+// in a worker scope and `location` must not be referenced as a bare global
+// (exists in SW scope, absent in plain worker contexts). Scan the SW source and
+// the only local module it imports (logger) for such references — comments
+// stripped so documentation about the rule can't trip the rule.
+const stripComments = (code) =>
+  code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const swGraph = ['src/service-worker.ts', 'src/lib/logger.ts'].map((file) => ({
+  file,
+  code: stripComments(read(file)),
+}));
+for (const { file, code } of swGraph) {
+  assertCheck(
+    `no window/document references in SW graph (${file})`,
+    !/\b(window|document)\s*\./.test(code) && !/\bwindow\s*===|\btypeof\s+window\b(?!\s*[!=]==?\s*['"]undefined['"])/.test(code),
+  );
+  assertCheck(
+    `no bare location global in SW graph (${file}) — read it via self.location`,
+    !/(^|[^.\w$'"])location\s*\./.test(code),
+  );
+}
+
+// Strongest reproduction of the production failure mode: evaluate the built
+// bundle in a worker-like context that has NO window/document at all and only
+// the globals a ServiceWorker scope provides. Any top-level browser-global
+// access now fails here instead of on a user's device.
+const swEval = await import('node:vm').then(async ({ default: vm }) => {
+  const handlers = {};
+  const selfObj = {
+    addEventListener: (type) => {
+      handlers[type] = (handlers[type] || 0) + 1;
+    },
+    registration: { scope: '/' },
+    skipWaiting: () => Promise.resolve(),
+    clients: { claim: () => Promise.resolve(), matchAll: () => Promise.resolve([]) },
+    location: { origin: 'https://job-portal.example', href: 'https://job-portal.example/service-worker.js' },
+    caches: {
+      open: () => Promise.resolve({ match: () => Promise.resolve(undefined), put: () => Promise.resolve() }),
+      match: () => Promise.resolve(undefined),
+      keys: () => Promise.resolve([]),
+      delete: () => Promise.resolve(true),
+    },
+    __WB_MANIFEST: [],
+    indexedDB: undefined,
+  };
+  const context = {
+    self: selfObj,
+    location: selfObj.location,
+    console,
+    Promise,
+    URL,
+    setTimeout,
+    clearTimeout,
+    AbortController,
+    Response: class {},
+    Request: class {},
+    fetch: () => Promise.reject(new Error('offline test context')),
+  };
+  context.globalThis = context;
+  vm.createContext(context);
+  try {
+    new vm.Script(serviceWorker).runInContext(context, { timeout: 5000 });
+    return { ok: true, handlers, error: '' };
+  } catch (error) {
+    return { ok: false, handlers, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
+  }
+});
+assertCheck(
+  'service worker evaluates inside a window-less ServiceWorkerGlobalScope stub',
+  swEval.ok,
+  swEval.error,
+);
+assertCheck(
+  'service worker installs its lifecycle handlers (install/fetch)',
+  swEval.handlers.install > 0 && swEval.handlers.fetch > 0,
+  JSON.stringify(swEval.handlers),
+);
+
 const vercel = JSON.parse(read('vercel.json'));
 const serviceWorkerHeaders = vercel.headers?.find((entry) => entry.source === '/service-worker.js');
 assertCheck('service worker no-cache header', serviceWorkerHeaders?.headers?.some((header) => header.key === 'Cache-Control' && header.value.includes('must-revalidate')));

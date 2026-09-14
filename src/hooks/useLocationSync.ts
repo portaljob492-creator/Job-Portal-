@@ -93,10 +93,16 @@ function createRpcClient(): LocationSyncClient | null {
   if (!supabase) return null;
   return {
     rpc: async (fn, args) => {
+      // supabase.rpc() resolves failures as { data: null, error } — a missing
+      // RPC (live project without the location-sync migration) never throws
+      // here, so the engine can classify it and drop the watch cleanly.
       const { data, error } = await supabase.rpc(fn, args as never);
+      const rich = error as unknown as { code?: string; message?: string; status?: number; statusCode?: number } | null;
       return {
         data: data ?? null,
-        error: error ? { code: error.code ?? undefined, message: error.message } : null,
+        error: error
+          ? { code: rich?.code ?? undefined, message: rich?.message ?? error.message, status: rich?.status, statusCode: rich?.statusCode }
+          : null,
       };
     },
   };

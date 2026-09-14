@@ -74,6 +74,9 @@ export interface GeolocationLike {
 export interface LocationSyncRpcError {
   code?: string;
   message?: string;
+  /** HTTP status when the transport exposes one (raw fetch wrappers do). */
+  status?: number;
+  statusCode?: number;
 }
 
 export interface LocationSyncClient {
@@ -165,8 +168,11 @@ function resolveGeolocation(injected?: GeolocationLike | null): GeolocationLike 
 function classifyRpcError(error: LocationSyncRpcError): LocationSyncStatus {
   const code = error.code ?? '';
   const message = error.message ?? '';
-  if (code === '42883' || code === 'PGRST202' || /does not exist/i.test(message)) {
+  const status = error.status ?? error.statusCode;
+  if (code === '42883' || code === 'PGRST202' || code === 'PGRST205' || status === 404 || /does not exist|not in the schema cache|could not find/i.test(message)) {
     // Location sync migration has not been applied to this project yet.
+    // The engine drops the watch (see push()) and the UI shows a clean
+    // "unavailable on this project" state — no retry storm, no crash.
     return 'unsupported';
   }
   if (code === '28000' || /auth_?required/i.test(message) || /session/i.test(message)) {
