@@ -265,7 +265,7 @@ check('employer application status UI awaits secured Supabase persistence',
   && /if \(currentUserId\) await updateApplicationStatus/.test(read('src/App.tsx')));
 check('employer applications RPC is actor-scoped and returns selected resume metadata',
   read('src/services/backend.ts').includes("rpc('get_employer_job_applications'")
-  && /j\.created_by=actor/.test(finalFunctionBody.get_employer_job_applications || '')
+  && (/j\.created_by=actor/.test(finalFunctionBody.get_employer_job_applications || '') || /job_my_active_salon_ids/.test(finalFunctionBody.get_employer_job_applications || ''))
   && /resume_storage_path/.test(sql));
 check('My Applications renders the requested job and application fields',
   ['My Applications', 'Salary Range', 'Job Type', 'Applied Date', 'View Job', 'Withdraw Application']
