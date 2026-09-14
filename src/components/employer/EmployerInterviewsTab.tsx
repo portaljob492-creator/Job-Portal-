@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Calendar, Video, MapPin, Phone, Search, ChevronDown } from 'lucide-react';
 import { Applicant, EmployerInterview } from '../../types';
 import { formatInterviewDateTime, interviewTypeLabel } from '../../lib/interviewSchedule';
+import { mapBackendError } from '../../services/backend';
 
 interface EmployerInterviewsTabProps {
   applicants: Applicant[];
@@ -70,7 +71,7 @@ export const EmployerInterviewsTab: React.FC<EmployerInterviewsTabProps> = ({
       await onRescheduleInterview(row.interview.id, start.toISOString());
       setReschedulingId(null);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to reschedule the interview.');
+      setActionError(mapBackendError(error, 'Unable to reschedule the interview.'));
     } finally {
       setPendingId(null);
     }
@@ -83,7 +84,7 @@ export const EmployerInterviewsTab: React.FC<EmployerInterviewsTabProps> = ({
     try {
       await onCompleteInterview(row.interview.id);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to complete the interview.');
+      setActionError(mapBackendError(error, 'Unable to complete the interview.'));
     } finally {
       setPendingId(null);
     }

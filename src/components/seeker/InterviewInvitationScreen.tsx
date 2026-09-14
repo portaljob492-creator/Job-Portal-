@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Bell, Calendar, Clock, Video, Copy, Check, MessageSquare, X, ChevronRight, HelpCircle, Briefcase, Bookmark, PersonStanding, User, MapPin, Phone } from 'lucide-react';
 import { JobPosting, Application } from '../../types';
+import { mapBackendError } from '../../services/backend';
 
 interface InterviewInvitationScreenProps {
   jobs: JobPosting[];
@@ -85,7 +86,7 @@ export const InterviewInvitationScreen: React.FC<InterviewInvitationScreenProps>
       await onInterviewResponse(activeApp.id, action, reason);
       setInvitationStatus(action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'rescheduled');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to update the interview. Please retry.';
+      const message = mapBackendError(error, 'Unable to update the interview. Please retry.');
       setActionError(message);
       throw error;
     } finally {

@@ -196,7 +196,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
     try {
       await onUpdateApplicantStatus(applicant.id, status);
     } catch (error) {
-      setApplicationActionError(error instanceof Error ? error.message : 'Unable to update this application.');
+      setApplicationActionError(mapBackendError(error, 'Unable to update this application.'));
     } finally {
       setUpdatingApplicationId(null);
     }
@@ -217,7 +217,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       anchor.click();
       anchor.remove();
     } catch (error) {
-      setApplicationActionError(error instanceof Error ? error.message : 'Unable to download this resume.');
+      setApplicationActionError(mapBackendError(error, 'Unable to download this resume.'));
     } finally {
       setDownloadingResumeId(null);
     }
@@ -232,7 +232,7 @@ export const EmployerWorkspace: React.FC<EmployerWorkspaceProps> = ({
       setShowScheduleModal(false);
       setSelectedApplicant(null);
     } catch (error) {
-      setScheduleError(error instanceof Error ? error.message : 'Unable to schedule the interview.');
+      setScheduleError(mapBackendError(error, 'Unable to schedule the interview.'));
     } finally {
       setIsScheduling(false);
     }
