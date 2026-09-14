@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, ImagePlus, ChevronDown, MapPin, Globe } from 'lucide-react';
+import { mapBackendError } from '../../services/backend';
 
 export interface EmployerBusinessSetupData {
   businessName: string;
@@ -39,23 +40,53 @@ export const EmployerOnboardingStep1Screen: React.FC<EmployerOnboardingStep1Scre
 
   const handleContinue = async () => {
     if (isSaving) return;
+    // Client-side validation before hitting backend – prevents VALIDATION_ERROR
+    const trimmedBusiness = businessName.trim();
+    const trimmedContact = contactName.trim();
+    const trimmedAddress = address.trim();
+    const trimmedCity = city.trim();
+    const trimmedState = state.trim();
+    if (trimmedBusiness.length < 2) {
+      setSaveError('Business name must be at least 2 characters');
+      return;
+    }
+    if (trimmedContact.length < 2) {
+      setSaveError('Contact name must be at least 2 characters');
+      return;
+    }
+    if (trimmedAddress.length < 5) {
+      setSaveError('Please enter a full street address (at least 5 characters)');
+      return;
+    }
+    if (trimmedCity.length < 2) {
+      setSaveError('City must be at least 2 characters');
+      return;
+    }
+    if (trimmedState.length < 2) {
+      setSaveError('State must be at least 2 characters');
+      return;
+    }
+    if (!businessType) {
+      setSaveError('Please select a business type from the 12 services');
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
       await onContinue({
-        businessName,
-        contactName,
-        address,
-        city,
-        state,
-        postalCode: zip,
+        businessName: trimmedBusiness,
+        contactName: trimmedContact,
+        address: trimmedAddress,
+        city: trimmedCity,
+        state: trimmedState,
+        postalCode: zip.trim(),
         businessType,
-        description,
-        website,
-        instagram,
+        description: description.trim(),
+        website: website.trim(),
+        instagram: instagram.trim().replace(/^@+/, ''),
       });
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Unable to save the business details. Please retry.');
+      setSaveError(mapBackendError(error, 'Unable to save the business details. Please retry.'));
     } finally {
       setIsSaving(false);
     }

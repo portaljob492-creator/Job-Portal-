@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { JobPosting } from '../../types';
+import { mapBackendError } from '../../services/backend';
 
 interface PostJobWizardProps {
   onClose: () => void;
@@ -207,7 +208,7 @@ export const PostJobWizard: React.FC<PostJobWizardProps> = ({
       setSavedJob(result);
       setStep(6);
     } catch (caught) {
-      setSubmitError(caught instanceof Error ? caught.message : 'Unable to save this job. Your details are still here — please retry.');
+      setSubmitError(mapBackendError(caught, 'Unable to save this job. Your details are still here — please retry.'));
     } finally {
       setIsSubmitting(false);
     }

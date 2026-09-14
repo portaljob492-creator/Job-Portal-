@@ -1114,14 +1114,44 @@ export default function App() {
   const handleProfileUpdate = async (updatedProfile: UserProfile): Promise<void> => {
     if (!currentUserId) throw new Error('Your session is no longer valid. Please sign in again.');
     setBackendError(null);
+    // Client-side validation to avoid server VALIDATION_ERROR
+    const trimmedName = updatedProfile.name?.trim() || '';
+    if (trimmedName.length < 2) {
+      const msg = 'Name must be at least 2 characters';
+      setBackendError(msg);
+      throw new Error(msg);
+    }
+    if (updatedProfile.role === 'employer') {
+      const biz = updatedProfile.businessName?.trim() || '';
+      const contact = (updatedProfile.contactPerson || updatedProfile.name || '').trim();
+      if (biz.length < 2) {
+        const msg = 'Business name must be at least 2 characters';
+        setBackendError(msg);
+        throw new Error(msg);
+      }
+      if (contact.length < 2) {
+        const msg = 'Contact person must be at least 2 characters';
+        setBackendError(msg);
+        throw new Error(msg);
+      }
+    }
+
     try {
       if (updatedProfile.role === 'employer') {
-        await updateEmployerProfile(updatedProfile);
+        try {
+          await updateEmployerProfile(updatedProfile);
+        } catch (empError) {
+          // If employer RPC fails due to missing salon, fallback to generic saveProfile which now auto-creates salon
+          const sig = (empError as any)?.message || '';
+          if (/SALON_ACCESS_DENIED|SALON_NOT_FOUND|PROFILE_NOT_FOUND/i.test(sig)) {
+            await saveProfile(currentUserId, updatedProfile);
+          } else {
+            throw empError;
+          }
+        }
       } else {
         await saveProfile(currentUserId, updatedProfile);
       }
-      // State follows the authoritative write; callers may show success or move
-      // to another screen only after this promise resolves.
       setUserProfile(updatedProfile);
     } catch (error) {
       const message = mapBackendError(error, 'Unable to save profile. Please retry.');
@@ -1139,8 +1169,20 @@ export default function App() {
       avatarPath: path,
     };
     try {
-      if (updatedProfile.role === 'employer') await updateEmployerProfile(updatedProfile);
-      else await saveProfile(currentUserId, updatedProfile);
+      if (updatedProfile.role === 'employer') {
+        try {
+          await updateEmployerProfile(updatedProfile);
+        } catch (e) {
+          const sig = (e as any)?.message || '';
+          if (/SALON_ACCESS_DENIED|SALON_NOT_FOUND|PROFILE_NOT_FOUND/i.test(sig)) {
+            await saveProfile(currentUserId, updatedProfile);
+          } else {
+            throw e;
+          }
+        }
+      } else {
+        await saveProfile(currentUserId, updatedProfile);
+      }
       if (path) {
         const resolved = await resolveStorageUrls(MEDIA_BUCKETS.profileMedia, [path]);
         setUserProfile({ ...updatedProfile, avatarUrl: resolved.get(path), avatarPath: path });

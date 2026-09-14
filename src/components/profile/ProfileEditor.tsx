@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../../types';
+import { mapBackendError } from '../../services/backend';
 
 interface ProfileEditorProps {
   profile: UserProfile;
@@ -19,16 +20,21 @@ export const ProfileEditor: React.FC<ProfileEditorProps> = ({ profile, onUpdate,
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
+    const trimmedName = formData.name.trim();
+    if (trimmedName.length < 2) {
+      setSaveError('Name must be at least 2 characters long');
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
       await onUpdate({
         ...profile,
-        name: formData.name,
-        phone: formData.phone,
+        name: trimmedName,
+        phone: formData.phone.trim(),
       });
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Unable to save your profile. Please retry.');
+      setSaveError(mapBackendError(error, 'Unable to save your profile. Please retry.'));
     } finally {
       setIsSaving(false);
     }
