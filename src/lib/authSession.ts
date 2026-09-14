@@ -11,6 +11,16 @@ import { loginPath } from '../routing';
  * and every consumer — the root provider, `App`, and `useLocationSync` — reads
  * this store. That is what prevents duplicate auth listeners when several
  * features need auth events at the same time.
+ *
+ * HMR/StrictMode safety: the shared Supabase client itself is stored on
+ * `globalThis` (see `src/lib/supabase.ts`) so a hot module replacement never
+ * creates a second GoTrueClient. This module's mutable state (the listener
+ * subscription, the handler set, snapshot, and bookkeeping flags) is also kept
+ * on `globalThis` so a re-evaluated module sees the live subscription instead
+ * of attaching a second one to the same client. Without this guard, Vite HMR
+ * doubles the auth listener on every hot reload of authSession.ts, producing
+ * duplicated redirects on sign-out and, in some edge cases, contributing to
+ * the "Multiple GoTrueClient instances detected" diagnostic noise.
  */
 
 export type AuthSessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
@@ -34,6 +44,15 @@ export type AuthSessionHandler = (
   snapshot: AuthSessionSnapshot,
 ) => void;
 
+interface AuthSessionModuleState {
+  handlers: Set<AuthSessionHandler>;
+  snapshot: AuthSessionSnapshot;
+  subscription: { unsubscribe: () => void } | null;
+  /** Timestamp of the last explicit sign-out request (0 = none pending). */
+  deliberateSignOutAt: number;
+  invalidSessionHandled: boolean;
+}
+
 const EMPTY_SNAPSHOT: AuthSessionSnapshot = {
   event: null,
   session: null,
@@ -44,17 +63,35 @@ const EMPTY_SNAPSHOT: AuthSessionSnapshot = {
   invalidReason: null,
 };
 
-const handlers = new Set<AuthSessionHandler>();
-let snapshot: AuthSessionSnapshot = EMPTY_SNAPSHOT;
-let subscription: { unsubscribe: () => void } | null = null;
-/** Timestamp of the last explicit sign-out request (0 = none pending). */
-let deliberateSignOutAt = 0;
-let invalidSessionHandled = false;
+const GLOBAL_KEY = '__nexoraJobPortalAuthSession' as const;
+
+function getState(): AuthSessionModuleState {
+  const g = globalThis as unknown as {
+    [GLOBAL_KEY]?: AuthSessionModuleState;
+  };
+  let state = g[GLOBAL_KEY];
+  if (!state) {
+    state = {
+      handlers: new Set<AuthSessionHandler>(),
+      snapshot: { ...EMPTY_SNAPSHOT },
+      subscription: null,
+      deliberateSignOutAt: 0,
+      invalidSessionHandled: false,
+    };
+    g[GLOBAL_KEY] = state;
+  }
+  return state;
+}
+
+// Every module re-evaluation (initial load and Vite HMR) binds to the SAME
+// state object, so handlers/snapshot/subscription/flags survive reloads.
+const state = getState();
+const { handlers } = state;
 
 const DELIBERATE_SIGN_OUT_WINDOW_MS = 10_000;
 
 function notify(event: AuthChangeEvent | null) {
-  const current = snapshot;
+  const current = state.snapshot;
   handlers.forEach((handler) => {
     try {
       handler(event, current.session, current);
@@ -65,13 +102,13 @@ function notify(event: AuthChangeEvent | null) {
 }
 
 function setSnapshot(next: Partial<AuthSessionSnapshot>, event: AuthChangeEvent | null) {
-  snapshot = { ...snapshot, ...next };
+  state.snapshot = { ...state.snapshot, ...next };
   notify(event);
 }
 
 function applySession(event: AuthChangeEvent, session: Session | null) {
   const user = session?.user ?? null;
-  const invalidated = event === 'SIGNED_OUT' ? snapshot.invalidated && !wasDeliberateSignOut() : false;
+  const invalidated = event === 'SIGNED_OUT' ? state.snapshot.invalidated && !wasDeliberateSignOut() : false;
   setSnapshot(
     {
       event,
@@ -80,22 +117,22 @@ function applySession(event: AuthChangeEvent, session: Session | null) {
       status: user ? 'authenticated' : 'unauthenticated',
       isInitialised: true,
       invalidated,
-      invalidReason: invalidated ? snapshot.invalidReason : null,
+      invalidReason: invalidated ? state.snapshot.invalidReason : null,
     },
     event,
   );
 }
 
 function wasDeliberateSignOut(): boolean {
-  if (!deliberateSignOutAt) return false;
-  const recent = Date.now() - deliberateSignOutAt < DELIBERATE_SIGN_OUT_WINDOW_MS;
-  deliberateSignOutAt = 0;
+  if (!state.deliberateSignOutAt) return false;
+  const recent = Date.now() - state.deliberateSignOutAt < DELIBERATE_SIGN_OUT_WINDOW_MS;
+  state.deliberateSignOutAt = 0;
   return recent;
 }
 
 /** Called by explicit sign-out paths so a logout is not treated as a session failure. */
 export function markUserInitiatedSignOut(): void {
-  deliberateSignOutAt = Date.now();
+  state.deliberateSignOutAt = Date.now();
 }
 
 /**
@@ -142,12 +179,12 @@ function handleAuthEvent(event: AuthChangeEvent, session: Session | null) {
   switch (event) {
     case 'INITIAL_SESSION':
       // Resolves the pending session from storage; never treated as a failure.
-      invalidSessionHandled = false;
+      state.invalidSessionHandled = false;
       applySession(event, session);
       break;
     case 'SIGNED_IN':
     case 'USER_UPDATED':
-      invalidSessionHandled = false;
+      state.invalidSessionHandled = false;
       applySession(event, session);
       break;
     case 'TOKEN_REFRESHED':
@@ -156,12 +193,12 @@ function handleAuthEvent(event: AuthChangeEvent, session: Session | null) {
         handleInvalidSession('Refreshed session is missing.');
         return;
       }
-      invalidSessionHandled = false;
+      state.invalidSessionHandled = false;
       applySession(event, session);
       break;
     case 'SIGNED_OUT': {
       const deliberate = wasDeliberateSignOut();
-      if (!deliberate && snapshot.status === 'authenticated') {
+      if (!deliberate && state.snapshot.status === 'authenticated') {
         // The session vanished underneath the app (revoked, expired, or cleared).
         setSnapshot(
           {
@@ -171,7 +208,7 @@ function handleAuthEvent(event: AuthChangeEvent, session: Session | null) {
             status: 'unauthenticated',
             isInitialised: true,
             invalidated: true,
-            invalidReason: snapshot.invalidReason ?? 'Your session expired. Please sign in again.',
+            invalidReason: state.snapshot.invalidReason ?? 'Your session expired. Please sign in again.',
           },
           event,
         );
@@ -187,16 +224,16 @@ function handleAuthEvent(event: AuthChangeEvent, session: Session | null) {
 }
 
 function ensureSubscription(): void {
-  if (subscription) return;
+  if (state.subscription) return;
   if (!supabase) {
     // Demo mode: no auth backend, so resolve as signed-out exactly once.
-    if (!snapshot.isInitialised) {
+    if (!state.snapshot.isInitialised) {
       setSnapshot({ status: 'unauthenticated', isInitialised: true }, null);
     }
     return;
   }
 
-  subscription = supabase.auth.onAuthStateChange(handleAuthEvent).data.subscription;
+  state.subscription = supabase.auth.onAuthStateChange(handleAuthEvent).data.subscription;
 
   // Defensive hydration: supabase-js normally emits INITIAL_SESSION for new
   // subscribers, but resolving the session directly keeps the store correct even
@@ -206,7 +243,7 @@ function ensureSubscription(): void {
       reportSessionError(error);
       return;
     }
-    if (snapshot.isInitialised) return;
+    if (state.snapshot.isInitialised) return;
     applySession('INITIAL_SESSION', data.session);
   }).catch((error: unknown) => {
     reportSessionError(error);
@@ -216,18 +253,22 @@ function ensureSubscription(): void {
 /**
  * Subscribe to auth events. The handler is invoked immediately with the current
  * snapshot, then on every Supabase auth event. Returns an unsubscribe function.
+ *
+ * HMR/react-strict safe: adding a handler never creates a second Supabase auth
+ * listener because the underlying subscription is owned by the globalThis-backed
+ * module state above.
  */
 export function subscribeToAuthChanges(handler: AuthSessionHandler): () => void {
   handlers.add(handler);
   ensureSubscription();
-  handler(snapshot.event, snapshot.session, snapshot);
+  handler(state.snapshot.event, state.snapshot.session, state.snapshot);
   return () => {
     handlers.delete(handler);
   };
 }
 
 export function getAuthSnapshot(): AuthSessionSnapshot {
-  return snapshot;
+  return state.snapshot;
 }
 
 /**
@@ -243,8 +284,8 @@ export function reportSessionError(error: unknown): boolean {
 }
 
 function handleInvalidSession(reason: string): void {
-  if (invalidSessionHandled) return;
-  invalidSessionHandled = true;
+  if (state.invalidSessionHandled) return;
+  state.invalidSessionHandled = true;
 
   setSnapshot(
     {
@@ -278,4 +319,19 @@ export function redirectToLogin(): boolean {
   window.history.replaceState({}, document.title, target);
   window.dispatchEvent(new PopStateEvent('popstate'));
   return true;
+}
+
+/**
+ * Test/teardown helper: drop the retained subscription so a fresh module
+ * instance in unit tests can re-register cleanly. Not used at runtime.
+ */
+export function __resetAuthSessionForTests(): void {
+  if (state.subscription) {
+    try { state.subscription.unsubscribe(); } catch { /* noop */ }
+  }
+  state.subscription = null;
+  state.handlers.clear();
+  state.snapshot = { ...EMPTY_SNAPSHOT };
+  state.deliberateSignOutAt = 0;
+  state.invalidSessionHandled = false;
 }

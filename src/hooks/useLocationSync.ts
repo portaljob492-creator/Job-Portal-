@@ -34,14 +34,52 @@ const IDLE_STATE: LocationSyncState = {
   syncCount: 0,
 };
 
-let engine: LocationSyncEngine | null = null;
-let lifecycleStarted = false;
-let preference: LocationSyncPreference | null = null;
+/**
+ * HMR/StrictMode safety: location sync owns a module-level engine, an auth
+ * subscription, and view listeners. When Vite reloads this module during
+ * development the module-scoped `let` bindings reset, which would otherwise
+ * create a second engine + a second subscription to the shared auth store on
+ * every hot reload. Mirroring the singleton pattern used for the Supabase
+ * client and the auth store, park all mutable state on `globalThis` so every
+ * module evaluation binds to the same live engine/listeners.
+ */
+interface LocationSyncModuleState {
+  engine: LocationSyncEngine | null;
+  engineSubscribed: boolean;
+  lifecycleStarted: boolean;
+  preference: LocationSyncPreference | null;
+  authUnsubscribe: (() => void) | null;
+  viewListeners: Set<() => void>;
+  cachedView: LocationSyncView | null;
+  cachedEngineState: LocationSyncState | null;
+  cachedPreference: LocationSyncPreference | null;
+}
 
-const viewListeners = new Set<() => void>();
-let cachedView: LocationSyncView | null = null;
-let cachedEngineState: LocationSyncState | null = null;
-let cachedPreference: LocationSyncPreference | null = null;
+const LOCATION_SYNC_GLOBAL_KEY = '__nexoraJobPortalLocationSync' as const;
+
+function getLocationSyncState(): LocationSyncModuleState {
+  const g = globalThis as unknown as {
+    [LOCATION_SYNC_GLOBAL_KEY]?: LocationSyncModuleState;
+  };
+  let state = g[LOCATION_SYNC_GLOBAL_KEY];
+  if (!state) {
+    state = {
+      engine: null,
+      engineSubscribed: false,
+      lifecycleStarted: false,
+      preference: null,
+      authUnsubscribe: null,
+      viewListeners: new Set<() => void>(),
+      cachedView: null,
+      cachedEngineState: null,
+      cachedPreference: null,
+    };
+    g[LOCATION_SYNC_GLOBAL_KEY] = state;
+  }
+  return state;
+}
+
+const loc = getLocationSyncState();
 
 export interface LocationSyncView {
   state: LocationSyncState;
@@ -64,23 +102,23 @@ export interface LocationSyncController extends LocationSyncView {
 }
 
 function emitViewChange() {
-  cachedView = null;
-  viewListeners.forEach((listener) => listener());
+  loc.cachedView = null;
+  loc.viewListeners.forEach((listener) => listener());
 }
 
 function readPreference(): LocationSyncPreference {
-  if (preference) return preference;
+  if (loc.preference) return loc.preference;
   try {
     const stored = window.localStorage.getItem(LOCATION_SYNC_PREFERENCE_KEY);
-    preference = stored === 'off' ? 'off' : 'on';
+    loc.preference = stored === 'off' ? 'off' : 'on';
   } catch {
-    preference = 'on';
+    loc.preference = 'on';
   }
-  return preference;
+  return loc.preference;
 }
 
 function writePreference(next: LocationSyncPreference) {
-  preference = next;
+  loc.preference = next;
   try {
     window.localStorage.setItem(LOCATION_SYNC_PREFERENCE_KEY, next);
   } catch {
@@ -93,22 +131,29 @@ function createRpcClient(): LocationSyncClient | null {
   if (!supabase) return null;
   return {
     rpc: async (fn, args) => {
+      // supabase.rpc() resolves failures as { data: null, error } — a missing
+      // RPC (live project without the location-sync migration) never throws
+      // here, so the engine can classify it and drop the watch cleanly.
       const { data, error } = await supabase.rpc(fn, args as never);
+      const rich = error as unknown as { code?: string; message?: string; status?: number; statusCode?: number } | null;
       return {
         data: data ?? null,
-        error: error ? { code: error.code ?? undefined, message: error.message } : null,
+        error: error
+          ? { code: rich?.code ?? undefined, message: rich?.message ?? error.message, status: rich?.status, statusCode: rich?.statusCode }
+          : null,
       };
     },
   };
 }
 
 function getEngine(): LocationSyncEngine | null {
-  if (engine) return engine;
+  if (loc.engine) return loc.engine;
   const client = createRpcClient();
   if (!client) return null;
-  engine = createLocationSyncEngine({ client });
-  engine.subscribe(() => emitViewChange());
-  return engine;
+  loc.engine = createLocationSyncEngine({ client });
+  loc.engine.subscribe(() => emitViewChange());
+  loc.engineSubscribed = true;
+  return loc.engine;
 }
 
 /** Decides whether the watcher should be running right now. */
@@ -133,37 +178,40 @@ function reconcile() {
 
 /** Installs the single auth/preference driven lifecycle. Safe to call repeatedly. */
 export function startLocationSyncLifecycle(): void {
-  if (lifecycleStarted) return;
-  lifecycleStarted = true;
+  if (loc.lifecycleStarted) return;
+  loc.lifecycleStarted = true;
 
   // One subscription to the shared auth store; no extra Supabase auth listener.
-  subscribeToAuthChanges(() => reconcile());
+  // Store the unsubscribe on globalThis so HMR can't leak a second one.
+  if (!loc.authUnsubscribe) {
+    loc.authUnsubscribe = subscribeToAuthChanges(() => reconcile());
+  }
   reconcile();
 }
 
 function getView(): LocationSyncView {
   const state = getEngine()?.getState() ?? IDLE_STATE;
   const currentPreference = readPreference();
-  if (cachedView && cachedEngineState === state && cachedPreference === currentPreference) {
-    return cachedView;
+  if (loc.cachedView && loc.cachedEngineState === state && loc.cachedPreference === currentPreference) {
+    return loc.cachedView;
   }
 
-  cachedEngineState = state;
-  cachedPreference = currentPreference;
-  cachedView = {
+  loc.cachedEngineState = state;
+  loc.cachedPreference = currentPreference;
+  loc.cachedView = {
     state,
     preference: currentPreference,
     enabled: currentPreference === 'on',
     active: state.status === 'watching' || state.status === 'syncing' || state.status === 'synced',
     unavailable: state.status === 'unsupported' || state.status === 'denied',
   };
-  return cachedView;
+  return loc.cachedView;
 }
 
 function subscribeToView(listener: () => void): () => void {
-  viewListeners.add(listener);
+  loc.viewListeners.add(listener);
   return () => {
-    viewListeners.delete(listener);
+    loc.viewListeners.delete(listener);
   };
 }
 
@@ -200,4 +248,26 @@ export function useLocationSync(): LocationSyncController {
   }, []);
 
   return { ...view, enable, disable, syncNow };
+}
+
+/**
+ * Test/teardown helper: drop retained state so a fresh module instance in unit
+ * tests can re-register cleanly. Not used at runtime.
+ */
+export function __resetLocationSyncForTests(): void {
+  if (loc.authUnsubscribe) {
+    try { loc.authUnsubscribe(); } catch { /* noop */ }
+  }
+  if (loc.engine) {
+    try { loc.engine.stop(); } catch { /* noop */ }
+  }
+  loc.engine = null;
+  loc.engineSubscribed = false;
+  loc.lifecycleStarted = false;
+  loc.preference = null;
+  loc.authUnsubscribe = null;
+  loc.viewListeners.clear();
+  loc.cachedView = null;
+  loc.cachedEngineState = null;
+  loc.cachedPreference = null;
 }

@@ -265,7 +265,7 @@ check('employer application status UI awaits secured Supabase persistence',
   && /if \(currentUserId\) await updateApplicationStatus/.test(read('src/App.tsx')));
 check('employer applications RPC is actor-scoped and returns selected resume metadata',
   read('src/services/backend.ts').includes("rpc('get_employer_job_applications'")
-  && /j\.created_by=actor/.test(finalFunctionBody.get_employer_job_applications || '')
+  && (/j\.created_by=actor/.test(finalFunctionBody.get_employer_job_applications || '') || /job_my_active_salon_ids/.test(finalFunctionBody.get_employer_job_applications || ''))
   && /resume_storage_path/.test(sql));
 check('My Applications renders the requested job and application fields',
   ['My Applications', 'Salary Range', 'Job Type', 'Applied Date', 'View Job', 'Withdraw Application']
@@ -506,6 +506,55 @@ const envExample = read('.env.example');
 check('.env.example documents both Vite variables',
   envExample.includes('VITE_SUPABASE_URL') && envExample.includes('VITE_SUPABASE_ANON_KEY'));
 check('.env.example holds no real key', !/eyJ[A-Za-z0-9_-]{20,}/.test(envExample));
+
+// ---------------------------------------------------------------------------
+// 6. Workspace resilience + production 404 reconciliation contract
+//    (docs/production-error-fixes.md; mirrors the loadWorkspace hardening)
+// ---------------------------------------------------------------------------
+{
+  const backend = read('src/services/backend.ts');
+  const workspace = backend.slice(
+    backend.indexOf('export async function loadWorkspace'),
+    backend.indexOf('const salonMap'),
+  );
+  const parallelLoad = workspace.slice(workspace.indexOf('await Promise.all(['));
+  const unsafeLines = parallelLoad
+    .split('\n')
+    .filter((line) => /client\.(from|rpc)\(/.test(line) && !/settle\(/.test(line) && !/Promise\.resolve/.test(line));
+  check('loadWorkspace settles every parallel query (no raw builder inside Promise.all)',
+    unsafeLines.length === 0,
+    unsafeLines.map((l) => l.trim()).join(' | '));
+  check('loadWorkspace keeps critical/non-critical split after settling',
+    /criticalError/.test(workspace) && /non-critical \$\{name\} failed, using empty fallback/.test(workspace));
+  check('applications query degrades to the plain select on embed-resolution failures',
+    /seekerApplicationsQuery/.test(workspace) && /isEmbedResolutionError/.test(workspace) && /\.select\('\*'\)/.test(workspace));
+  check('employer jobs query degrades the same way',
+    /employerJobsQuery/.test(workspace));
+  check('schema-gap note is emitted for PGRST202/205 fallbacks',
+    /schemaGapNote/.test(backend) && /PGRST202/.test(backend) && /PGRST205/.test(backend));
+
+  const access = read('supabase/migrations/20260914120000_jobs_applications_access.sql');
+  check('job_applications grants include the column-scoped update posture only',
+    /grant select, insert, delete on table public.job_applications to authenticated/.test(access)
+      && /grant update \(status, employer_notes\) on table public.job_applications to authenticated/.test(access));
+  check('job_applications FK repair targets both embed names the client uses',
+    access.includes('job_applications_job_id_fkey') && access.includes('job_posts_location_id_fkey'));
+  check('realtime publication for job_applications is re-asserted',
+    /supabase_realtime add table public.job_applications/.test(access));
+
+  const rpcReconcile = read('supabase/migrations/20260914120001_jobs_workspace_rpc_reconcile.sql');
+  for (const fn of ['get_employer_job_applications', 'get_my_job_application_listings']) {
+    check(`${fn} re-declared idempotently`, new RegExp(`create or replace function public\\.${fn}\\(`).test(rpcReconcile));
+    check(`${fn} executes only for authenticated`, new RegExp(`grant execute on function public\\.${fn}\\([^)]*\\) to authenticated`).test(rpcReconcile));
+  }
+
+  const locationEnsure = read('supabase/migrations/20260914120002_jobs_user_location_ensure.sql');
+  for (const fn of ['sync_user_location', 'clear_user_location', 'job_current_user_location']) {
+    check(`${fn} re-ensured idempotently`, new RegExp(`create or replace function public\\.${fn}\\(`).test(locationEnsure));
+  }
+  check('job_user_locations table re-ensured with if-not-exists guard',
+    /create table if not exists public\.job_user_locations/.test(locationEnsure));
+}
 
 // ---------------------------------------------------------------------------
 // Report

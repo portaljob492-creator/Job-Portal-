@@ -309,6 +309,40 @@ function createHarness(clientResponder) {
 }
 
 {
+  // The EXACT production shapes of the `user_location` 404 (PostgREST
+  // PGRST202/PGRST205 responses and the HTTP status the transport reports):
+  // all must classify as 'unsupported' — watcher released, no retry storm.
+  for (const [label, error] of [
+    ['PGRST202', { code: 'PGRST202', message: `Could not find the function public.sync_user_location(p_accuracy_m, p_latitude, p_longitude, p_source) in the schema cache` }],
+    ['PGRST205', { code: 'PGRST205', message: `Could not find the table 'public.job_user_locations' in the schema cache` }],
+    ['http-404', { message: 'Not Found', status: 404 }],
+  ]) {
+    const harness = createHarness(() => ({ data: null, error }));
+    const { engine, geolocation, client } = harness;
+    engine.start('user-1');
+    geolocation.activeWatchers()[0].success(position(19.076, 72.8777));
+    await tick();
+    assertCheck(`location ${label} marks unsupported`, engine.state.status === 'unsupported', engine.state.status);
+    assertCheck(`location ${label} releases watcher`, geolocation.activeWatchers().length === 0);
+    // A further fix must NOT re-push after the endpoint was declared missing.
+    engine.handlePosition(position(19.08, 72.88));
+    await tick();
+    assertCheck(`location ${label} does not retry after unsupported`, client.calls.length <= 1, String(client.calls.length));
+  }
+}
+
+{
+  // A client whose rpc REJECTS (transport blowup, not a PostgREST error) must
+  // settle into an 'error' state without an unhandled promise rejection.
+  const harness = createHarness(() => Promise.reject(new Error('network down')));
+  const { engine } = harness;
+  engine.start('user-1');
+  harness.geolocation.activeWatchers()[0].success(position(19.076, 72.8777));
+  await tick();
+  assertCheck('rejecting rpc settles as error state', engine.state.status === 'error', engine.state.status);
+}
+
+{
   // An RPC that rejects the session stops syncing for that user.
   const harness = createHarness(() => ({ data: null, error: { code: '28000', message: 'AUTH_REQUIRED' } }));
   const { engine, geolocation } = harness;
@@ -373,6 +407,24 @@ assertCheck(
   clientFactories.length === 1 && clientFactories[0].file === 'src/lib/supabase.ts',
   clientFactories.map((source) => source.file).join(','),
 );
+
+// …and inside that factory, exactly ONE `createClient(...)` call site. Diagnostics
+// used to build a throwaway second client "to prove initialization", which makes
+// supabase-js log "Multiple GoTrueClient instances detected … under the same
+// storage key" on every page load (a second GoTrueClient under the same key
+// increments the instance counter and races the persisted PKCE session).
+{
+  const supaSrc = fs
+    .readFileSync(path.join(root, 'src/lib/supabase.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '') // strip block comments
+    .replace(/^\s*\/\/.*$/gm, ''); // strip line comments
+  const callSites = supaSrc.match(/(?<![.\w])createClient\s*\(/g) ?? [];
+  assertCheck(
+    'single GoTrueClient instance: one createClient call site in src/lib/supabase.ts',
+    callSites.length === 1,
+    `found ${callSites.length}`,
+  );
+}
 
 const authListeners = sources.filter((source) => /onAuthStateChange\s*\(/.test(source.text));
 assertCheck(

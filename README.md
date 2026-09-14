@@ -248,8 +248,15 @@ npm run test:contract # frontend/backend contract (offline, no credentials)
 npm run test:db       # replays every migration on a real PostgreSQL (offline)
 npm run test:location # auth + location sync checks (offline, no credentials)
 npm run test:reset    # password policy, recovery-token parsing, reset CLI (offline)
-npm run test:pwa      # build + PWA artifact checks
+npm run test:pwa      # build + PWA artifact checks (incl. classic-script SW evaluation)
+npm run test:gotrue   # exactly one GoTrueClient instance in a browser context (offline)
 ```
+
+Production console-error triage (GoTrueClient warning, service-worker evaluation
+failure, `job_applications` / `user_location` 404s) is documented in
+[`docs/production-error-fixes.md`](docs/production-error-fixes.md), including the
+`npm run check:supabase` schema-coverage probe and the `supabase db push` remediation
+for 404s caused by unapplied migrations.
 
 `npm run test:db` covers tenant isolation as well as the happy paths: it runs
 every workflow as the `authenticated` role and then tries to break out of it —

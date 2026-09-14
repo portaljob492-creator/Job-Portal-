@@ -324,7 +324,12 @@ export interface SupabaseDiagnosticsReport {
   };
   isSupabaseConfigured: boolean;
   clientInitialized: boolean;
-  /** Result of a throwaway `createClient(...)` init attempt with the same inputs. */
+  /**
+   * Result of the client-initialization proof. Inspects the SHARED singleton
+   * (created with these exact inputs); never builds a throwaway second client,
+   * because a second `GoTrueClient` under the same storage key triggers the
+   * "Multiple GoTrueClient instances detected" warning and races session storage.
+   */
   initAttempt: { attempted: boolean; ok: boolean; error: string | null };
   storageKey: string;
   missingSupabaseEnv: readonly string[];
@@ -410,18 +415,21 @@ export function diagnoseSupabaseEnv(): SupabaseDiagnosticsReport {
   // can never label an sb_secret_* key or service_role JWT as browser-safe.
   const keyValidShape = isValidSupabaseAnonKey(effectiveSupabaseAnonKey);
 
-  // Attempt a throwaway client init with the exact same inputs, so the report
-  // proves initialization works instead of only reporting env presence.
+  // Prove initialization from the shared singleton that the app actually uses.
+  // Do NOT construct a throwaway `createClient(...)` here: supabase-js keeps a
+  // per-storageKey instance counter and every second GoTrueClient in the same
+  // browser context logs "Multiple GoTrueClient instances detected…" and can
+  // race the shared client over the persisted PKCE session. The singleton was
+  // created above with these exact inputs, so a usable singleton IS the proof.
   let initOk = false;
   let initError: string | null = null;
   let attempted = false;
   if (isSupabaseConfigured) {
     attempted = true;
-    try {
-      createClient(supabaseUrl, supabaseAnonKey, { auth: buildAuthClientOptions() });
+    if (supabase && typeof supabase.auth?.getSession === 'function' && typeof supabase.from === 'function') {
       initOk = true;
-    } catch (error) {
-      initError = error instanceof Error ? error.message : String(error);
+    } else {
+      initError = 'Shared client singleton did not initialize — check the supabase-js version and browser storage access.';
     }
   } else {
     initError = `Missing ${blockingSupabaseEnv.join(', ') || 'credentials'} — client not created (demo mode).`;
@@ -505,7 +513,8 @@ export interface RunSupabaseDiagnosticsOptions {
 }
 
 /**
- * Diagnostic entry point: attempts client initialization, checks both `VITE_*`
+ * Diagnostic entry point: verifies the shared client initialization, checks both
+ * `VITE_*`
  * variables for presence + validity, and prints the result to the console so a
  * production deploy can be verified from DevTools. Returns the full report and
  * stores it on `window.__NEXORA_SUPABASE_DIAGNOSTICS__` for inspection.

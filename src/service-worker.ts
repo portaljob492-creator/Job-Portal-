@@ -1,10 +1,28 @@
-
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 import { clientsClaim } from 'workbox-core';
 import { openDB } from 'idb';
 import { logger } from './lib/logger';
 
 const swLog = logger('sw');
+
+/**
+ * This file runs inside `ServiceWorkerGlobalScope` and is registered as a
+ * CLASSIC script (`type:'classic'` via vite-plugin-pwa). Two hard rules follow
+ * from that, enforced by `npm run test:pwa`:
+ *
+ *  1. No bare `import.meta` may survive into the built bundle (parse-time
+ *     SyntaxError in classic scripts — the exact cause of the production
+ *     "ServiceWorker script evaluation failed"). Shared modules imported here
+ *     must reference `import.meta.env` as a whole unit so Vite replaces it.
+ *  2. `window`/`document` do not exist in worker scopes. Never reference them
+ *     (guarded or not — `typeof window` alone is fine but pointless here);
+ *     worker-scoped globals are reached through `self`, and `location` — which
+ *     does exist on `ServiceWorkerGlobalScope` but NOT on a plain
+ *     `WorkerGlobalScope` — is read through `self.location` with a fallback so
+ *     the module graph stays valid even under a stripped-down evaluation
+ *     context (tests, exotic hosts) instead of throwing a runtime
+ *     ReferenceError.
+ */
 
 /** Minimal shape of the worker global this file actually touches. */
 interface BackgroundSyncEvent {
@@ -19,13 +37,88 @@ interface WorkerFetchEvent {
 
 declare const self: {
   readonly __WB_MANIFEST: Array<string | { url: string; revision?: string | null }>;
+  readonly location?: { readonly origin?: string; readonly href?: string };
+  addEventListener(type: 'install', listener: (event: ExtendableEvent) => void): void;
+  addEventListener(type: 'activate', listener: (event: ExtendableEvent) => void): void;
   addEventListener(type: 'sync', listener: (event: BackgroundSyncEvent) => void): void;
   addEventListener(type: 'fetch', listener: (event: WorkerFetchEvent) => void): void;
+  skipWaiting(): Promise<void>;
+  clients: { claim(): Promise<void> };
 };
 
-cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST);
+interface ExtendableEvent {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
+/** Same-origin check without touching a bare `location` global (see rules above). */
+function selfOrigin(): string {
+  const viaHref = typeof self.location?.href === 'string' ? self.location.href : '';
+  if (typeof self.location?.origin === 'string' && self.location.origin) return self.location.origin;
+  try {
+    return new URL(viaHref || 'https://localhost/').origin;
+  } catch {
+    return 'https://localhost';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Precaching — the injected manifest is replaced at build time.
+// Wrap in try/catch so a malformed manifest never becomes a hard
+// "evaluation failed" on the very first line users execute.
+// ---------------------------------------------------------------------------
+try {
+  cleanupOutdatedCaches();
+  precacheAndRoute(self.__WB_MANIFEST);
+} catch (error) {
+  swLog.error('precache setup failed — manifest may be missing', error);
+}
+
+// Take control of uncontrolled clients as soon as the new SW activates.
+// Workbox's clientsClaim() does this via an activate listener; we keep the
+// call and also handle skipWaiting/cleanup explicitly below so an old broken
+// SW can be replaced without a second reload.
 clientsClaim();
+
+// Ensure the new worker activates immediately on install (instead of waiting
+// for all tabs to close). This is what lets a fixed SW replace a broken one
+// that is stuck in "waiting".
+self.addEventListener('install', (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+// On activate, purge any runtime caches from a previous CACHE_VERSION so
+// stale public-job or image entries cannot survive a deploy and serve outdated
+// hashes. Workbox's cleanupOutdatedCaches() already handles precache
+// version skew; this handles our own named runtime caches.
+const CACHE_VERSION = 'v2';
+const PUBLIC_JOBS_CACHE = `nexora-public-jobs-${CACHE_VERSION}`;
+const PUBLIC_IMAGES_CACHE = `nexora-public-images-${CACHE_VERSION}`;
+const GOOGLE_FONTS_CACHE = `nexora-google-fonts-${CACHE_VERSION}`;
+const RUNTIME_CACHE_PREFIX = 'nexora-';
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(
+          keys
+            .filter(
+              (key) => key.startsWith(RUNTIME_CACHE_PREFIX) && !key.endsWith(`-${CACHE_VERSION}`),
+            )
+            .map((key) => caches.delete(key)),
+        );
+      } catch (error) {
+        swLog.warn('runtime cache cleanup failed', error);
+      }
+      try {
+        await self.clients.claim();
+      } catch (error) {
+        swLog.warn('clients.claim() failed', error);
+      }
+    })(),
+  );
+});
 
 const DB_NAME = 'nexora-offline-db';
 const STORE_NAME = 'pending-actions';
@@ -33,7 +126,9 @@ const STORE_NAME = 'pending-actions';
 async function getDB() {
   return openDB(DB_NAME, 1, {
     upgrade(db) {
-      db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      }
     },
   });
 }
@@ -54,9 +149,6 @@ self.addEventListener('sync', (event) => {
 /* authed REST) always go to the network and are never stored.          */
 /* ------------------------------------------------------------------ */
 
-const PUBLIC_JOBS_CACHE = 'nexora-public-jobs-v1';
-const PUBLIC_IMAGES_CACHE = 'nexora-public-images-v1';
-const GOOGLE_FONTS_CACHE = 'nexora-google-fonts-v1';
 const NETWORK_TIMEOUT_MS = 5000;
 
 function isPublicJobListings(request: Request, url: URL): boolean {
@@ -69,7 +161,7 @@ function isPublicJobListings(request: Request, url: URL): boolean {
 }
 
 function isCacheableImage(request: Request, url: URL): boolean {
-  return request.method === 'GET' && request.destination === 'image' && url.origin !== location.origin;
+  return request.method === 'GET' && request.destination === 'image' && url.origin !== selfOrigin();
 }
 
 function isGoogleFont(url: URL): boolean {

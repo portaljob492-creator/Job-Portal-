@@ -24,6 +24,7 @@
     "test:db": "node scripts/test-backend-db.mjs",
     "test:contract": "node scripts/test-backend-contract.mjs",
     "check:supabase": "node scripts/verify-supabase-config.mjs",
+    "test:gotrue": "tsx scripts/test-gotrue-singleton.mjs",
     "admin:reset-password": "tsx scripts/reset-user-password.mjs"
   },
   "dependencies": {
