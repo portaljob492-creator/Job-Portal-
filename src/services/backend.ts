@@ -961,34 +961,35 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
   const client = requireSupabase();
   const applicationSelect = `*, job:job_posts!job_applications_job_id_fkey(*, location:job_salon_locations!job_posts_location_id_fkey(*)), interviews:job_interview_requests(*), offers:job_offers(*)`;
 
-  // Resolve the employer's salon for their profile while keeping My Job Posts
-  // actor-scoped below. `job_posts` RLS also exposes approved public listings,
-  // so every employer jobs query needs an explicit ownership predicate.
-  const membershipResult = await client
-    .from('job_salon_members')
-    .select('salon_id,member_role')
-    .eq('user_id', user.id)
-    .eq('status', 'active')
-    .limit(1)
-    .maybeSingle();
-  if (membershipResult.error) {
-    throw new Error(extractErrorMessage(membershipResult.error, 'Unable to load employer membership.'));
+  // --- FIX FOR NEW ACCOUNTS: membership is best-effort, never hard-fail for seeker ---
+  let membership: any = null;
+  try {
+    const membershipResult = await client
+      .from('job_salon_members')
+      .select('salon_id,member_role')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle();
+    if (membershipResult.error) {
+      // For new seeker accounts, no membership is normal – don't throw
+      // For employer, log but continue with null (profile will still load)
+      console.warn('[loadWorkspace] membership lookup failed (non-critical for new accounts):', membershipResult.error);
+    } else {
+      membership = membershipResult.data;
+    }
+  } catch (e) {
+    console.warn('[loadWorkspace] membership exception (ignored for new accounts):', e);
   }
-  const membership: any = membershipResult.data;
 
   const employerJobsQuery = client
     .from('job_posts')
     .select('*, location:job_salon_locations!job_posts_location_id_fkey(*)')
-    // My Job Posts is intentionally actor-scoped: salon teammates must not be
-    // mixed into the signed-in employer's personal posting history.
     .eq('created_by', user.id)
     .order('created_at', { ascending: false });
 
+  // Parallel load – critical vs non-critical split
   const [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult, salonProfilesResult] = await Promise.all([
-    // maybeSingle: a missing profiles row (marketplace trigger lag, legacy user)
-    // must degrade to defaults, never fail the whole workspace load. The Jobs
-    // signup trigger best-effort ensures the row; see migration
-    // 20260913000600_jobs_profile_sync.sql.
     client.from('profiles').select('id,full_name,phone,avatar_path,preferred_city,preferred_area').eq('id', user.id).maybeSingle(),
     client.from('job_seeker_profiles').select('*').eq('user_id', user.id).maybeSingle(),
     role === 'seeker'
@@ -1007,14 +1008,33 @@ export async function loadWorkspace(user: User, role: UserRole): Promise<Workspa
     client.from('public_job_salon_profiles').select('*'),
   ]);
 
-  const error = [profileResult, candidateResult, jobsResult, bookmarksResult, conversationsResult, messagesResult, filtersResult, alertsResult, applicationsResult, applicationListingsResult, applicantCardsResult, salonProfilesResult]
-    .map((result: any) => result.error)
-    .find(Boolean);
-  if (error) {
-    // Wrap Supabase PostgREST errors (plain objects) into Error instances so
-    // the UI's generic fallback ("Unable to validate your portal access") is
-    // never shown for a known failure – the real message surfaces instead.
-    throw new Error(extractErrorMessage(error, 'Unable to load your workspace.'));
+  // --- NEW ACCOUNT FIX: only profile and jobs are critical, others degrade to empty ---
+  // For new accounts, conversations/messages/RPCs often fail with RLS or "no role" until
+  // onboarding completes – we must not throw "Unable to load your workspace" for that.
+  const criticalError = [profileResult, jobsResult].map((r: any) => r.error).find(Boolean);
+  if (criticalError) {
+    throw new Error(extractErrorMessage(criticalError, 'Unable to load your workspace.'));
+  }
+  // Non-critical: log and continue with empty data so new accounts can still reach onboarding
+  const nonCritical = [
+    { name: 'bookmarks', result: bookmarksResult },
+    { name: 'conversations', result: conversationsResult },
+    { name: 'messages', result: messagesResult },
+    { name: 'filters', result: filtersResult },
+    { name: 'alerts', result: alertsResult },
+    { name: 'applications', result: applicationsResult },
+    { name: 'applicationListings', result: applicationListingsResult },
+    { name: 'applicantCards', result: applicantCardsResult },
+    { name: 'salonProfiles', result: salonProfilesResult },
+    { name: 'candidate', result: candidateResult },
+  ];
+  for (const { name, result } of nonCritical) {
+    if ((result as any)?.error) {
+      console.warn(`[loadWorkspace] non-critical ${name} failed, using empty fallback:`, (result as any).error);
+      // Patch result to empty so downstream mapping doesn't crash
+      (result as any).data = [];
+      (result as any).error = null;
+    }
   }
 
   const salonMap = new Map<string, any>((salonProfilesResult.data || []).map((s: any) => [s.id, s]));
