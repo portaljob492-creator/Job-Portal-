@@ -834,27 +834,45 @@ export async function getUserRole(user: User): Promise<UserRole> {
     throw new Error(msg);
   }
   if (!data?.role) {
-    // Auto-heal: if the account has no portal role row (e.g. created by another
-    // Nexora app, or the signup trigger hit a FK guard), try to assign one
-    // from the user's metadata. This prevents a hard "Unable to validate your
-    // portal access" dead-end on a valid session.
+    // Auto-heal: account exists but job_user_roles row missing (cross-app, OAuth,
+    // trigger FK guard, or legacy). Try to assign a role so the session never
+    // hits a hard "Unable to validate your portal access" dead-end.
     const metaRoleRaw =
       (user.user_metadata?.role as string | undefined) ||
       (user.user_metadata?.job_role as string | undefined) ||
       '';
     const metaRole = metaRoleRaw.toLowerCase();
-    const inferred: UserRole | null =
-      metaRole === 'employer' ? 'employer' : metaRole === 'seeker' || metaRole === 'job_seeker' ? 'seeker' : null;
+    const inferredFromMeta: UserRole | null =
+      metaRole === 'employer' ? 'employer'
+      : metaRole === 'admin' ? 'admin'
+      : metaRole === 'seeker' || metaRole === 'job_seeker' ? 'seeker'
+      : null;
 
-    if (inferred) {
+    // Try metadata role first, then seeker, then employer – one of them will
+    // succeed via job_register_role which also ensures the shared profiles row.
+    const candidates: UserRole[] = [
+      ...(inferredFromMeta ? [inferredFromMeta] : []),
+      'seeker',
+      'employer',
+    ];
+
+    // Deduplicate
+    const tried = new Set<string>();
+    for (const candidate of candidates) {
+      if (tried.has(candidate)) continue;
+      tried.add(candidate);
       try {
-        const resolved = await authBackend.resolvePortalRole(inferred, user.email || '');
+        const resolved = await authBackend.resolvePortalRole(candidate, user.email || '');
         return resolved;
-      } catch {
-        // Fall through to the explicit unassigned error below – the caller
-        // (App bootstrap) will then offer a portal switch / re-login.
+      } catch (e) {
+        // If it's a mismatch (account already has other portal), return that
+        // other portal instead of continuing – that's the permanent role.
+        const parsed = parsePortalRoleMismatch(e, candidate, user.email || '');
+        if (parsed) return parsed.existingRole;
+        // Otherwise try next candidate
       }
     }
+
     throw new Error('No Jobs portal role is assigned to this account. Please sign in through the correct portal.');
   }
   return frontendRole(data.role);
@@ -867,8 +885,14 @@ export async function isPortalOnboardingComplete(userId: string): Promise<boolea
     .eq('user_id', userId)
     .single();
   if (error) {
-    const msg = extractErrorMessage(error, 'Unable to validate your portal access.');
-    throw new Error(msg);
+    const msg = extractErrorMessage(error, '');
+    // If the role row is missing (PGRST116 no rows, or our unassigned message),
+    // onboarding is definitely not complete – send user to onboarding instead
+    // of throwing "Unable to validate your portal access".
+    if (/no rows|PGRST116|no jobs portal role is assigned/i.test(msg) || !msg) {
+      return false;
+    }
+    throw new Error(extractErrorMessage(error, 'Unable to validate your portal access.'));
   }
   return Boolean(data.onboarding_completed);
 }
