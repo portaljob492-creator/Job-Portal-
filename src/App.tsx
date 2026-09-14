@@ -1120,7 +1120,6 @@ export default function App() {
     const trimmedName = updatedProfile.name?.trim() || '';
     if (trimmedName.length < 2) {
       const msg = 'Name must be at least 2 characters';
-      setBackendError(msg);
       throw new Error(msg);
     }
     if (updatedProfile.role === 'employer') {
@@ -1128,12 +1127,10 @@ export default function App() {
       const contact = (updatedProfile.contactPerson || updatedProfile.name || '').trim();
       if (biz.length < 2) {
         const msg = 'Business name must be at least 2 characters';
-        setBackendError(msg);
         throw new Error(msg);
       }
       if (contact.length < 2) {
         const msg = 'Contact person must be at least 2 characters';
-        setBackendError(msg);
         throw new Error(msg);
       }
     }
@@ -1167,17 +1164,12 @@ export default function App() {
       }
       setUserProfile(updatedProfile);
     } catch (error) {
-      // The toast is intentionally generic; keep the raw backend failure in the
-      // console so the reason (validation, RLS, missing column, …) is visible.
+      // Keep the raw backend failure in the console so the reason is visible.
       logger('profile').error('profile update failed', error, {
         role: updatedProfile.role,
         rpc: updatedProfile.role === 'employer' ? 'job_update_employer_profile' : 'job_save_profile',
       });
-      const message = mapBackendError(error, 'Unable to save profile. Please retry.');
-      setBackendError(message);
-      // Preserve the original exception for the profile editor's temporary
-      // PROFILE_SAVE_FAILED diagnostic; the caller still maps it to a safe,
-      // generic message for the user-facing toast.
+      // Do not set global backendError here: caller forms/modals display their own inline error feedback
       throw error;
     }
   };

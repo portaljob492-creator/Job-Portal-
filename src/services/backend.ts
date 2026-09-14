@@ -1489,8 +1489,8 @@ export async function updateEmployerProfile(profile: UserProfile): Promise<void>
   try {
     await attempt();
   } catch (error) {
-    // The toast stays generic (see mapBackendError); record the real cause so a
-    // failed save can be traced without guessing which column or policy broke.
+    // Record the real cause so a failed save can be pinpointed in backend console.
+    console.error('EMPLOYER_PROFILE_UPDATE_FAILED:', error, { payload });
     profileLog.error('job_update_employer_profile failed', error, {
       hasLocation: Boolean(resolvedCity || resolvedState),
     });
