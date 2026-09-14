@@ -612,30 +612,14 @@ export const authBackend = {
     // exist"). The password grant then starts from a clean anonymous state.
     await clearSessionBeforeSignUp(client);
 
-    // --- AUTO-ROLE: resolve the email's permanent portal before checking password ---
-    // User should NOT need to remember if they are seeker/employer. If the email
-    // is already registered as seeker or employer, we automatically sign them
-    // into that portal, regardless of which tab they clicked.
     const { raw: storedRoleText, role: storedRole } = await readStoredPortalRole(client, normalizedEmail);
-    let effectiveRole = requestedRole;
-
-    if (storedRole && isEnterablePortalRole(storedRole) && storedRole !== requestedRole) {
-      // Auto-switch to the account's real portal – this is the fix the user asked:
-      // "jaise hi user gmail id / password add kare wo auto hi us user roll par login kare"
-      effectiveRole = storedRole;
-    } else {
-      // For admin or unknown roles, keep the original strict check. Admins still
-      // must use admin login; unknown emails proceed with the requested tab.
-      const decision = decideSignInPortal(storedRole, requestedRole);
-      if (decision.kind === 'mismatch') {
-        // Only admin mismatch is still a hard error. Seeker/employer mismatch
-        // is already auto-corrected above, so this path now only triggers for admin.
-        throw new PortalRoleMismatchError({
-          email: normalizedEmail,
-          requestedRole,
-          existingRole: decision.existingRole,
-        });
-      }
+    const decision = decideSignInPortal(storedRole, requestedRole);
+    if (decision.kind === 'mismatch') {
+      throw new PortalRoleMismatchError({
+        email: normalizedEmail,
+        requestedRole,
+        existingRole: decision.existingRole,
+      });
     }
 
     const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
@@ -643,7 +627,7 @@ export const authBackend = {
       if (isEmailNotConfirmedError(error)) {
         throw new PasswordSignInBlockedError({
           email: normalizedEmail,
-          role: effectiveRole,
+          role: requestedRole,
           reason: 'unconfirmed',
         });
       }
@@ -652,7 +636,7 @@ export const authBackend = {
           const oauthOnly = await checkOAuthOnlyAccount(normalizedEmail);
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
-            role: effectiveRole,
+            role: requestedRole,
             reason: 'wrong_password',
             oauthOnly,
           });
@@ -660,7 +644,7 @@ export const authBackend = {
         if (storedRoleText === 'unassigned') {
           throw new PasswordSignInBlockedError({
             email: normalizedEmail,
-            role: effectiveRole,
+            role: requestedRole,
             reason: 'unassigned',
           });
         }
@@ -670,18 +654,10 @@ export const authBackend = {
 
     let portalRole: UserRole;
     try {
-      // Use the auto-resolved effectiveRole so job_register_role never throws
-      // a mismatch for seeker/employer cross-login.
-      portalRole = await this.resolvePortalRole(effectiveRole, normalizedEmail);
+      portalRole = await this.resolvePortalRole(requestedRole, normalizedEmail);
     } catch (roleError) {
       await signOutDeliberately();
-      // If resolve still reports a mismatch (race condition), try to return the
-      // existing role directly instead of failing – auto-heal.
-      const parsed = parsePortalRoleMismatch(roleError, effectiveRole, normalizedEmail);
-      if (parsed && isEnterablePortalRole(parsed.existingRole)) {
-        return { ...data, portalRole: parsed.existingRole };
-      }
-      throw mapPortalRoleError(roleError, effectiveRole, normalizedEmail);
+      throw mapPortalRoleError(roleError, requestedRole, normalizedEmail);
     }
     return { ...data, portalRole };
   },
@@ -1777,7 +1753,6 @@ const rlsFriendlyPatterns: Array<{ test: RegExp; message: string }> = [
   { test: /PGRST116|no rows|not found.*profile/i, message: 'Your data was not found. It will be created automatically – please try again.' },
   { test: /JWT|expired|invalid.*token|auth.*required|ACCOUNT_INACTIVE/i, message: 'Your session expired. Please sign in again.' },
   { test: /duplicate key|already exists|unique.*violation/i, message: 'This entry already exists. Please refresh and check your data.' },
-  { test: /violates foreign key|foreign key/i, message: 'Related business data is missing. Please complete your business setup first.' },
 ];
 
 const looksLikeRawSql = /violates|constraint|relation "|column "|pg_|sqlstate|permission denied for|syntax error/i;
@@ -1788,9 +1763,14 @@ export function mapBackendError(error: unknown, fallback = 'Something went wrong
   const display = extractErrorMessage(error, signal);
   const token = signal.toUpperCase();
 
-  for (const [code, message] of Object.entries(backendErrorMessages)) {
-    if (token.includes(code)) {
-      if (code === 'VALIDATION_ERROR' && display.includes(':')) {
+  const code = (error as any)?.code;
+  if (code === '42703' || code === '23502' || looksLikeRawSql.test(display)) {
+    profileLog.error('raw_postgres_error_caught', error, { code, display });
+  }
+
+  for (const [codeKey, message] of Object.entries(backendErrorMessages)) {
+    if (token.includes(codeKey)) {
+      if (codeKey === 'VALIDATION_ERROR' && display.includes(':')) {
         const afterColon = display.split(':').slice(1).join(':').trim();
         if (afterColon && afterColon.length < 140 && afterColon.length > 5 && !looksLikeRawSql.test(afterColon)) {
           return afterColon;
@@ -1936,6 +1916,151 @@ export async function withdrawApplication(applicationId: string, reason?: string
     target_application_id: applicationId,
     p_reason: reason || null,
   });
+  if (error) throw error;
+}
+
+export async function getOwnSalonId(): Promise<string | null> {
+  const client = requireSupabase();
+  const { data: userData } = await client.auth.getUser();
+  const userId = userData.user?.id;
+  if (!userId) return null;
+  const { data } = await client
+    .from('job_salon_members')
+    .select('salon_id')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  return data?.salon_id ?? null;
+}
+
+export async function listEmployerLocations() {
+  const client = requireSupabase();
+  try {
+    const salonId = await getOwnSalonId();
+    if (!salonId) return [];
+    const { data, error } = await client
+      .from('job_salon_locations')
+      .select('id, salon_id, label, address_line1, address_line2, city, state, postal_code, is_primary')
+      .eq('salon_id', salonId)
+      .order('is_primary', { ascending: false });
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      salonId: row.salon_id,
+      label: row.label || 'Branch',
+      addressLine1: row.address_line1,
+      addressLine2: row.address_line2 || undefined,
+      city: row.city,
+      state: row.state,
+      postalCode: row.postal_code || undefined,
+      isPrimary: Boolean(row.is_primary),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function saveEmployerLocation(loc: {
+  id?: string;
+  label: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  state: string;
+  postalCode?: string;
+  isPrimary?: boolean;
+}) {
+  const client = requireSupabase();
+  let salonId = await getOwnSalonId();
+  if (!salonId) {
+    // If no salon exists yet, trigger updateEmployerProfile with minimum fields
+    const { data: userData } = await client.auth.getUser();
+    const name = userData.user?.user_metadata?.full_name || 'Business Owner';
+    const biz = userData.user?.user_metadata?.business_name || 'My Salon';
+    await updateEmployerProfile({
+      name,
+      email: userData.user?.email || '',
+      phone: '',
+      role: 'employer',
+      businessName: biz,
+      location: `${loc.city}, ${loc.state}`,
+      city: loc.city,
+      state: loc.state,
+    });
+    salonId = await getOwnSalonId();
+  }
+  if (!salonId) throw new Error('SALON_NOT_FOUND');
+
+  const row = {
+    ...(loc.id ? { id: loc.id } : {}),
+    salon_id: salonId,
+    label: loc.label?.trim() || 'Branch',
+    address_line1: loc.addressLine1?.trim() || loc.city.trim(),
+    address_line2: loc.addressLine2?.trim() || null,
+    city: loc.city.trim(),
+    state: loc.state.trim(),
+    postal_code: loc.postalCode?.trim() || null,
+    is_primary: Boolean(loc.isPrimary),
+  };
+  const { error } = await client.from('job_salon_locations').upsert(row);
+  if (error) throw error;
+}
+
+export async function deleteEmployerLocation(locationId: string) {
+  const client = requireSupabase();
+  const salonId = await getOwnSalonId();
+  if (!salonId) throw new Error('SALON_NOT_FOUND');
+  const { error } = await client
+    .from('job_salon_locations')
+    .delete()
+    .eq('id', locationId)
+    .eq('salon_id', salonId);
+  if (error) throw error;
+}
+
+export async function getEmployerVerificationStatus() {
+  const client = requireSupabase();
+  try {
+    const salonId = await getOwnSalonId();
+    if (!salonId) return null;
+    const { data, error } = await client
+      .from('job_employer_verifications')
+      .select('id, status, review_notes, submitted_at, reviewed_at')
+      .eq('salon_id', salonId)
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      id: data.id,
+      status: data.status,
+      reviewNotes: data.review_notes || undefined,
+      submittedAt: data.submitted_at,
+      reviewedAt: data.reviewed_at || undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveEmployerHiringSettings(settings: {
+  jobsEnabled?: boolean;
+  businessType?: string;
+}) {
+  const client = requireSupabase();
+  const salonId = await getOwnSalonId();
+  if (!salonId) throw new Error('SALON_NOT_FOUND');
+  const { error } = await client
+    .from('job_salon_profiles')
+    .update({
+      jobs_enabled: settings.jobsEnabled ?? true,
+      business_type: settings.businessType || 'salon',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('salon_id', salonId);
   if (error) throw error;
 }
 

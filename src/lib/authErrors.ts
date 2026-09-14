@@ -157,7 +157,7 @@ export class PasswordSignInBlockedError extends Error {
         ? 'Your account exists but its email address was never confirmed. Open the confirmation email we sent, or send a fresh one below.'
         : details.reason === 'unassigned'
           ? 'This email exists in Nexora, but it has not been linked to a Jobs portal yet. Sign in with your password through the correct portal to link it.'
-          : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Please check your password or reset it using the link below.`,
+          : `We found your ${portalRoleLabel(details.role)} account, but that password does not match it. Reset the password using the link below or try another one.`,
     );
     this.name = 'PasswordSignInBlockedError';
     this.email = details.email;
@@ -209,7 +209,7 @@ export function parsePortalRoleMismatch(
   // unparsed so callers keep their generic handling instead of misrouting.
   const suffix = match[1].toLowerCase();
   const existingRole: UserRole | null =
-    suffix === 'employer' ? 'employer' : suffix === 'admin' ? 'admin' : suffix === 'job_seeker' ? 'seeker' : null;
+    suffix === 'employer' ? 'employer' : suffix === 'admin' ? 'admin' : (suffix === 'job_seeker' || suffix === 'seeker') ? 'seeker' : null;
   if (!existingRole) return null;
   return new PortalRoleMismatchError({ email, requestedRole, existingRole });
 }
